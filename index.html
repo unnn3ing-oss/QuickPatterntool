@@ -142,7 +142,7 @@
   .batch-item .meta .name { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; }
   .batch-item button { width: 100%; padding: 6px; font-size: 12px; }
   .batch-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 40px 0; width: 100%; }
-  .batch-item-block {
+  .batch-item-block, .edit-box {
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 14px;
@@ -302,33 +302,35 @@
       </div>
 
       <div id="singleFields">
-        <div class="field">
-          <label>類別</label>
-          <div class="bg-toggle" id="singleFrameToggle">
-            <button type="button" class="active" data-frame="news">新聞（藍框）</button>
-            <button type="button" data-frame="entertainment">娛樂（粉框）</button>
+        <div class="edit-box">
+          <div class="field">
+            <label>類別</label>
+            <div class="bg-toggle" id="singleFrameToggle">
+              <button type="button" class="active" data-frame="news">新聞（藍框）</button>
+              <button type="button" data-frame="entertainment">娛樂（粉框）</button>
+            </div>
           </div>
-        </div>
 
-        <div class="field">
-          <label for="title">標題（Enter 換行）</label>
-          <textarea id="title" placeholder="黑人心梗主因曝！&#10;醫示警「1行為」&#10;悄悄埋下未爆彈"></textarea>
-        </div>
+          <div class="field">
+            <label for="title">標題（Enter 換行）</label>
+            <textarea id="title" placeholder="黑人心梗主因曝！&#10;醫示警「1行為」&#10;悄悄埋下未爆彈"></textarea>
+          </div>
 
-        <div class="field">
-          <label>字級（對照 Canva 字級）</label>
-          <input type="range" id="fontSize" min="50" max="70" value="50" style="width:100%">
-          <div class="hint">目前 Canva 字級 <span id="fontSizeVal">50</span>（未調整時依背景類型自動預設：圖片 50／純色 60）</div>
-        </div>
+          <div class="field">
+            <label>字級（對照 Canva 字級）</label>
+            <input type="range" id="fontSize" min="50" max="70" value="50" style="width:100%">
+            <div class="hint">目前 Canva 字級 <span id="fontSizeVal">50</span>（未調整時依背景類型自動預設：圖片 50／純色 60）</div>
+          </div>
 
-        <div class="field">
-          <label>背景</label>
-          <div id="singleBgPicker"></div>
+          <div class="field" style="margin-bottom:0">
+            <label>背景</label>
+            <div id="singleBgPicker"></div>
+          </div>
         </div>
 
         <div class="btn-row">
           <button class="primary" id="downloadBtn" disabled>下載圖片</button>
-          <button id="resetBtn">清除重來</button>
+          <button id="resetBtn">全部清除</button>
         </div>
       </div>
 
@@ -345,7 +347,7 @@
         </div>
 
         <div class="btn-row">
-          <button id="batchResetBtn">清除重來</button>
+          <button id="batchResetBtn">全部清除</button>
         </div>
       </div>
     </div>
@@ -383,7 +385,7 @@
         <li>「背景」可選擇「上傳圖片」或「純色背景」：上傳圖片支援點擊選取、拖曳檔案，或直接 Ctrl+V 貼上剪貼簿圖片；純色背景則從色票中點選一個顏色。</li>
         <li>「字級」可拖曳調整，對照的是 Canva 字級：選純色背景預設 60、選圖片背景預設 50；一旦手動調整過，之後切換背景類型就不會再自動改動字級。</li>
         <li>有標題且有背景（圖片或顏色）後，按「下載圖片」即可存成 PNG 檔（1080×1080）。</li>
-        <li>「清除重來」會清空目前單張模式的所有設定，回到初始狀態。</li>
+        <li>「全部清除」會清空目前單張模式的所有設定，回到初始狀態（會先跳出確認框）。</li>
       </ul>
       <h3>批次模式</h3>
       <ul>
@@ -392,8 +394,23 @@
         <li>已完成的組別會收合成一列，顯示縮圖與標題，點擊該列可重新展開編輯（會取消其完成狀態）。</li>
         <li>右側預覽區的畫布下方，會以縮小圖顯示已完成的組別，點縮圖可切換預覽該張成品。</li>
         <li>按「全部下載」會把所有已完成的圖依序下載為個別 PNG 檔。</li>
-        <li>「清除重來」會清空批次模式的所有組別。</li>
+        <li>「全部清除」會清空批次模式的所有組別（會先跳出確認框）。</li>
       </ul>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal" style="max-width:360px">
+    <div class="modal-head">
+      <h2>確定要全部清除？</h2>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0">這會清空目前畫面上的所有設定，且無法復原。</p>
+      <div class="btn-row" style="justify-content:flex-end; margin-top:16px">
+        <button type="button" id="confirmCancelBtn">取消</button>
+        <button type="button" id="confirmOkBtn" class="primary">全部清除</button>
+      </div>
     </div>
   </div>
 </div>
@@ -409,25 +426,34 @@ const downloadBtn = document.getElementById('downloadBtn');
 const resetBtn = document.getElementById('resetBtn');
 const statusEl = document.getElementById('status');
 
-// Hue (0-360) of a #rrggbb color, HSB/HSV convention — used to sort the swatch list.
-function hexToHue(hex) {
+// HSB/HSV breakdown of a #rrggbb color — used to sort the swatch list.
+function hexToHSB(hex) {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   const delta = max - min;
-  if (delta === 0) return 0;
-  let hue;
-  if (max === r) hue = ((g - b) / delta) % 6;
-  else if (max === g) hue = (b - r) / delta + 2;
-  else hue = (r - g) / delta + 4;
-  hue *= 60;
-  if (hue < 0) hue += 360;
-  return hue;
+  let hue = 0;
+  if (delta !== 0) {
+    if (max === r) hue = ((g - b) / delta) % 6;
+    else if (max === g) hue = (b - r) / delta + 2;
+    else hue = (r - g) / delta + 4;
+    hue *= 60;
+    if (hue < 0) hue += 360;
+  }
+  return { hue, saturation: max === 0 ? 0 : delta / max, brightness: max };
 }
 
+// Grayscale swatches (white → black) first, then chromatic swatches by hue
+// (red → orange → yellow → green → blue → purple).
 const PRESET_COLORS = ['#c80000','#ff3916','#5fa646','#4c8b74','#ff9900','#1c6294','#cb6ce6','#d84040','#ff7ead','#004aad','#000000','#48413f','#a6a6a6','#5CAFCC']
-  .sort((a, b) => hexToHue(a) - hexToHue(b));
+  .sort((a, b) => {
+    const ha = hexToHSB(a), hb = hexToHSB(b);
+    const aGray = ha.saturation === 0, bGray = hb.saturation === 0;
+    if (aGray !== bGray) return aGray ? -1 : 1;
+    if (aGray) return hb.brightness - ha.brightness;
+    return ha.hue - hb.hue;
+  });
 
 function drawImageCover(targetCtx, image) {
   const canvasRatio = 1;
@@ -819,7 +845,8 @@ downloadBtn.addEventListener('click', async () => {
   downloadCanvas(canvas, `${safeFilename(titleEl.value, '娛樂新聞圖')}.png`);
 });
 
-resetBtn.addEventListener('click', () => {
+resetBtn.addEventListener('click', async () => {
+  if (!(await askConfirm())) return;
   singleBg = { type: 'image', image: null, color: null };
   singleBgPicker.setMode('image');
   singleFrame = 'news';
@@ -1177,7 +1204,8 @@ batchDownloadAllBtn.addEventListener('click', async () => {
   }
 });
 
-batchResetBtn.addEventListener('click', () => {
+batchResetBtn.addEventListener('click', async () => {
+  if (!(await askConfirm())) return;
   batchItems = [];
   batchCtx.clearRect(0, 0, SIZE, SIZE);
   batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
@@ -1195,7 +1223,29 @@ function closeHelp() { helpOverlay.classList.remove('open'); }
 helpBtn.addEventListener('click', openHelp);
 helpCloseBtn.addEventListener('click', closeHelp);
 helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) closeHelp(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHelp(); });
+
+// ---- confirm modal (used before any "清空全部" action) ----
+const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+const confirmOkBtn = document.getElementById('confirmOkBtn');
+let confirmResolve = null;
+function askConfirm() {
+  confirmOverlay.classList.add('open');
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+function closeConfirm(result) {
+  confirmOverlay.classList.remove('open');
+  if (confirmResolve) { confirmResolve(result); confirmResolve = null; }
+}
+confirmCancelBtn.addEventListener('click', () => closeConfirm(false));
+confirmOkBtn.addEventListener('click', () => closeConfirm(true));
+confirmOverlay.addEventListener('click', e => { if (e.target === confirmOverlay) closeConfirm(false); });
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (confirmOverlay.classList.contains('open')) closeConfirm(false);
+  else closeHelp();
+});
 
 addBatchItem(); // start with one block
 </script>
