@@ -241,8 +241,8 @@
         <div class="field">
           <label>類別</label>
           <div class="bg-toggle" id="singleFrameToggle">
-            <button type="button" class="active" data-frame="entertainment">娛樂（粉框）</button>
             <button type="button" data-frame="news">新聞（藍框）</button>
+            <button type="button" class="active" data-frame="entertainment">娛樂（粉框）</button>
           </div>
         </div>
 
@@ -635,10 +635,12 @@ function applyDefaultFontSize(bgType) {
 const singleBgPicker = createBackgroundPicker({
   onImage: image => {
     singleBg = { type: 'image', image, color: null };
+    applyDefaultFontSize('image');
     render();
   },
   onColor: color => {
     singleBg = { type: 'color', image: null, color };
+    applyDefaultFontSize('color');
     render();
   },
   onModeChange: mode => {
@@ -911,8 +913,8 @@ function buildBatchItemBlock(item, index) {
   const frameNews = document.createElement('button');
   frameNews.type = 'button';
   frameNews.textContent = '新聞（藍框）';
-  frameToggle.appendChild(frameEnt);
   frameToggle.appendChild(frameNews);
+  frameToggle.appendChild(frameEnt);
   function setFrameVisual(frame) {
     frameEnt.classList.toggle('active', frame !== 'news');
     frameNews.classList.toggle('active', frame === 'news');
