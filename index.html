@@ -268,6 +268,38 @@
   .modal-body h3:first-child { margin-top: 0; }
   .modal-body ul { margin: 0; padding-left: 20px; }
   .modal-body li { margin-bottom: 4px; }
+  .example-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+  }
+  .example-card { margin: 0; }
+  .example-img-wrap {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .example-img-wrap img { width: 100%; display: block; }
+  .example-tag {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.85);
+  }
+  .example-card figcaption { font-size: 12px; margin-top: 8px; }
+  .example-card figcaption strong { display: block; margin-bottom: 4px; font-size: 13px; }
+  .example-card figcaption ul { margin: 0; padding-left: 16px; }
+  .example-card figcaption li { margin-bottom: 2px; }
   .batch-thumbs {
     display: flex;
     flex-wrap: wrap;
@@ -387,6 +419,39 @@
         <li>有標題且有背景（圖片或顏色）後，按「下載圖片」即可存成 PNG 檔（1080×1080）。</li>
         <li>「全部清除」會清空目前單張模式的所有設定，回到初始狀態（會先跳出確認框）。</li>
       </ul>
+
+      <h3>範例成品</h3>
+      <div class="example-grid">
+        <figure class="example-card">
+          <div class="example-img-wrap">
+            <img src="examples/example-entertainment.jpg" alt="娛樂類別＋上傳圖片背景的範例成品">
+            <span class="example-tag" style="top:9%; right:9%;">①</span>
+            <span class="example-tag" style="top:69%; left:12%;">②</span>
+          </div>
+          <figcaption>
+            <strong>娛樂（粉框）＋ 上傳圖片背景</strong>
+            <ul>
+              <li>① 右上角類別角標——選「新聞」時會換成藍框樣式</li>
+              <li>② 標題文字疊在圖片下緣的漸層暗化區，圖片背景字級預設較小（50）</li>
+            </ul>
+          </figcaption>
+        </figure>
+        <figure class="example-card">
+          <div class="example-img-wrap">
+            <img src="examples/example-color-bg.jpg" alt="純色背景（黑）的範例成品">
+            <span class="example-tag" style="top:38%; left:14%;">①</span>
+            <span class="example-tag" style="top:92%; left:50%;">②</span>
+          </div>
+          <figcaption>
+            <strong>純色背景（黑）</strong>
+            <ul>
+              <li>① 標題文字置中，純色背景字級預設較大（60），且不顯示角標</li>
+              <li>② 底部置中的 TVBS Logo，只有純色背景才會出現</li>
+            </ul>
+          </figcaption>
+        </figure>
+      </div>
+
       <h3>批次模式</h3>
       <ul>
         <li>按「＋ 再做一張」可新增一組新的圖卡設定，每一組都能各自設定類別、標題、字級與背景。</li>
