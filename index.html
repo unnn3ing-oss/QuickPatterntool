@@ -884,8 +884,22 @@ function createBackgroundPicker(opts) {
     imageSection.style.display = isColor ? 'none' : '';
     colorSection.style.display = isColor ? 'flex' : 'none';
   }
+  // A toggle click or an explicit reset always starts that mode fresh —
+  // clear both sections' leftover visuals so a stale thumbnail/swatch
+  // selection never lingers after the underlying state was cleared.
+  function clearImageVisual() {
+    thumb.src = '';
+    thumb.style.display = 'none';
+    dzText.style.display = '';
+    hint.textContent = '';
+  }
+  function clearColorVisual() {
+    if (selectedSwatch) { selectedSwatch.classList.remove('selected'); selectedSwatch = null; }
+  }
   function setMode(mode) {
     setModeVisual(mode);
+    clearImageVisual();
+    clearColorVisual();
     if (opts.onModeChange) opts.onModeChange(mode);
   }
   btnImage.addEventListener('click', () => setMode('image'));
@@ -1096,6 +1110,10 @@ const batchPreviewTitle = document.getElementById('batchPreviewTitle');
 
 let batchItems = [];   // { id, title, bg: {type,image,color}, frame, fontSize, fontSizeTouched, done, resultDataUrl, resultFilename }
 let batchIdCounter = 0;
+
+function isItemDone(item) {
+  return !!(item.done && item.resultDataUrl);
+}
 // Only one item's full edit block is shown at a time (accordion); every
 // other item collapses into a summary row, whether it's done or not.
 let expandedBatchItemId = null;
@@ -1121,7 +1139,7 @@ function expandBatchItem(item) {
   scrollToBatchItem(item.id);
   setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
-  if (item.done && item.resultDataUrl) {
+  if (isItemDone(item)) {
     // Load the saved result as-is — just viewing it should never flip its
     // completed status or claim it's "still a preview".
     const img = new Image();
@@ -1179,7 +1197,7 @@ function removeBatchItem(id) {
 function renderBatchThumbs() {
   batchThumbs.innerHTML = '';
   batchItems.forEach((item, index) => {
-    const isDone = item.done && item.resultDataUrl;
+    const isDone = isItemDone(item);
     const firstLine = item.title.split('\n').find(l => l.trim()) || '';
     let el;
     if (isDone) {
@@ -1234,7 +1252,10 @@ async function completeBatchItem(item) {
     return false;
   }
   item.errorMsg = null;
-  await whzFontReady;
+  // Must wait for the ribbon/logo art too, not just the font — otherwise a
+  // batch item completed very early would permanently save a PNG missing
+  // its corner ribbon or bottom logo, since this snapshot is never redrawn.
+  await Promise.all([whzFontReady, ribbonReady, ribbonNewsReady, logoReady]);
   const fontSize = canvaToPx(item.fontSize);
   renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame);
   setBatchPreviewTitle(item);
@@ -1243,7 +1264,7 @@ async function completeBatchItem(item) {
   item.resultDataUrl = batchCanvas.toDataURL('image/png');
   item.done = true;
   batchStatus.textContent = `已完成：${item.resultFilename}`;
-  batchDownloadAllBtn.disabled = !batchItems.some(it => it.done && it.resultDataUrl);
+  batchDownloadAllBtn.disabled = !batchItems.some(isItemDone);
   refreshBatchItem(item);
   renderBatchThumbs();
   return true;
@@ -1255,7 +1276,7 @@ function buildBatchItemRow(item, index) {
   row.dataset.itemId = item.id;
   if (item.errorMsg) row.title = item.errorMsg;
 
-  const isDone = item.done && item.resultDataUrl;
+  const isDone = isItemDone(item);
   const thumb = document.createElement('div');
   thumb.className = 'row-thumb';
   if (isDone) {
@@ -1322,7 +1343,7 @@ function buildBatchItemBlock(item, index) {
     if (!item.done) return;
     item.done = false;
     doneTag.style.display = 'none';
-    batchDownloadAllBtn.disabled = !batchItems.some(it => it.done && it.resultDataUrl);
+    batchDownloadAllBtn.disabled = !batchItems.some(isItemDone);
     renderBatchThumbs();
   }
   const headBtns = document.createElement('div');
@@ -1416,6 +1437,7 @@ function buildBatchItemBlock(item, index) {
     for (const it of items) {
       if (it.type.startsWith('image/')) {
         e.preventDefault();
+        e.stopPropagation(); // avoid the document-level paste handler processing the same image again
         picker.handleFile(it.getAsFile());
         break;
       }
@@ -1477,15 +1499,18 @@ batchGenerateBtn.addEventListener('click', async () => {
     else { skippedCount++; if (!firstFailed) firstFailed = item; }
   }
   // Jump to the first incomplete item so its error is immediately visible
-  // instead of sitting silently collapsed in a row, then restate the
-  // overall summary since expanding it overwrites the status text.
-  if (firstFailed) expandBatchItem(firstFailed);
+  // instead of sitting silently collapsed in a row; otherwise resync the
+  // big preview to whichever item is actually expanded — completeBatchItem
+  // left the shared canvas showing whichever item finished last, which
+  // isn't necessarily the one still open for editing.
+  const resyncTarget = firstFailed || batchItems.find(it => it.id === expandedBatchItemId);
+  if (resyncTarget) expandBatchItem(resyncTarget);
   const skipNote = skippedCount > 0 ? `（${skippedCount} 組缺標題或背景，略過）` : '';
   batchStatus.textContent = `完成 ${doneCount} 組${skipNote}`;
 });
 
 batchDownloadAllBtn.addEventListener('click', async () => {
-  const results = batchItems.filter(it => it.done && it.resultDataUrl);
+  const results = batchItems.filter(isItemDone);
   for (const item of results) {
     const a = document.createElement('a');
     a.download = item.resultFilename;
