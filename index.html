@@ -52,8 +52,16 @@
     gap: 20px;
     align-items: start;
   }
+  .preview-col {
+    position: sticky;
+    top: 20px;
+    align-self: start;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+  }
   @media (max-width: 820px) {
     .layout { grid-template-columns: 1fr; }
+    .preview-col { position: static; max-height: none; overflow: visible; }
   }
   .card {
     background: var(--card-bg);
@@ -161,13 +169,18 @@
     cursor: pointer;
   }
   .batch-item-row:hover { border-color: var(--accent); }
+  .batch-item-row.expanded { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .batch-item-row .row-thumb {
     width: 40px;
     height: 40px;
     border-radius: 6px;
-    object-fit: cover;
     flex-shrink: 0;
     background: var(--card-bg);
+    overflow: hidden;
+  }
+  .batch-item-row .row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .batch-item-row .row-thumb.row-thumb-empty {
+    background: #ddd repeating-conic-gradient(#ccc 0% 25%, #ddd 0% 50%) 50% / 12px 12px;
   }
   .batch-item-row .row-title {
     flex: 1;
@@ -181,6 +194,13 @@
     color: var(--success);
     font-weight: 600;
     flex-shrink: 0;
+  }
+  .batch-item-row .row-badge.row-badge-pending { color: #d97706; }
+  .batch-item-head .label-done-tag {
+    font-size: 11px;
+    color: var(--success);
+    font-weight: 600;
+    margin-left: 8px;
   }
   .batch-item-row .row-remove {
     padding: 4px 10px;
@@ -315,7 +335,41 @@
     border: 1px solid var(--border);
     cursor: pointer;
   }
-  .batch-thumbs img:hover { border-color: var(--accent); }
+  .batch-thumbs img:hover, .batch-thumbs .thumb-placeholder:hover { border-color: var(--accent); }
+  .batch-thumbs img.active-thumb, .batch-thumbs .thumb-placeholder.active-thumb {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .batch-thumbs .thumb-placeholder {
+    width: 64px;
+    height: 64px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px;
+    background: var(--bg);
+    text-align: center;
+    overflow: hidden;
+  }
+  .batch-thumbs .thumb-title {
+    font-size: 9px;
+    color: var(--text);
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .batch-thumbs .thumb-tag {
+    font-size: 9px;
+    color: #d97706;
+    font-weight: 700;
+  }
 </style>
 </head>
 <body>
@@ -384,7 +438,7 @@
       </div>
     </div>
 
-    <div>
+    <div class="preview-col">
       <div id="singlePreview">
         <div class="canvas-wrap">
           <canvas id="canvas" width="1080" height="1080"></canvas>
@@ -456,8 +510,9 @@
       <ul>
         <li>按「＋ 再做一張」可新增一組新的圖卡設定，每一組都能各自設定類別、標題、字級與背景。</li>
         <li>每組按「完成」可單獨產生該組的圖，或按上方「全部完成」一次產生所有尚未完成的組別；缺標題或背景的組別會被略過並提示原因。</li>
-        <li>已完成的組別會收合成一列，顯示縮圖與標題，點擊該列可重新展開編輯（會取消其完成狀態）。</li>
-        <li>右側預覽區的畫布下方，會以縮小圖顯示已完成的組別，點縮圖可切換預覽該張成品。</li>
+        <li>同時間只會展開一組的編輯區，其餘組別（不論完成與否）都會收合成一列；點任一列可重新展開該組編輯。</li>
+        <li>右側預覽區的畫布下方，會以縮小圖顯示「每一組」的狀態：已完成的顯示成品縮圖，尚未完成的則保留標題文字並標示「未完成」。點任一張縮圖都會跳到並展開對應組別的編輯區。</li>
+        <li>預覽區會懸浮跟隨畫面捲動，即使批次組數很多、編輯區拉得很長，也不用捲回最上方才能看到預覽。</li>
         <li>按「全部下載」會把所有已完成的圖依序下載為個別 PNG 檔。</li>
         <li>「全部清除」會清空批次模式的所有組別（會先跳出確認框）。</li>
       </ul>
@@ -965,6 +1020,31 @@ const batchThumbs = document.getElementById('batchThumbs');
 let batchItems = [];   // { id, title, bg: {type,image,color}, frame, fontSize, fontSizeTouched, done, resultDataUrl, resultFilename }
 let batchIdCounter = 0;
 let activeBatchItemId = null;
+// Only one item's full edit block is shown at a time (accordion); every
+// other item collapses into a summary row, whether it's done or not.
+let expandedBatchItemId = null;
+
+function scrollToBatchItem(id) {
+  const node = batchItemsList.querySelector(`[data-item-id="${id}"]`);
+  if (node) node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Expand this item's edit block (collapsing every other item into a row)
+// and load it into the shared canvas — used by both a row click and a
+// thumbnail click in the preview strip below the canvas.
+function expandBatchItem(item) {
+  expandedBatchItemId = item.id;
+  renderBatchItemsList();
+  renderBatchThumbs();
+  scrollToBatchItem(item.id);
+  if (hasBackground(item.bg)) {
+    previewBatchItem(item);
+  } else {
+    batchCtx.clearRect(0, 0, SIZE, SIZE);
+    const index = batchItems.indexOf(item);
+    batchStatus.textContent = `圖片 #${index + 1} 尚未設定背景`;
+  }
+}
 
 function addBatchItem() {
   const item = {
@@ -975,60 +1055,50 @@ function addBatchItem() {
     done: false, resultDataUrl: null, resultFilename: null
   };
   batchItems.push(item);
-  batchItemsList.appendChild(buildBatchItemBlock(item, batchItems.length - 1));
+  expandedBatchItemId = item.id;
+  renderBatchItemsList();
+  renderBatchThumbs();
+  scrollToBatchItem(item.id);
 }
 
 function removeBatchItem(id) {
-  const node = batchItemsList.querySelector(`[data-item-id="${id}"]`);
   batchItems = batchItems.filter(it => it.id !== id);
-  if (node) node.remove();
-  renumberBatchItems();
+  if (expandedBatchItemId === id) {
+    expandedBatchItemId = batchItems.length ? batchItems[batchItems.length - 1].id : null;
+  }
+  renderBatchItemsList();
   renderBatchThumbs();
 }
 
-// Small thumbnail strip below the batch canvas, one per completed item so
-// far — click one to load it back into the canvas for a quick look without
-// touching its done state (unlike clicking its row, which reopens it for
-// editing).
+// Thumbnail strip below the batch canvas, one per item (not just completed
+// ones) — a finished item shows its result, an unfinished one keeps its
+// title text and an "未完成" tag. Click any of them to jump to and expand
+// that item's edit block, collapsing every other item.
 function renderBatchThumbs() {
   batchThumbs.innerHTML = '';
   batchItems.forEach((item, index) => {
-    if (!item.done || !item.resultDataUrl) return;
-    const img = document.createElement('img');
-    img.src = item.resultDataUrl;
+    const isDone = item.done && item.resultDataUrl;
     const firstLine = item.title.split('\n').find(l => l.trim()) || '';
-    img.title = `#${index + 1} ${firstLine}`;
-    img.addEventListener('click', () => previewCompletedItem(item, index));
-    batchThumbs.appendChild(img);
-  });
-}
-
-function previewCompletedItem(item, index) {
-  const img = new Image();
-  img.onload = () => {
-    batchCtx.clearRect(0, 0, SIZE, SIZE);
-    batchCtx.drawImage(img, 0, 0, SIZE, SIZE);
-  };
-  img.src = item.resultDataUrl;
-  batchStatus.textContent = `檢視已完成：圖片 #${index + 1}`;
-}
-
-// Renumber the "#N" labels on remaining nodes in place, without rebuilding
-// them — a full rebuild would tear down and recreate every block, which
-// steals focus/scroll position (the browser jumps when a focused/clicked
-// element is removed from the DOM).
-function renumberBatchItems() {
-  batchItems.forEach((item, index) => {
-    const node = batchItemsList.querySelector(`[data-item-id="${item.id}"]`);
-    if (!node) return;
-    const label = node.querySelector('.label, .row-title');
-    if (!label) return;
-    if (node.classList.contains('batch-item-row')) {
-      const firstLine = item.title.split('\n').find(l => l.trim()) || '';
-      label.textContent = `#${index + 1} ${firstLine}`;
+    let el;
+    if (isDone) {
+      el = document.createElement('img');
+      el.src = item.resultDataUrl;
     } else {
-      label.textContent = `圖片 #${index + 1}`;
+      el = document.createElement('div');
+      el.className = 'thumb-placeholder';
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'thumb-title';
+      titleSpan.textContent = firstLine || '（尚未輸入標題）';
+      const tagSpan = document.createElement('span');
+      tagSpan.className = 'thumb-tag';
+      tagSpan.textContent = '未完成';
+      el.appendChild(titleSpan);
+      el.appendChild(tagSpan);
     }
+    el.classList.toggle('active-thumb', item.id === expandedBatchItemId);
+    el.title = `#${index + 1} ${firstLine}`;
+    el.addEventListener('click', () => expandBatchItem(item));
+    batchThumbs.appendChild(el);
   });
 }
 
@@ -1075,29 +1145,37 @@ async function completeBatchItem(item) {
   return true;
 }
 
-function editBatchItem(item) {
-  item.done = false;
-  refreshBatchItem(item);
-  renderBatchThumbs();
-}
-
 function buildBatchItemRow(item, index) {
   const row = document.createElement('div');
   row.className = 'batch-item-row';
   row.dataset.itemId = item.id;
+  if (item.errorMsg) row.title = item.errorMsg;
 
-  const thumb = document.createElement('img');
+  const isDone = item.done && item.resultDataUrl;
+  const thumb = document.createElement('div');
   thumb.className = 'row-thumb';
-  thumb.src = item.resultDataUrl;
+  if (isDone) {
+    const img = document.createElement('img');
+    img.src = item.resultDataUrl;
+    thumb.appendChild(img);
+  } else if (item.bg.type === 'image' && item.bg.image) {
+    const img = document.createElement('img');
+    img.src = item.bg.image.src;
+    thumb.appendChild(img);
+  } else if (item.bg.type === 'color' && item.bg.color) {
+    thumb.style.background = item.bg.color;
+  } else {
+    thumb.classList.add('row-thumb-empty');
+  }
 
   const title = document.createElement('div');
   title.className = 'row-title';
-  const firstLine = item.title.split('\n').find(l => l.trim()) || '';
+  const firstLine = item.title.split('\n').find(l => l.trim()) || '（尚未輸入標題）';
   title.textContent = `#${index + 1} ${firstLine}`;
 
   const badge = document.createElement('span');
-  badge.className = 'row-badge';
-  badge.textContent = '✓ 已完成';
+  badge.className = 'row-badge' + (isDone ? '' : ' row-badge-pending');
+  badge.textContent = isDone ? '✓ 已完成' : '未完成';
 
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
@@ -1109,12 +1187,12 @@ function buildBatchItemRow(item, index) {
   row.appendChild(title);
   row.appendChild(badge);
   row.appendChild(removeBtn);
-  row.addEventListener('click', () => editBatchItem(item));
+  row.addEventListener('click', () => expandBatchItem(item));
   return row;
 }
 
 function buildBatchItemBlock(item, index) {
-  if (item.done) {
+  if (item.id !== expandedBatchItemId) {
     return buildBatchItemRow(item, index);
   }
 
@@ -1127,6 +1205,12 @@ function buildBatchItemBlock(item, index) {
   const label = document.createElement('span');
   label.className = 'label';
   label.textContent = `圖片 #${index + 1}`;
+  if (item.done) {
+    const doneTag = document.createElement('span');
+    doneTag.className = 'label-done-tag';
+    doneTag.textContent = '✓ 已完成';
+    label.appendChild(doneTag);
+  }
   const headBtns = document.createElement('div');
   headBtns.style.display = 'flex';
   headBtns.style.gap = '6px';
@@ -1255,10 +1339,15 @@ batchGenerateBtn.addEventListener('click', async () => {
   }
   let doneCount = 0;
   let skippedCount = 0;
+  let firstFailed = null;
   for (const item of pending) {
     if (await completeBatchItem(item)) doneCount++;
-    else skippedCount++;
+    else { skippedCount++; if (!firstFailed) firstFailed = item; }
   }
+  // Jump to the first incomplete item so its error is immediately visible
+  // instead of sitting silently collapsed in a row, then restate the
+  // overall summary since expanding it overwrites the status text.
+  if (firstFailed) expandBatchItem(firstFailed);
   const skipNote = skippedCount > 0 ? `（${skippedCount} 組缺標題或背景，略過）` : '';
   batchStatus.textContent = `完成 ${doneCount} 組${skipNote}`;
 });
@@ -1277,6 +1366,7 @@ batchDownloadAllBtn.addEventListener('click', async () => {
 batchResetBtn.addEventListener('click', async () => {
   if (!(await askConfirm())) return;
   batchItems = [];
+  expandedBatchItemId = null;
   batchCtx.clearRect(0, 0, SIZE, SIZE);
   batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
   batchDownloadAllBtn.disabled = true;
