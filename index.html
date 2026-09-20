@@ -131,6 +131,8 @@
     background: #ddd repeating-conic-gradient(#ccc 0% 25%, #ddd 0% 50%) 50% / 24px 24px;
   }
   .status { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
+  .preview-title { font-size: 14px; font-weight: 600; margin-top: 10px; text-align: center; word-break: break-all; }
+  .preview-title:empty { display: none; }
   .mode-switch { display: flex; gap: 6px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
   .mode-btn { flex: 1; background: transparent; border: none; border-radius: 7px; padding: 8px 10px; color: var(--muted); font-weight: 600; }
   .mode-btn.active { background: var(--card-bg); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -450,6 +452,7 @@
         <div class="canvas-wrap">
           <canvas id="batchCanvas" width="1080" height="1080"></canvas>
         </div>
+        <div class="preview-title" id="batchPreviewTitle"></div>
         <div class="batch-thumbs" id="batchThumbs"></div>
         <div class="status" id="batchStatus">按某一組的「完成」後，預覽會顯示在這裡</div>
       </div>
@@ -512,7 +515,9 @@
         <li>每組按「完成」可單獨產生該組的圖，或按上方「全部完成」一次產生所有尚未完成的組別；缺標題或背景的組別會被略過並提示原因。</li>
         <li>同時間只會展開一組的編輯區，其餘組別（不論完成與否）都會收合成一列；點任一列可重新展開該組編輯。</li>
         <li>右側預覽區的畫布下方，會以縮小圖顯示「每一組」的狀態：已完成的顯示成品縮圖，尚未完成的則保留標題文字並標示「未完成」。點任一張縮圖都會跳到並展開對應組別的編輯區。</li>
+        <li>預覽畫布下方會同步顯示該組標題（換行處自動接成全形空格），方便在很多組別時快速確認目前看的是哪一張。</li>
         <li>預覽區會懸浮跟隨畫面捲動，即使批次組數很多、編輯區拉得很長，也不用捲回最上方才能看到預覽。</li>
+        <li>拖曳圖片檔案或直接 Ctrl+V 貼上圖片，可以直接對著「標題」輸入框操作，不必先點進下方的圖片上傳區。</li>
         <li>按「全部下載」會把所有已完成的圖依序下載為個別 PNG 檔。</li>
         <li>「全部清除」會清空批次模式的所有組別（會先跳出確認框）。</li>
       </ul>
@@ -1016,10 +1021,10 @@ const batchCanvas = document.getElementById('batchCanvas');
 const batchCtx = batchCanvas.getContext('2d');
 const batchStatus = document.getElementById('batchStatus');
 const batchThumbs = document.getElementById('batchThumbs');
+const batchPreviewTitle = document.getElementById('batchPreviewTitle');
 
 let batchItems = [];   // { id, title, bg: {type,image,color}, frame, fontSize, fontSizeTouched, done, resultDataUrl, resultFilename }
 let batchIdCounter = 0;
-let activeBatchItemId = null;
 // Only one item's full edit block is shown at a time (accordion); every
 // other item collapses into a summary row, whether it's done or not.
 let expandedBatchItemId = null;
@@ -1027,6 +1032,12 @@ let expandedBatchItemId = null;
 function scrollToBatchItem(id) {
   const node = batchItemsList.querySelector(`[data-item-id="${id}"]`);
   if (node) node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// The caption under the big preview always mirrors the title as one line
+// (line breaks become a full-width space instead), no extension needed.
+function setBatchPreviewTitle(item) {
+  batchPreviewTitle.textContent = parseLines(item.title).join('　');
 }
 
 // Expand this item's edit block (collapsing every other item into a row)
@@ -1037,6 +1048,7 @@ function expandBatchItem(item) {
   renderBatchItemsList();
   renderBatchThumbs();
   scrollToBatchItem(item.id);
+  setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
   if (item.done && item.resultDataUrl) {
     // Load the saved result as-is — just viewing it should never flip its
@@ -1047,7 +1059,7 @@ function expandBatchItem(item) {
       batchCtx.drawImage(img, 0, 0, SIZE, SIZE);
     };
     img.src = item.resultDataUrl;
-    batchStatus.textContent = `已完成：圖片 #${index + 1}`;
+    batchStatus.textContent = `已完成：${item.resultFilename}`;
   } else if (hasBackground(item.bg)) {
     previewBatchItem(item);
   } else {
@@ -1065,19 +1077,28 @@ function addBatchItem() {
     done: false, resultDataUrl: null, resultFilename: null
   };
   batchItems.push(item);
-  expandedBatchItemId = item.id;
-  renderBatchItemsList();
-  renderBatchThumbs();
-  scrollToBatchItem(item.id);
+  expandBatchItem(item);
 }
 
 function removeBatchItem(id) {
+  const wasExpanded = expandedBatchItemId === id;
   batchItems = batchItems.filter(it => it.id !== id);
-  if (expandedBatchItemId === id) {
-    expandedBatchItemId = batchItems.length ? batchItems[batchItems.length - 1].id : null;
+  if (!wasExpanded) {
+    renderBatchItemsList();
+    renderBatchThumbs();
+    return;
   }
-  renderBatchItemsList();
-  renderBatchThumbs();
+  const fallback = batchItems[batchItems.length - 1];
+  if (fallback) {
+    expandBatchItem(fallback);
+  } else {
+    expandedBatchItemId = null;
+    batchCtx.clearRect(0, 0, SIZE, SIZE);
+    batchPreviewTitle.textContent = '';
+    batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
+    renderBatchItemsList();
+    renderBatchThumbs();
+  }
 }
 
 // Thumbnail strip below the batch canvas, one per item (not just completed
@@ -1126,6 +1147,7 @@ function refreshBatchItem(item) {
 // (font size, title, frame, background) — without marking it done or saving
 // a result, so editing gives the same immediate feedback as single mode.
 async function previewBatchItem(item) {
+  setBatchPreviewTitle(item);
   if (!hasBackground(item.bg)) return;
   await whzFontReady;
   const fontSize = canvaToPx(item.fontSize);
@@ -1144,11 +1166,12 @@ async function completeBatchItem(item) {
   await whzFontReady;
   const fontSize = canvaToPx(item.fontSize);
   renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame);
+  setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
   item.resultFilename = `${String(index + 1).padStart(2, '0')}_${safeFilename(item.title, '娛樂新聞圖' + (index + 1))}.png`;
   item.resultDataUrl = batchCanvas.toDataURL('image/png');
   item.done = true;
-  batchStatus.textContent = `預覽已更新：${item.resultFilename}`;
+  batchStatus.textContent = `已完成：${item.resultFilename}`;
   batchDownloadAllBtn.disabled = !batchItems.some(it => it.done && it.resultDataUrl);
   refreshBatchItem(item);
   renderBatchThumbs();
@@ -1266,11 +1289,12 @@ function buildBatchItemBlock(item, index) {
   frameEnt.addEventListener('click', () => { invalidateDone(); item.frame = 'entertainment'; setFrameVisual('entertainment'); previewBatchItem(item); });
   frameNews.addEventListener('click', () => { invalidateDone(); item.frame = 'news'; setFrameVisual('news'); previewBatchItem(item); });
 
+  const textareaLabel = document.createElement('label');
+  textareaLabel.textContent = '標題（Enter 換行）';
   const textarea = document.createElement('textarea');
-  textarea.placeholder = '標題（Enter 換行）';
+  textarea.placeholder = '黑人心梗主因曝！\n醫示警「1行為」\n悄悄埋下未爆彈';
   textarea.value = item.title;
   textarea.addEventListener('input', () => { invalidateDone(); item.title = textarea.value; previewBatchItem(item); });
-  textarea.addEventListener('focus', () => { activeBatchItemId = item.id; });
 
   const fontSizeField = document.createElement('div');
   fontSizeField.className = 'field';
@@ -1308,10 +1332,29 @@ function buildBatchItemBlock(item, index) {
       item.fontSize = defaultCanvaSizeFor(mode);
       fontSizeSlider.value = String(item.fontSize);
       fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
-    },
-    onFocus: () => { activeBatchItemId = item.id; }
+    }
   });
   item.handleFile = picker.handleFile; // used by global paste routing
+
+  // Dragging or pasting an image directly onto the title textarea works too
+  // — no need to click into the dropzone below just to attach a photo.
+  textarea.addEventListener('dragover', e => e.preventDefault());
+  textarea.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) picker.handleFile(file);
+  });
+  textarea.addEventListener('paste', e => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type.startsWith('image/')) {
+        e.preventDefault();
+        picker.handleFile(it.getAsFile());
+        break;
+      }
+    }
+  });
 
   if (item.bg.type === 'color' && item.bg.color) {
     picker.restoreColor(item.bg.color);
@@ -1328,6 +1371,7 @@ function buildBatchItemBlock(item, index) {
 
   block.appendChild(head);
   block.appendChild(frameToggle);
+  block.appendChild(textareaLabel);
   block.appendChild(textarea);
   block.appendChild(fontSizeField);
   block.appendChild(picker.root);
@@ -1343,7 +1387,7 @@ function renderBatchItemsList() {
 }
 
 function handleBatchPastedImage(file) {
-  const target = batchItems.find(it => it.id === activeBatchItemId) || batchItems[batchItems.length - 1];
+  const target = batchItems.find(it => it.id === expandedBatchItemId);
   if (target && target.handleFile) target.handleFile(file);
 }
 
@@ -1390,6 +1434,7 @@ batchResetBtn.addEventListener('click', async () => {
   batchItems = [];
   expandedBatchItemId = null;
   batchCtx.clearRect(0, 0, SIZE, SIZE);
+  batchPreviewTitle.textContent = '';
   batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
   batchDownloadAllBtn.disabled = true;
   renderBatchItemsList();
