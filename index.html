@@ -131,7 +131,31 @@
     background: #ddd repeating-conic-gradient(#ccc 0% 25%, #ddd 0% 50%) 50% / 24px 24px;
   }
   .status { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
-  .preview-title { font-size: 14px; font-weight: 600; margin-top: 10px; text-align: center; word-break: break-all; }
+  .preview-title { font-size: 20px; font-weight: 600; margin-top: 10px; text-align: center; word-break: break-all; }
+  .font-stepper { display: flex; align-items: stretch; gap: 8px; }
+  .font-stepper .step-btn {
+    flex: 0 0 44px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+  .font-stepper .step-value {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: ns-resize;
+  }
+  .font-stepper .step-value:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
   .preview-title:empty { display: none; }
   .mode-switch { display: flex; gap: 6px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
   .mode-btn { flex: 1; background: transparent; border: none; border-radius: 7px; padding: 8px 10px; color: var(--muted); font-weight: 600; }
@@ -406,8 +430,8 @@
 
           <div class="field">
             <label>字級（對照 Canva 字級）</label>
-            <input type="range" id="fontSize" min="50" max="70" value="50" style="width:100%">
-            <div class="hint">目前 Canva 字級 <span id="fontSizeVal">50</span>（未調整時依背景類型自動預設：圖片 50／純色 60）</div>
+            <div id="singleFontStepper"></div>
+            <div class="hint">範圍 50～70，未調整時依背景類型自動預設：圖片 50／純色 60</div>
           </div>
 
           <div class="field" style="margin-bottom:0">
@@ -472,7 +496,7 @@
         <li>先選擇「類別」：新聞（藍框）或娛樂（粉框），會影響套版右上角的角標樣式。</li>
         <li>在「標題」欄貼上或輸入文字，按 Enter 換行，會照原樣分行顯示在圖上。</li>
         <li>「背景」可選擇「上傳圖片」或「純色背景」：上傳圖片支援點擊選取、拖曳檔案，或直接 Ctrl+V 貼上剪貼簿圖片；純色背景則從色票中點選一個顏色。</li>
-        <li>「字級」可拖曳調整，對照的是 Canva 字級：選純色背景預設 60、選圖片背景預設 50；一旦手動調整過，之後切換背景類型就不會再自動改動字級。</li>
+        <li>「字級」用左右按鈕微調，或把滑鼠移到中間數字上滾動滾輪調整，對照的是 Canva 字級（範圍 50～70）：選純色背景預設 60、選圖片背景預設 50；一旦手動調整過，之後切換背景類型就不會再自動改動字級。</li>
         <li>有標題且有背景（圖片或顏色）後，按「下載圖片」即可存成 PNG 檔（1080×1080）。</li>
         <li>「全部清除」會清空目前單張模式的所有設定，回到初始狀態（會先跳出確認框）。</li>
       </ul>
@@ -545,8 +569,6 @@ const SIZE = 1080;
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const titleEl = document.getElementById('title');
-const fontSizeInput = document.getElementById('fontSize');
-const fontSizeVal = document.getElementById('fontSizeVal');
 const downloadBtn = document.getElementById('downloadBtn');
 const resetBtn = document.getElementById('resetBtn');
 const statusEl = document.getElementById('status');
@@ -671,8 +693,54 @@ function defaultCanvaSizeFor(bgType) {
   return bgType === 'color' ? DEFAULT_CANVA_SIZE_COLOR : DEFAULT_CANVA_SIZE_IMAGE;
 }
 
-function getFontSizePx() {
-  return canvaToPx(Number(fontSizeInput.value));
+const FONT_SIZE_MIN = 50;
+const FONT_SIZE_MAX = 70;
+
+// Stepper widget: [－] [number] [＋], number also responds to mouse-wheel
+// while hovered/focused. Used for both single mode and each batch item.
+function createFontStepper({ initial, onChange }) {
+  const root = document.createElement('div');
+  root.className = 'font-stepper';
+
+  const minusBtn = document.createElement('button');
+  minusBtn.type = 'button';
+  minusBtn.className = 'step-btn';
+  minusBtn.textContent = '－';
+
+  const valueEl = document.createElement('div');
+  valueEl.className = 'step-value';
+  valueEl.tabIndex = 0;
+
+  const plusBtn = document.createElement('button');
+  plusBtn.type = 'button';
+  plusBtn.className = 'step-btn';
+  plusBtn.textContent = '＋';
+
+  let value = initial;
+
+  function setValue(next, fire) {
+    value = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, next));
+    valueEl.textContent = value;
+    if (fire) onChange(value);
+  }
+
+  minusBtn.addEventListener('click', () => setValue(value - 1, true));
+  plusBtn.addEventListener('click', () => setValue(value + 1, true));
+  valueEl.addEventListener('wheel', e => {
+    e.preventDefault();
+    setValue(value + (e.deltaY < 0 ? 1 : -1), true);
+  }, { passive: false });
+  valueEl.addEventListener('keydown', e => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); setValue(value + 1, true); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setValue(value - 1, true); }
+  });
+
+  root.appendChild(minusBtn);
+  root.appendChild(valueEl);
+  root.appendChild(plusBtn);
+  setValue(initial, false);
+
+  return { root, setValue: v => setValue(v, false), getValue: () => value };
 }
 
 function fitFontSize(targetCtx, lines, maxWidth, baseSize) {
@@ -888,15 +956,23 @@ function createBackgroundPicker(opts) {
 
 let singleFontSizeTouched = false;
 
+const singleFontStepper = createFontStepper({
+  initial: DEFAULT_CANVA_SIZE_IMAGE,
+  onChange: () => { singleFontSizeTouched = true; render(); }
+});
+document.getElementById('singleFontStepper').appendChild(singleFontStepper.root);
+
+function getFontSizePx() {
+  return canvaToPx(singleFontStepper.getValue());
+}
+
 // force=true (pressing the 上傳圖片／純色背景 toggle) always resets to that
-// type's default, overriding any manual slider tweak; otherwise a manual
-// tweak sticks until the toggle is pressed again.
+// type's default, overriding any manual tweak; otherwise a manual tweak
+// sticks until the toggle is pressed again.
 function applyDefaultFontSize(bgType, force = false) {
   if (singleFontSizeTouched && !force) return;
   if (force) singleFontSizeTouched = false;
-  const canvaSize = defaultCanvaSizeFor(bgType);
-  fontSizeInput.value = canvaSize;
-  fontSizeVal.textContent = canvaSize;
+  singleFontStepper.setValue(defaultCanvaSizeFor(bgType));
 }
 
 const singleBgPicker = createBackgroundPicker({
@@ -929,11 +1005,6 @@ singleFrameToggle.querySelectorAll('button').forEach(btn => {
 });
 
 titleEl.addEventListener('input', render);
-fontSizeInput.addEventListener('input', () => {
-  singleFontSizeTouched = true;
-  fontSizeVal.textContent = fontSizeInput.value;
-  render();
-});
 ribbonReady.then(render);
 ribbonNewsReady.then(render);
 logoReady.then(render);
@@ -1300,24 +1371,20 @@ function buildBatchItemBlock(item, index) {
   fontSizeField.className = 'field';
   const fontSizeLabel = document.createElement('label');
   fontSizeLabel.textContent = '字級（對照 Canva 字級）';
-  const fontSizeSlider = document.createElement('input');
-  fontSizeSlider.type = 'range';
-  fontSizeSlider.min = '50';
-  fontSizeSlider.max = '70';
-  fontSizeSlider.value = String(item.fontSize);
-  fontSizeSlider.style.width = '100%';
+  const fontStepper = createFontStepper({
+    initial: item.fontSize,
+    onChange: value => {
+      invalidateDone();
+      item.fontSizeTouched = true;
+      item.fontSize = value;
+      previewBatchItem(item);
+    }
+  });
   const fontSizeHint = document.createElement('div');
   fontSizeHint.className = 'hint';
-  fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
-  fontSizeSlider.addEventListener('input', () => {
-    invalidateDone();
-    item.fontSizeTouched = true;
-    item.fontSize = Number(fontSizeSlider.value);
-    fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
-    previewBatchItem(item);
-  });
+  fontSizeHint.textContent = '範圍 50～70，未調整時依背景類型自動預設：圖片 50／純色 60';
   fontSizeField.appendChild(fontSizeLabel);
-  fontSizeField.appendChild(fontSizeSlider);
+  fontSizeField.appendChild(fontStepper.root);
   fontSizeField.appendChild(fontSizeHint);
 
   const picker = createBackgroundPicker({
@@ -1327,11 +1394,10 @@ function buildBatchItemBlock(item, index) {
       invalidateDone();
       item.bg = mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null };
       // Pressing the 上傳圖片／純色背景 toggle always resets to that type's
-      // default font size, overriding any manual slider tweak.
+      // default font size, overriding any manual tweak.
       item.fontSizeTouched = false;
       item.fontSize = defaultCanvaSizeFor(mode);
-      fontSizeSlider.value = String(item.fontSize);
-      fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
+      fontStepper.setValue(item.fontSize);
     }
   });
   item.handleFile = picker.handleFile; // used by global paste routing
