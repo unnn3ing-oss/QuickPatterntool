@@ -828,8 +828,12 @@ function createBackgroundPicker(opts) {
 
 let singleFontSizeTouched = false;
 
-function applyDefaultFontSize(bgType) {
-  if (singleFontSizeTouched) return;
+// force=true (pressing the 上傳圖片／純色背景 toggle) always resets to that
+// type's default, overriding any manual slider tweak; otherwise a manual
+// tweak sticks until the toggle is pressed again.
+function applyDefaultFontSize(bgType, force = false) {
+  if (singleFontSizeTouched && !force) return;
+  if (force) singleFontSizeTouched = false;
   const canvaSize = defaultCanvaSizeFor(bgType);
   fontSizeInput.value = canvaSize;
   fontSizeVal.textContent = canvaSize;
@@ -848,7 +852,7 @@ const singleBgPicker = createBackgroundPicker({
   },
   onModeChange: mode => {
     singleBg = mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null };
-    applyDefaultFontSize(mode);
+    applyDefaultFontSize(mode, true);
     render();
   }
 });
@@ -1192,11 +1196,12 @@ function buildBatchItemBlock(item, index) {
     onColor: color => { item.bg = { type: 'color', image: null, color }; previewBatchItem(item); },
     onModeChange: mode => {
       item.bg = mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null };
-      if (!item.fontSizeTouched) {
-        item.fontSize = defaultCanvaSizeFor(mode);
-        fontSizeSlider.value = String(item.fontSize);
-        fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
-      }
+      // Pressing the 上傳圖片／純色背景 toggle always resets to that type's
+      // default font size, overriding any manual slider tweak.
+      item.fontSizeTouched = false;
+      item.fontSize = defaultCanvaSizeFor(mode);
+      fontSizeSlider.value = String(item.fontSize);
+      fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
     },
     onFocus: () => { activeBatchItemId = item.id; }
   });
