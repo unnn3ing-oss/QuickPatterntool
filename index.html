@@ -1037,11 +1037,21 @@ function expandBatchItem(item) {
   renderBatchItemsList();
   renderBatchThumbs();
   scrollToBatchItem(item.id);
-  if (hasBackground(item.bg)) {
+  const index = batchItems.indexOf(item);
+  if (item.done && item.resultDataUrl) {
+    // Load the saved result as-is — just viewing it should never flip its
+    // completed status or claim it's "still a preview".
+    const img = new Image();
+    img.onload = () => {
+      batchCtx.clearRect(0, 0, SIZE, SIZE);
+      batchCtx.drawImage(img, 0, 0, SIZE, SIZE);
+    };
+    img.src = item.resultDataUrl;
+    batchStatus.textContent = `已完成：圖片 #${index + 1}`;
+  } else if (hasBackground(item.bg)) {
     previewBatchItem(item);
   } else {
     batchCtx.clearRect(0, 0, SIZE, SIZE);
-    const index = batchItems.indexOf(item);
     batchStatus.textContent = `圖片 #${index + 1} 尚未設定背景`;
   }
 }
@@ -1205,11 +1215,21 @@ function buildBatchItemBlock(item, index) {
   const label = document.createElement('span');
   label.className = 'label';
   label.textContent = `圖片 #${index + 1}`;
-  if (item.done) {
-    const doneTag = document.createElement('span');
-    doneTag.className = 'label-done-tag';
-    doneTag.textContent = '✓ 已完成';
-    label.appendChild(doneTag);
+  const doneTag = document.createElement('span');
+  doneTag.className = 'label-done-tag';
+  doneTag.textContent = '✓ 已完成';
+  doneTag.style.display = item.done ? '' : 'none';
+  label.appendChild(doneTag);
+  // Viewing a completed item (via its thumbnail or row) never touches its
+  // done state — only an actual edit to what gets rendered should. Each
+  // field handler below calls this first so the tag disappears live,
+  // without a full rebuild that would steal focus mid-edit.
+  function invalidateDone() {
+    if (!item.done) return;
+    item.done = false;
+    doneTag.style.display = 'none';
+    batchDownloadAllBtn.disabled = !batchItems.some(it => it.done && it.resultDataUrl);
+    renderBatchThumbs();
   }
   const headBtns = document.createElement('div');
   headBtns.style.display = 'flex';
@@ -1243,13 +1263,13 @@ function buildBatchItemBlock(item, index) {
     frameNews.classList.toggle('active', frame === 'news');
   }
   setFrameVisual(item.frame);
-  frameEnt.addEventListener('click', () => { item.frame = 'entertainment'; setFrameVisual('entertainment'); previewBatchItem(item); });
-  frameNews.addEventListener('click', () => { item.frame = 'news'; setFrameVisual('news'); previewBatchItem(item); });
+  frameEnt.addEventListener('click', () => { invalidateDone(); item.frame = 'entertainment'; setFrameVisual('entertainment'); previewBatchItem(item); });
+  frameNews.addEventListener('click', () => { invalidateDone(); item.frame = 'news'; setFrameVisual('news'); previewBatchItem(item); });
 
   const textarea = document.createElement('textarea');
   textarea.placeholder = '標題（Enter 換行）';
   textarea.value = item.title;
-  textarea.addEventListener('input', () => { item.title = textarea.value; previewBatchItem(item); });
+  textarea.addEventListener('input', () => { invalidateDone(); item.title = textarea.value; previewBatchItem(item); });
   textarea.addEventListener('focus', () => { activeBatchItemId = item.id; });
 
   const fontSizeField = document.createElement('div');
@@ -1266,6 +1286,7 @@ function buildBatchItemBlock(item, index) {
   fontSizeHint.className = 'hint';
   fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
   fontSizeSlider.addEventListener('input', () => {
+    invalidateDone();
     item.fontSizeTouched = true;
     item.fontSize = Number(fontSizeSlider.value);
     fontSizeHint.textContent = `目前 Canva 字級 ${item.fontSize}（未調整時依背景類型自動預設：圖片 50／純色 60）`;
@@ -1276,9 +1297,10 @@ function buildBatchItemBlock(item, index) {
   fontSizeField.appendChild(fontSizeHint);
 
   const picker = createBackgroundPicker({
-    onImage: (image, fileName) => { item.bg = { type: 'image', image, color: null }; item.fileName = fileName; previewBatchItem(item); },
-    onColor: color => { item.bg = { type: 'color', image: null, color }; previewBatchItem(item); },
+    onImage: (image, fileName) => { invalidateDone(); item.bg = { type: 'image', image, color: null }; item.fileName = fileName; previewBatchItem(item); },
+    onColor: color => { invalidateDone(); item.bg = { type: 'color', image: null, color }; previewBatchItem(item); },
     onModeChange: mode => {
+      invalidateDone();
       item.bg = mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null };
       // Pressing the 上傳圖片／純色背景 toggle always resets to that type's
       // default font size, overriding any manual slider tweak.
