@@ -122,7 +122,9 @@
     padding: 18px;
     display: flex;
     justify-content: center;
+    transition: border-color .15s;
   }
+  .canvas-wrap.drag { border-color: var(--accent); }
   canvas {
     width: 100%;
     max-width: 520px;
@@ -431,7 +433,7 @@
           <div class="field">
             <label>字級（對照 Canva 字級）</label>
             <div id="singleFontStepper"></div>
-            <div class="hint">範圍 50～70，未調整時依背景類型自動預設：圖片 50／純色 60</div>
+            <div class="hint">未調整時依背景類型自動預設：圖片 50／純色 60</div>
           </div>
 
           <div class="field" style="margin-bottom:0">
@@ -847,7 +849,7 @@ function createBackgroundPicker(opts) {
   thumb.className = 'batch-item-thumb';
   thumb.style.display = 'none';
   const dzText = document.createElement('div');
-  dzText.textContent = '點擊選擇圖片，或拖曳／貼上（Ctrl+V）圖片到此處';
+  dzText.innerHTML = '點擊選擇圖片<br>或拖曳／貼上（Ctrl+V）圖片到此處';
   const fi = document.createElement('input');
   fi.type = 'file';
   fi.accept = 'image/*';
@@ -1031,7 +1033,7 @@ document.addEventListener('paste', e => {
     if (item.type.startsWith('image/')) {
       const file = item.getAsFile();
       if (currentMode === 'batch') {
-        handleBatchPastedImage(file);
+        routeFileToExpandedBatchItem(file);
       } else {
         singleBgPicker.handleFile(file);
       }
@@ -1458,7 +1460,7 @@ function buildBatchItemBlock(item, index) {
   });
   const fontSizeHint = document.createElement('div');
   fontSizeHint.className = 'hint';
-  fontSizeHint.textContent = '範圍 50～70，未調整時依背景類型自動預設：圖片 50／純色 60';
+  fontSizeHint.textContent = '未調整時依背景類型自動預設：圖片 50／純色 60';
   fontSizeField.appendChild(fontSizeLabel);
   fontSizeField.appendChild(fontStepper.root);
   fontSizeField.appendChild(fontSizeHint);
@@ -1529,10 +1531,29 @@ function renderBatchItemsList() {
   });
 }
 
-function handleBatchPastedImage(file) {
+// Routes a file dropped or pasted anywhere outside a specific batch item's
+// own dropzone (e.g. onto the shared preview canvas) to whichever item is
+// currently expanded, since that's the one being edited.
+function routeFileToExpandedBatchItem(file) {
   const target = batchItems.find(it => it.id === expandedBatchItemId);
   if (target && target.handleFile) target.handleFile(file);
 }
+
+// Dragging an image file directly onto the big preview box works the same
+// as dropping it on the sidebar dropzone — no need to scroll back up to it.
+function wireCanvasDrop(wrap, onFile) {
+  if (!wrap) return;
+  wrap.addEventListener('dragover', e => { e.preventDefault(); wrap.classList.add('drag'); });
+  wrap.addEventListener('dragleave', () => wrap.classList.remove('drag'));
+  wrap.addEventListener('drop', e => {
+    e.preventDefault();
+    wrap.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file) onFile(file);
+  });
+}
+wireCanvasDrop(canvas.closest('.canvas-wrap'), file => singleBgPicker.handleFile(file));
+wireCanvasDrop(batchCanvas.closest('.canvas-wrap'), routeFileToExpandedBatchItem);
 
 addBatchItemBtn.addEventListener('click', addBatchItem);
 
