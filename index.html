@@ -1046,10 +1046,65 @@ function safeFilename(titleText, fallback) {
   return safe || fallback;
 }
 
+// Canvas PNG exports carry no DPI metadata, so design/print tools that read
+// it (Photoshop, InDesign, print pipelines) fall back to 72/96 DPI and
+// misjudge the physical size of the same pixels. This tags every exported
+// PNG at PNG_DPI by inserting a pHYs chunk right after IHDR, which PNG
+// requires to be the very first chunk with a fixed 13-byte data payload —
+// so its total chunk length (4 length + 4 type + 13 data + 4 crc) is
+// always exactly 25 bytes, right after the 8-byte PNG signature.
+const PNG_DPI = 300;
+
+const PNG_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function pngCrc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = PNG_CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function writeUint32BE(bytes, offset, value) {
+  bytes[offset] = (value >>> 24) & 0xFF;
+  bytes[offset + 1] = (value >>> 16) & 0xFF;
+  bytes[offset + 2] = (value >>> 8) & 0xFF;
+  bytes[offset + 3] = value & 0xFF;
+}
+
+function withPngDpi(pngDataUrl, dpi) {
+  const bytes = Uint8Array.from(atob(pngDataUrl.slice(pngDataUrl.indexOf(',') + 1)), c => c.charCodeAt(0));
+
+  const pixelsPerMeter = Math.round(dpi / 0.0254);
+  const physChunk = new Uint8Array(4 + 4 + 9 + 4); // length + "pHYs" + data + crc
+  writeUint32BE(physChunk, 0, 9);
+  physChunk.set([0x70, 0x48, 0x59, 0x73], 4); // "pHYs"
+  writeUint32BE(physChunk, 8, pixelsPerMeter);
+  writeUint32BE(physChunk, 12, pixelsPerMeter);
+  physChunk[16] = 1; // unit specifier: meter
+  writeUint32BE(physChunk, 17, pngCrc32(physChunk.subarray(4, 17)));
+
+  const ihdrEnd = 8 + 25;
+  const out = new Uint8Array(bytes.length + physChunk.length);
+  out.set(bytes.subarray(0, ihdrEnd), 0);
+  out.set(physChunk, ihdrEnd);
+  out.set(bytes.subarray(ihdrEnd), ihdrEnd + physChunk.length);
+
+  let binary = '';
+  for (let i = 0; i < out.length; i++) binary += String.fromCharCode(out[i]);
+  return 'data:image/png;base64,' + btoa(binary);
+}
+
 function downloadCanvas(targetCanvas, filename) {
   const a = document.createElement('a');
   a.download = filename;
-  a.href = targetCanvas.toDataURL('image/png');
+  a.href = withPngDpi(targetCanvas.toDataURL('image/png'), PNG_DPI);
   a.click();
 }
 
@@ -1261,7 +1316,7 @@ async function completeBatchItem(item) {
   setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
   item.resultFilename = `${String(index + 1).padStart(2, '0')}_${safeFilename(item.title, '娛樂新聞圖' + (index + 1))}.png`;
-  item.resultDataUrl = batchCanvas.toDataURL('image/png');
+  item.resultDataUrl = withPngDpi(batchCanvas.toDataURL('image/png'), PNG_DPI);
   item.done = true;
   batchStatus.textContent = `已完成：${item.resultFilename}`;
   batchDownloadAllBtn.disabled = !batchItems.some(isItemDone);
