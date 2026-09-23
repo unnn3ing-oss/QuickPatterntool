@@ -130,6 +130,42 @@
     transition: border-color .15s;
   }
   .canvas-wrap.drag { border-color: var(--accent); }
+  .canvas-wrap:focus { outline: none; }
+  .canvas-wrap:focus-visible, .canvas-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .preview-hint { text-align: center; }
+  .canvas-wrap { position: relative; }
+  /* Headline edit box laid over the canvas (screen only — never exported).
+     Its text is transparent so the canvas-rendered headline shows through;
+     only the caret/selection come from the textarea itself. */
+  .canvas-wrap .title-overlay {
+    position: absolute;
+    box-sizing: border-box;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    resize: none;
+    overflow: hidden;
+    background: transparent;
+    color: transparent;
+    caret-color: #fff;
+    border: 2px dashed rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
+    font-family: "WHZ-Heavy", "Microsoft JhengHei", "PMingLiU", sans-serif;
+    text-align: center;
+    white-space: pre;
+    pointer-events: none;
+    transition: border-color .15s;
+  }
+  .canvas-wrap .title-overlay::placeholder {
+    color: rgba(255, 255, 255, 0.85);
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  }
+  .canvas-wrap .title-overlay::selection { background: rgba(61, 127, 224, 0.45); }
+  .canvas-wrap .title-overlay.editing { pointer-events: auto; border-style: solid; border-color: #fff; }
+  .canvas-wrap .title-overlay[hidden] { display: none; }
+  canvas.pannable { cursor: grab; touch-action: none; }
+  canvas.pannable.panning { cursor: grabbing; }
   canvas {
     width: 100%;
     max-width: 520px;
@@ -475,14 +511,18 @@
       <div id="singlePreview">
         <div class="canvas-wrap">
           <canvas id="canvas" width="1080" height="1080"></canvas>
+          <textarea class="title-overlay" id="singlePreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1"></textarea>
         </div>
+        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
         <div class="status" id="status">請先上傳圖片並輸入標題</div>
       </div>
 
       <div id="batchPreview" style="display:none">
         <div class="canvas-wrap">
           <canvas id="batchCanvas" width="1080" height="1080"></canvas>
+          <textarea class="title-overlay" id="batchPreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1" hidden></textarea>
         </div>
+        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
         <div class="preview-title" id="batchPreviewTitle"></div>
         <div class="batch-thumbs" id="batchThumbs"></div>
         <div class="status" id="batchStatus">按某一組的「完成」後，預覽會顯示在這裡</div>
@@ -576,6 +616,8 @@ const SIZE = 1080;
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const titleEl = document.getElementById('title');
+const singlePreviewTitleInput = document.getElementById('singlePreviewTitleInput');
+const batchPreviewTitleInput = document.getElementById('batchPreviewTitleInput');
 const downloadBtn = document.getElementById('downloadBtn');
 const resetBtn = document.getElementById('resetBtn');
 const statusEl = document.getElementById('status');
@@ -609,22 +651,32 @@ const PRESET_COLORS = ['#c80000','#ff3916','#5fa646','#4c8b74','#ff9900','#1c629
     return ha.hue - hb.hue;
   });
 
-function drawImageCover(targetCtx, image) {
-  const canvasRatio = 1;
-  const imgRatio = image.width / image.height;
-  let sx, sy, sw, sh;
-  if (imgRatio > canvasRatio) {
-    sh = image.height;
-    sw = sh * canvasRatio;
-    sx = (image.width - sw) / 2;
-    sy = 0;
-  } else {
-    sw = image.width;
-    sh = sw / canvasRatio;
-    sx = 0;
-    sy = (image.height - sh) / 2;
-  }
-  targetCtx.drawImage(image, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
+// view: { zoom, x, y } — zoom 1 is a centered "cover" fit; x/y shift the
+// image (in canvas px) away from center. clampView keeps the canvas fully
+// covered so panning/zooming can never expose an empty edge.
+const MAX_ZOOM = 5;
+
+function newView() {
+  return { zoom: 1, x: 0, y: 0 };
+}
+
+function coverGeometry(image, view) {
+  const s = Math.max(SIZE / image.width, SIZE / image.height) * view.zoom;
+  const dw = image.width * s, dh = image.height * s;
+  return { s, dw, dh, dx: (SIZE - dw) / 2 + view.x, dy: (SIZE - dh) / 2 + view.y };
+}
+
+function clampView(image, view) {
+  view.zoom = Math.min(MAX_ZOOM, Math.max(1, view.zoom));
+  const { dw, dh } = coverGeometry(image, view);
+  const mx = (dw - SIZE) / 2, my = (dh - SIZE) / 2;
+  view.x = Math.min(mx, Math.max(-mx, view.x));
+  view.y = Math.min(my, Math.max(-my, view.y));
+}
+
+function drawImageCover(targetCtx, image, view = newView()) {
+  const g = coverGeometry(image, view);
+  targetCtx.drawImage(image, g.dx, g.dy, g.dw, g.dh);
 }
 
 const RIBBON_W = 230, RIBBON_H = 215; // native size, cropped pixel-exact from a real TVBS export
@@ -788,17 +840,46 @@ function drawTitle(targetCtx, lines, baseSize, centerY) {
 // frame: 'entertainment' (pink) | 'news' (blue) — only affects the image-mode corner ribbon
 function renderComposite(targetCtx, source, titleText, fontSize, frame) {
   targetCtx.clearRect(0, 0, SIZE, SIZE);
+  targetCtx.canvas.classList.toggle('pannable', !!(source && source.type === 'image' && source.image));
   if (source && source.type === 'color') {
     targetCtx.fillStyle = source.color;
     targetCtx.fillRect(0, 0, SIZE, SIZE);
     drawLogoBottom(targetCtx);
     drawTitle(targetCtx, parseLines(titleText), fontSize, SIZE / 2);
   } else {
-    drawImageCover(targetCtx, source.image);
+    drawImageCover(targetCtx, source.image, source.view);
     drawGradient(targetCtx);
     drawRibbon(targetCtx, frame);
     drawTitle(targetCtx, parseLines(titleText), fontSize, BOX_CENTER);
   }
+}
+
+// Sizes and positions the on-image edit box with the same geometry drawTitle
+// uses (fitted font size, line height, vertical anchor), so the caret sits on
+// the canvas-rendered headline. It's a DOM element, so it never gets exported.
+const TITLE_PAD_X = 60;
+const TITLE_BOX_PAD_Y = 12;
+
+function layoutTitleOverlay(overlay, canvasEl, bg, title, canvaSize) {
+  const k = canvasEl.clientWidth / SIZE;
+  if (!k) return;
+  const measured = parseLines(title);
+  const measureCtx = canvasEl.getContext('2d');
+  measureCtx.save();
+  const fontSize = fitFontSize(measureCtx, measured.length ? measured : ['點兩下輸入內容'], SIZE - TITLE_PAD_X * 2, canvaToPx(canvaSize));
+  measureCtx.restore();
+  const lineHeight = fontSize * LINE_HEIGHT_RATIO;
+  const lineCount = Math.max(1, title.replace(/\r/g, '').split('\n').length);
+  const centerY = bg && bg.type === 'color' ? SIZE / 2 : BOX_CENTER;
+  const top = centerY - lineCount * lineHeight / 2 - TITLE_BOX_PAD_Y;
+  const border = 2;
+  overlay.style.left = `${canvasEl.offsetLeft + TITLE_PAD_X * k}px`;
+  overlay.style.top = `${canvasEl.offsetTop + top * k}px`;
+  overlay.style.width = `${(SIZE - TITLE_PAD_X * 2) * k}px`;
+  overlay.style.height = `${(lineCount * lineHeight + TITLE_BOX_PAD_Y * 2) * k}px`;
+  overlay.style.paddingTop = overlay.style.paddingBottom = `${Math.max(0, TITLE_BOX_PAD_Y * k - border)}px`;
+  overlay.style.fontSize = `${fontSize * k}px`;
+  overlay.style.lineHeight = `${lineHeight * k}px`;
 }
 
 function hasBackground(source) {
@@ -809,11 +890,15 @@ let singleBg = { type: 'image', image: null, color: null };
 let singleFrame = 'news';
 
 function render() {
+  if (document.activeElement !== singlePreviewTitleInput) singlePreviewTitleInput.value = titleEl.value;
   ctx.clearRect(0, 0, SIZE, SIZE);
   const ready = hasBackground(singleBg);
   if (ready) {
     renderComposite(ctx, singleBg, titleEl.value, getFontSizePx(), singleFrame);
+  } else {
+    canvas.classList.remove('pannable');
   }
+  layoutTitleOverlay(singlePreviewTitleInput, canvas, singleBg, titleEl.value, singleFontStepper.getValue());
   downloadBtn.disabled = !(ready && titleEl.value.trim().length > 0);
   statusEl.textContent = ready
     ? (titleEl.value.trim() ? '預覽已更新' : '請輸入標題')
@@ -998,7 +1083,7 @@ function applyDefaultFontSize(bgType, force = false) {
 
 const singleBgPicker = createBackgroundPicker({
   onImage: image => {
-    singleBg = { type: 'image', image, color: null };
+    singleBg = { type: 'image', image, color: null, view: newView() };
     applyDefaultFontSize('image');
     render();
   },
@@ -1189,6 +1274,9 @@ function scrollToBatchItem(id) {
 // (line breaks become a full-width space instead), no extension needed.
 function setBatchPreviewTitle(item) {
   batchPreviewTitle.textContent = parseLines(item.title).join('　');
+  if (document.activeElement !== batchPreviewTitleInput) batchPreviewTitleInput.value = item.title;
+  batchPreviewTitleInput.hidden = false;
+  layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, item.fontSize);
 }
 
 // Expand this item's edit block (collapsing every other item into a row)
@@ -1246,6 +1334,8 @@ function removeBatchItem(id) {
     expandedBatchItemId = null;
     batchCtx.clearRect(0, 0, SIZE, SIZE);
     batchPreviewTitle.textContent = '';
+    batchPreviewTitleInput.value = '';
+    batchPreviewTitleInput.hidden = true;
     batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
     renderBatchItemsList();
     renderBatchThumbs();
@@ -1471,7 +1561,7 @@ function buildBatchItemBlock(item, index) {
   fontSizeField.appendChild(fontSizeHint);
 
   const picker = createBackgroundPicker({
-    onImage: (image, fileName) => { invalidateDone(); item.bg = { type: 'image', image, color: null }; item.fileName = fileName; previewBatchItem(item); },
+    onImage: (image, fileName) => { invalidateDone(); item.bg = { type: 'image', image, color: null, view: newView() }; item.fileName = fileName; previewBatchItem(item); },
     onColor: color => { invalidateDone(); item.bg = { type: 'color', image: null, color }; previewBatchItem(item); },
     onModeChange: mode => {
       invalidateDone();
@@ -1481,9 +1571,11 @@ function buildBatchItemBlock(item, index) {
       item.fontSizeTouched = false;
       item.fontSize = defaultCanvaSizeFor(mode);
       fontStepper.setValue(item.fontSize);
+      setBatchPreviewTitle(item);
     }
   });
   item.handleFile = picker.handleFile; // used by global paste routing
+  item.invalidateDone = invalidateDone; // used by preview-canvas pan/zoom
 
   // Dragging or pasting an image directly onto the title textarea works too
   // — no need to click into the dropzone below just to attach a photo.
@@ -1560,6 +1652,117 @@ function wireCanvasDrop(wrap, onFile) {
 wireCanvasDrop(canvas.closest('.canvas-wrap'), file => singleBgPicker.handleFile(file));
 wireCanvasDrop(batchCanvas.closest('.canvas-wrap'), routeFileToExpandedBatchItem);
 
+// Wheel over the preview zooms the background photo around the cursor;
+// dragging pans it. Clicking the preview also focuses its box, so Ctrl+V
+// right after goes through the document-level paste routing.
+function wirePreviewPanZoom(canvasEl, getBg, onChange) {
+  const wrap = canvasEl.closest('.canvas-wrap');
+  wrap.tabIndex = 0;
+  // The edit box ignores the mouse until a double-click, so single clicks,
+  // wheel-zoom and drag-pan keep working on the headline area too.
+  const titleInput = wrap.querySelector('.title-overlay');
+  canvasEl.addEventListener('dblclick', () => {
+    if (titleInput.hidden) return;
+    titleInput.classList.add('editing');
+    titleInput.focus();
+    titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length);
+  });
+  titleInput.addEventListener('blur', () => titleInput.classList.remove('editing'));
+  titleInput.addEventListener('keydown', e => { if (e.key === 'Escape') titleInput.blur(); });
+  const activeBg = () => {
+    const bg = getBg();
+    return bg && bg.type === 'image' && bg.image ? bg : null;
+  };
+  const toCanvas = (clientX, clientY) => {
+    const r = canvasEl.getBoundingClientRect();
+    const k = SIZE / r.width;
+    return { x: (clientX - r.left) * k, y: (clientY - r.top) * k, k };
+  };
+
+  canvasEl.addEventListener('wheel', e => {
+    const bg = activeBg();
+    if (!bg) return;
+    e.preventDefault();
+    if (!bg.view) bg.view = newView();
+    const view = bg.view;
+    const p = toCanvas(e.clientX, e.clientY);
+    const before = coverGeometry(bg.image, view);
+    const u = (p.x - before.dx) / before.s;
+    const v = (p.y - before.dy) / before.s;
+    view.zoom = Math.min(MAX_ZOOM, Math.max(1, view.zoom * Math.exp(-e.deltaY * 0.0015)));
+    const after = coverGeometry(bg.image, { zoom: view.zoom, x: 0, y: 0 });
+    view.x = p.x - u * after.s - after.dx;
+    view.y = p.y - v * after.s - after.dy;
+    clampView(bg.image, view);
+    onChange();
+  }, { passive: false });
+
+  let drag = null;
+  canvasEl.addEventListener('pointerdown', e => {
+    wrap.focus();
+    const bg = activeBg();
+    if (!bg || e.button !== 0) return;
+    if (!bg.view) bg.view = newView();
+    drag = { bg, id: e.pointerId, startX: e.clientX, startY: e.clientY, viewX: bg.view.x, viewY: bg.view.y };
+    canvasEl.setPointerCapture(e.pointerId);
+    canvasEl.classList.add('panning');
+  });
+  canvasEl.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { k } = toCanvas(e.clientX, e.clientY);
+    drag.bg.view.x = drag.viewX + (e.clientX - drag.startX) * k;
+    drag.bg.view.y = drag.viewY + (e.clientY - drag.startY) * k;
+    clampView(drag.bg.image, drag.bg.view);
+    onChange();
+  });
+  const endDrag = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null;
+    canvasEl.classList.remove('panning');
+  };
+  canvasEl.addEventListener('pointerup', endDrag);
+  canvasEl.addEventListener('pointercancel', endDrag);
+}
+
+// The title box inside the preview mirrors the sidebar title field; typing
+// in it drives the sidebar field's own input handler so there's one path
+// for title changes (render / done-state invalidation / caption).
+singlePreviewTitleInput.addEventListener('input', () => {
+  titleEl.value = singlePreviewTitleInput.value;
+  titleEl.dispatchEvent(new Event('input'));
+});
+batchPreviewTitleInput.addEventListener('input', () => {
+  const field = batchItemsList.querySelector(`.batch-item-block[data-item-id="${expandedBatchItemId}"] textarea`);
+  if (!field) return;
+  field.value = batchPreviewTitleInput.value;
+  field.dispatchEvent(new Event('input'));
+});
+
+// Re-place the edit box when the preview's on-screen size changes (window
+// resize, or the canvas becoming visible after a mode switch).
+new ResizeObserver(() => {
+  layoutTitleOverlay(singlePreviewTitleInput, canvas, singleBg, titleEl.value, singleFontStepper.getValue());
+}).observe(canvas);
+new ResizeObserver(() => {
+  const item = batchItems.find(it => it.id === expandedBatchItemId);
+  if (item) layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, item.fontSize);
+}).observe(batchCanvas);
+
+wirePreviewPanZoom(canvas, () => singleBg, render);
+wirePreviewPanZoom(
+  batchCanvas,
+  () => {
+    const item = batchItems.find(it => it.id === expandedBatchItemId);
+    return item && item.bg;
+  },
+  () => {
+    const item = batchItems.find(it => it.id === expandedBatchItemId);
+    if (!item) return;
+    if (item.invalidateDone) item.invalidateDone();
+    previewBatchItem(item);
+  }
+);
+
 addBatchItemBtn.addEventListener('click', addBatchItem);
 
 batchGenerateBtn.addEventListener('click', async () => {
@@ -1607,6 +1810,8 @@ batchResetBtn.addEventListener('click', async () => {
   expandedBatchItemId = null;
   batchCtx.clearRect(0, 0, SIZE, SIZE);
   batchPreviewTitle.textContent = '';
+  batchPreviewTitleInput.value = '';
+  batchPreviewTitleInput.hidden = true;
   batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
   batchDownloadAllBtn.disabled = true;
   renderBatchItemsList();
