@@ -199,6 +199,7 @@
     cursor: ns-resize;
   }
   .font-stepper .step-value:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .font-stepper.locked .step-value { cursor: not-allowed; color: var(--muted); }
   .preview-title:empty { display: none; }
   .mode-switch { display: flex; gap: 6px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
   .mode-btn { flex: 1; background: transparent; border: none; border-radius: 7px; padding: 8px 10px; color: var(--muted); font-weight: 600; }
@@ -474,7 +475,7 @@
           <div class="field">
             <label>字級（對照 Canva 字級）</label>
             <div id="singleFontStepper"></div>
-            <div class="hint">未調整時依背景類型自動預設：圖片 50／純色 60</div>
+            <div class="hint" id="singleFontHint">圖片背景固定使用字級 50，無法調整</div>
           </div>
 
           <div class="field" style="margin-bottom:0">
@@ -492,7 +493,7 @@
       <div id="batchFields" style="display:none">
         <div class="btn-row" style="margin-top:0; margin-bottom:20px">
           <button class="primary" id="batchGenerateBtn" style="flex:1">全部完成</button>
-          <button id="batchDownloadAllBtn" style="flex:1" disabled>全部下載</button>
+          <button id="batchDownloadAllBtn" style="flex:1">全部下載</button>
         </div>
 
         <div id="batchItemsList"></div>
@@ -543,7 +544,7 @@
         <li>先選擇「類別」：新聞（藍框）或娛樂（粉框），會影響套版右上角的角標樣式。</li>
         <li>在「標題」欄貼上或輸入文字，按 Enter 換行，會照原樣分行顯示在圖上。</li>
         <li>「背景」可選擇「上傳圖片」或「純色背景」：上傳圖片支援點擊選取、拖曳檔案，或直接 Ctrl+V 貼上剪貼簿圖片；純色背景則從色票中點選一個顏色。</li>
-        <li>「字級」用左右按鈕微調，或把滑鼠移到中間數字上滾動滾輪調整，對照的是 Canva 字級（範圍 50～70）：選純色背景預設 60、選圖片背景預設 50；一旦手動調整過，之後切換背景類型就不會再自動改動字級。</li>
+        <li>「字級」對照的是 Canva 字級：使用圖片背景（點選、拖曳或貼上）時固定為 50，無法調整；純色背景預設 60，可用左右按鈕或在數字上滾動滾輪調整（範圍 50～70）。</li>
         <li>有標題且有背景（圖片或顏色）後，按「下載圖片」即可存成 PNG 檔（1080×1080）。</li>
         <li>「全部清除」會清空目前單張模式的所有設定，回到初始狀態（會先跳出確認框）。</li>
       </ul>
@@ -560,7 +561,7 @@
             <strong>娛樂（粉框）＋ 上傳圖片背景</strong>
             <ul>
               <li>① 右上角類別角標——選「新聞」時會換成藍框樣式</li>
-              <li>② 標題文字疊在圖片下緣的漸層暗化區，圖片背景字級預設較小（50）</li>
+              <li>② 標題文字疊在圖片下緣的漸層暗化區，圖片背景字級固定為 50</li>
             </ul>
           </figcaption>
         </figure>
@@ -583,13 +584,14 @@
       <h3>批次模式</h3>
       <ul>
         <li>按「＋ 再做一張」可新增一組新的圖卡設定，每一組都能各自設定類別、標題、字級與背景。</li>
-        <li>每組按「完成」可單獨產生該組的圖，或按上方「全部完成」一次產生所有尚未完成的組別；缺標題或背景的組別會被略過並提示原因。</li>
+        <li>每組按「完成」可單獨產生該組的圖，完成後該組會自動收合，要再編輯可點預覽下方的縮圖或該列；或按上方「全部完成」一次產生所有尚未完成的組別，缺標題或背景的組別會被略過並提示原因。</li>
+        <li>每組編輯區上方的「下載」可以只下載這一組（尚未完成會先自動完成）；「移除」會先跳出確認框，避免誤刪。</li>
         <li>同時間只會展開一組的編輯區，其餘組別（不論完成與否）都會收合成一列；點任一列可重新展開該組編輯。</li>
         <li>右側預覽區的畫布下方，會以縮小圖顯示「每一組」的狀態：已完成的顯示成品縮圖，尚未完成的則保留標題文字並標示「未完成」。點任一張縮圖都會跳到並展開對應組別的編輯區。</li>
         <li>預覽畫布下方會同步顯示該組標題（換行處自動接成全形空格），方便在很多組別時快速確認目前看的是哪一張。</li>
         <li>預覽區會懸浮跟隨畫面捲動，即使批次組數很多、編輯區拉得很長，也不用捲回最上方才能看到預覽。</li>
         <li>拖曳圖片檔案或直接 Ctrl+V 貼上圖片，可以直接對著「標題」輸入框操作，不必先點進下方的圖片上傳區。</li>
-        <li>按「全部下載」會把所有已完成的圖依序下載為個別 PNG 檔。</li>
+        <li>按「全部下載」時，如果每一組都有標題和背景，會自動全部完成並依序下載；如果有組別還缺標題或背景，會先詢問「有未完成的套圖，要先下載已完成的嗎？」，確認後只下載有標題和背景的組別。</li>
         <li>「全部清除」會清空批次模式的所有組別（會先跳出確認框）。</li>
       </ul>
     </div>
@@ -599,10 +601,10 @@
 <div class="modal-overlay" id="confirmOverlay">
   <div class="modal" style="max-width:360px">
     <div class="modal-head">
-      <h2>確定要全部清除？</h2>
+      <h2 id="confirmTitle">確定要全部清除？</h2>
     </div>
     <div class="modal-body">
-      <p style="margin:0">這會清空目前畫面上的所有設定，且無法復原。</p>
+      <p style="margin:0" id="confirmMessage">這會清空目前畫面上的所有設定，且無法復原。</p>
       <div class="btn-row" style="justify-content:flex-end; margin-top:16px">
         <button type="button" id="confirmCancelBtn">取消</button>
         <button type="button" id="confirmOkBtn" class="primary">全部清除</button>
@@ -776,16 +778,26 @@ function createFontStepper({ initial, onChange }) {
   plusBtn.textContent = '＋';
 
   let value = initial;
+  let locked = false;
 
   function setValue(next, fire) {
+    if (fire && locked) return;
     value = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, next));
     valueEl.textContent = value;
     if (fire) onChange(value);
   }
 
+  function setLocked(on) {
+    locked = on;
+    root.classList.toggle('locked', on);
+    minusBtn.disabled = plusBtn.disabled = on;
+    valueEl.tabIndex = on ? -1 : 0;
+  }
+
   minusBtn.addEventListener('click', () => setValue(value - 1, true));
   plusBtn.addEventListener('click', () => setValue(value + 1, true));
   valueEl.addEventListener('wheel', e => {
+    if (locked) return;
     e.preventDefault();
     setValue(value + (e.deltaY < 0 ? 1 : -1), true);
   }, { passive: false });
@@ -799,7 +811,24 @@ function createFontStepper({ initial, onChange }) {
   root.appendChild(plusBtn);
   setValue(initial, false);
 
-  return { root, setValue: v => setValue(v, false), getValue: () => value };
+  return { root, setValue: v => setValue(v, false), getValue: () => value, setLocked };
+}
+
+// Image backgrounds always use Canva 字級 50 — the only adjustable size is on
+// solid-color backgrounds. Every render/export path goes through this, so a
+// stale manual value can never leak onto an image.
+function effectiveCanvaSize(bg, chosen) {
+  return bg && bg.type === 'image' ? DEFAULT_CANVA_SIZE_IMAGE : chosen;
+}
+
+const FONT_HINT_IMAGE = '圖片背景固定使用字級 50，無法調整';
+const FONT_HINT_COLOR = '純色背景可調整字級，預設 60';
+
+function syncFontStepperLock(stepper, hintEl, bg) {
+  const isImage = !bg || bg.type === 'image';
+  if (isImage) stepper.setValue(DEFAULT_CANVA_SIZE_IMAGE);
+  stepper.setLocked(isImage);
+  hintEl.textContent = isImage ? FONT_HINT_IMAGE : FONT_HINT_COLOR;
 }
 
 function fitFontSize(targetCtx, lines, maxWidth, baseSize) {
@@ -891,6 +920,7 @@ let singleFrame = 'news';
 
 function render() {
   if (document.activeElement !== singlePreviewTitleInput) singlePreviewTitleInput.value = titleEl.value;
+  syncFontStepperLock(singleFontStepper, singleFontHint, singleBg);
   ctx.clearRect(0, 0, SIZE, SIZE);
   const ready = hasBackground(singleBg);
   if (ready) {
@@ -898,7 +928,7 @@ function render() {
   } else {
     canvas.classList.remove('pannable');
   }
-  layoutTitleOverlay(singlePreviewTitleInput, canvas, singleBg, titleEl.value, singleFontStepper.getValue());
+  layoutTitleOverlay(singlePreviewTitleInput, canvas, singleBg, titleEl.value, effectiveCanvaSize(singleBg, singleFontStepper.getValue()));
   downloadBtn.disabled = !(ready && titleEl.value.trim().length > 0);
   statusEl.textContent = ready
     ? (titleEl.value.trim() ? '預覽已更新' : '請輸入標題')
@@ -1067,9 +1097,10 @@ const singleFontStepper = createFontStepper({
   onChange: () => { singleFontSizeTouched = true; render(); }
 });
 document.getElementById('singleFontStepper').appendChild(singleFontStepper.root);
+const singleFontHint = document.getElementById('singleFontHint');
 
 function getFontSizePx() {
-  return canvaToPx(singleFontStepper.getValue());
+  return canvaToPx(effectiveCanvaSize(singleBg, singleFontStepper.getValue()));
 }
 
 // force=true (pressing the 上傳圖片／純色背景 toggle) always resets to that
@@ -1276,7 +1307,7 @@ function setBatchPreviewTitle(item) {
   batchPreviewTitle.textContent = parseLines(item.title).join('　');
   if (document.activeElement !== batchPreviewTitleInput) batchPreviewTitleInput.value = item.title;
   batchPreviewTitleInput.hidden = false;
-  layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, item.fontSize);
+  layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, effectiveCanvaSize(item.bg, item.fontSize));
 }
 
 // Expand this item's edit block (collapsing every other item into a row)
@@ -1319,7 +1350,16 @@ function addBatchItem() {
   expandBatchItem(item);
 }
 
-function removeBatchItem(id) {
+async function removeBatchItem(id) {
+  const index = batchItems.findIndex(it => it.id === id);
+  if (index < 0) return;
+  const firstLine = batchItems[index].title.split('\n').find(l => l.trim());
+  const ok = await askConfirm({
+    title: '確定要移除這組套圖？',
+    message: `「#${index + 1}${firstLine ? ' ' + firstLine : ''}」會被刪除，且無法復原。`,
+    okText: '移除'
+  });
+  if (!ok) return;
   const wasExpanded = expandedBatchItemId === id;
   batchItems = batchItems.filter(it => it.id !== id);
   if (!wasExpanded) {
@@ -1347,6 +1387,7 @@ function removeBatchItem(id) {
 // title text and an "未完成" tag. Click any of them to jump to and expand
 // that item's edit block, collapsing every other item.
 function renderBatchThumbs() {
+  batchDownloadAllBtn.disabled = batchItems.length === 0;
   batchThumbs.innerHTML = '';
   batchItems.forEach((item, index) => {
     const isDone = isItemDone(item);
@@ -1391,7 +1432,7 @@ async function previewBatchItem(item) {
   setBatchPreviewTitle(item);
   if (!hasBackground(item.bg)) return;
   await whzFontReady;
-  const fontSize = canvaToPx(item.fontSize);
+  const fontSize = canvaToPx(effectiveCanvaSize(item.bg, item.fontSize));
   renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame);
   const index = batchItems.indexOf(item);
   batchStatus.textContent = `預覽中（尚未完成）：圖片 #${index + 1}`;
@@ -1408,7 +1449,7 @@ async function completeBatchItem(item) {
   // batch item completed very early would permanently save a PNG missing
   // its corner ribbon or bottom logo, since this snapshot is never redrawn.
   await Promise.all([whzFontReady, ribbonReady, ribbonNewsReady, logoReady]);
-  const fontSize = canvaToPx(item.fontSize);
+  const fontSize = canvaToPx(effectiveCanvaSize(item.bg, item.fontSize));
   renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame);
   setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
@@ -1416,10 +1457,27 @@ async function completeBatchItem(item) {
   item.resultDataUrl = withPngDpi(batchCanvas.toDataURL('image/png'), PNG_DPI);
   item.done = true;
   batchStatus.textContent = `已完成：${item.resultFilename}`;
-  batchDownloadAllBtn.disabled = !batchItems.some(isItemDone);
   refreshBatchItem(item);
   renderBatchThumbs();
   return true;
+}
+
+function downloadDataUrl(filename, dataUrl) {
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = dataUrl;
+  a.click();
+}
+
+// After an item's 完成, fold it back into its summary row so the list stays
+// compact — it reopens only when picked again (its thumbnail below the
+// preview, or its row). The big preview keeps showing the finished result.
+function collapseBatchItems() {
+  expandedBatchItemId = null;
+  renderBatchItemsList();
+  renderBatchThumbs();
+  batchPreviewTitleInput.hidden = true;
+  batchCanvas.classList.remove('pannable');
 }
 
 function buildBatchItemRow(item, index) {
@@ -1495,7 +1553,6 @@ function buildBatchItemBlock(item, index) {
     if (!item.done) return;
     item.done = false;
     doneTag.style.display = 'none';
-    batchDownloadAllBtn.disabled = !batchItems.some(isItemDone);
     renderBatchThumbs();
   }
   const headBtns = document.createElement('div');
@@ -1505,12 +1562,21 @@ function buildBatchItemBlock(item, index) {
   completeBtn.type = 'button';
   completeBtn.className = 'primary';
   completeBtn.textContent = '完成';
-  completeBtn.addEventListener('click', () => completeBatchItem(item));
+  completeBtn.addEventListener('click', async () => {
+    if (await completeBatchItem(item)) collapseBatchItems();
+  });
+  const downloadBtn = document.createElement('button');
+  downloadBtn.type = 'button';
+  downloadBtn.textContent = '下載';
+  downloadBtn.addEventListener('click', async () => {
+    if (isItemDone(item) || await completeBatchItem(item)) downloadDataUrl(item.resultFilename, item.resultDataUrl);
+  });
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
   removeBtn.textContent = '移除';
   removeBtn.addEventListener('click', () => removeBatchItem(item.id));
   headBtns.appendChild(completeBtn);
+  headBtns.appendChild(downloadBtn);
   headBtns.appendChild(removeBtn);
   head.appendChild(label);
   head.appendChild(headBtns);
@@ -1555,13 +1621,17 @@ function buildBatchItemBlock(item, index) {
   });
   const fontSizeHint = document.createElement('div');
   fontSizeHint.className = 'hint';
-  fontSizeHint.textContent = '未調整時依背景類型自動預設：圖片 50／純色 60';
   fontSizeField.appendChild(fontSizeLabel);
   fontSizeField.appendChild(fontStepper.root);
   fontSizeField.appendChild(fontSizeHint);
+  const syncFontLock = () => {
+    syncFontStepperLock(fontStepper, fontSizeHint, item.bg);
+    if (item.bg.type === 'image') item.fontSize = DEFAULT_CANVA_SIZE_IMAGE;
+  };
+  syncFontLock();
 
   const picker = createBackgroundPicker({
-    onImage: (image, fileName) => { invalidateDone(); item.bg = { type: 'image', image, color: null, view: newView() }; item.fileName = fileName; previewBatchItem(item); },
+    onImage: (image, fileName) => { invalidateDone(); item.bg = { type: 'image', image, color: null, view: newView() }; item.fileName = fileName; syncFontLock(); previewBatchItem(item); },
     onColor: color => { invalidateDone(); item.bg = { type: 'color', image: null, color }; previewBatchItem(item); },
     onModeChange: mode => {
       invalidateDone();
@@ -1571,6 +1641,7 @@ function buildBatchItemBlock(item, index) {
       item.fontSizeTouched = false;
       item.fontSize = defaultCanvaSizeFor(mode);
       fontStepper.setValue(item.fontSize);
+      syncFontLock();
       setBatchPreviewTitle(item);
     }
   });
@@ -1741,11 +1812,11 @@ batchPreviewTitleInput.addEventListener('input', () => {
 // Re-place the edit box when the preview's on-screen size changes (window
 // resize, or the canvas becoming visible after a mode switch).
 new ResizeObserver(() => {
-  layoutTitleOverlay(singlePreviewTitleInput, canvas, singleBg, titleEl.value, singleFontStepper.getValue());
+  layoutTitleOverlay(singlePreviewTitleInput, canvas, singleBg, titleEl.value, effectiveCanvaSize(singleBg, singleFontStepper.getValue()));
 }).observe(canvas);
 new ResizeObserver(() => {
   const item = batchItems.find(it => it.id === expandedBatchItemId);
-  if (item) layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, item.fontSize);
+  if (item) layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, effectiveCanvaSize(item.bg, item.fontSize));
 }).observe(batchCanvas);
 
 wirePreviewPanZoom(canvas, () => singleBg, render);
@@ -1793,15 +1864,42 @@ batchGenerateBtn.addEventListener('click', async () => {
   batchStatus.textContent = `完成 ${doneCount} 組${skipNote}`;
 });
 
+// 全部下載 finishes whatever is finishable first: if every item has a title
+// and a background, all of them get completed and downloaded; otherwise it
+// asks before downloading just the finishable ones and skipping the rest.
 batchDownloadAllBtn.addEventListener('click', async () => {
-  const results = batchItems.filter(isItemDone);
-  for (const item of results) {
-    const a = document.createElement('a');
-    a.download = item.resultFilename;
-    a.href = item.resultDataUrl;
-    a.click();
+  if (batchItems.length === 0) {
+    batchStatus.textContent = '請先按「＋ 再做一張」新增至少一組';
+    return;
+  }
+  const isReady = it => hasBackground(it.bg) && it.title.trim().length > 0;
+  const ready = batchItems.filter(isReady);
+  const missing = batchItems.length - ready.length;
+  if (ready.length === 0) {
+    batchStatus.textContent = '還沒有可以下載的套圖：每組都需要標題和背景（圖片或純色）';
+    return;
+  }
+  if (missing > 0) {
+    const ok = await askConfirm({
+      title: '有未完成的套圖',
+      message: `有未完成的套圖（${missing} 組缺標題或背景），要先下載已完成的 ${ready.length} 組嗎？`,
+      okText: '下載已完成的'
+    });
+    if (!ok) return;
+  }
+  for (const item of ready) {
+    if (!isItemDone(item)) await completeBatchItem(item);
+  }
+  // completeBatchItem leaves the shared canvas on whichever item it finished
+  // last — put it back on the one that's actually open.
+  const open = batchItems.find(it => it.id === expandedBatchItemId);
+  if (open) expandBatchItem(open);
+  for (const item of ready) {
+    downloadDataUrl(item.resultFilename, item.resultDataUrl);
     await new Promise(res => setTimeout(res, 200));
   }
+  const skipNote = missing > 0 ? `，${missing} 組未完成已略過` : '';
+  batchStatus.textContent = `已下載 ${ready.length} 組${skipNote}`;
 });
 
 batchResetBtn.addEventListener('click', async () => {
@@ -1813,7 +1911,6 @@ batchResetBtn.addEventListener('click', async () => {
   batchPreviewTitleInput.value = '';
   batchPreviewTitleInput.hidden = true;
   batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
-  batchDownloadAllBtn.disabled = true;
   renderBatchItemsList();
   renderBatchThumbs();
 });
@@ -1832,8 +1929,17 @@ helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) close
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmCancelBtn = document.getElementById('confirmCancelBtn');
 const confirmOkBtn = document.getElementById('confirmOkBtn');
+const confirmTitle = document.getElementById('confirmTitle');
+const confirmMessage = document.getElementById('confirmMessage');
 let confirmResolve = null;
-function askConfirm() {
+function askConfirm({
+  title = '確定要全部清除？',
+  message = '這會清空目前畫面上的所有設定，且無法復原。',
+  okText = '全部清除'
+} = {}) {
+  confirmTitle.textContent = title;
+  confirmMessage.textContent = message;
+  confirmOkBtn.textContent = okText;
   confirmOverlay.classList.add('open');
   return new Promise(resolve => { confirmResolve = resolve; });
 }
