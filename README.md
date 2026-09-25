@@ -32,7 +32,7 @@
 | 檔案 | 說明 |
 |---|---|
 | `index.html` | 全部功能所在，純 HTML + CSS + 原生 JavaScript（Canvas 繪圖），無外部相依套件 |
-| `whz-heavy.ttf` | 標題套用的字型（WHZ-Heavy），以 `@font-face` 載入 |
+| `whz-heavy.ttf` | 套版標題與網頁介面共用的字型（WHZ-Heavy），以 `@font-face` 載入，不依賴外部字型服務 |
 | `examples/` | 使用說明彈窗與本文件的介面預覽圖 |
 | `favicon.svg` / `favicon-*.png` / `favicon.ico` / `apple-touch-icon.png` | 網站圖示，涵蓋現代瀏覽器（SVG）與舊瀏覽器／iOS 加入主畫面的相容尺寸 |
 

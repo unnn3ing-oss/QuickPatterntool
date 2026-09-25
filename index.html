@@ -16,31 +16,26 @@
     font-display: swap;
   }
 :root {
-    --bg: #f4f5f7;
-    --card-bg: #ffffff;
-    --text: #1f2328;
-    --muted: #6b7280;
-    --border: #e2e4e9;
+    color-scheme: light;
+    --bg: #f2f6fc;
+    --card-bg: rgba(255, 255, 255, 0.78);
+    --field-bg: #ffffff;
+    --text: #1f2a3d;
+    --muted: #6b7890;
+    --border: rgba(0, 74, 173, 0.12);
     --accent: #004aad;
     --accent-dark: #003a87;
+    --accent-soft: #e8f0fc;
     --success: #16a34a;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16181d;
-      --card-bg: #21242b;
-      --text: #e6e8eb;
-      --muted: #9aa0aa;
-      --border: #333844;
-      --accent: #3d7fe0;
-      --accent-dark: #004aad;
-      --success: #4ade80;
-    }
+    --shadow: 0 24px 60px -30px rgba(0, 43, 102, 0.35);
+    --ui-font: "WHZ-Heavy", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    font-family: var(--ui-font);
+    /* WHZ-Heavy has a single (heavy) weight — never fake-bold it further. */
+    font-synthesis: none;
     background: var(--bg);
     color: var(--text);
     padding: 24px;
@@ -440,6 +435,81 @@
     color: #d97706;
     font-weight: 700;
   }
+
+  /* ---- Soft Studio theme: rounded frosted cards, pill controls, one blue ---- */
+  body {
+    background:
+      radial-gradient(40% 50% at 8% 8%, rgba(0, 74, 173, 0.12), transparent 70%),
+      radial-gradient(45% 55% at 95% 18%, rgba(92, 175, 204, 0.18), transparent 70%),
+      radial-gradient(50% 45% at 55% 108%, rgba(0, 74, 173, 0.08), transparent 70%),
+      var(--bg);
+    background-attachment: fixed;
+    padding: 36px 32px 56px;
+  }
+  .wrap { max-width: 1180px; }
+  header { text-align: center; margin-bottom: 30px; }
+  h1 { font-size: 38px; letter-spacing: .06em; color: var(--accent); margin-bottom: 8px; }
+  p.sub { max-width: 56ch; margin: 0 auto; }
+  .help-btn { margin-top: 14px; }
+  .layout { grid-template-columns: 380px 1fr; gap: 28px; }
+  .preview-col { top: 24px; max-height: calc(100vh - 48px); }
+
+  .card {
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: var(--shadow);
+    padding: 22px;
+  }
+  label { font-size: 15px; color: #22324d; }
+
+  button { border-radius: 999px; background: var(--field-bg); transition: background .15s, border-color .15s, box-shadow .15s; }
+  button:hover:not(:disabled) { border-color: rgba(0, 74, 173, 0.35); }
+  button.primary { border: none; box-shadow: 0 10px 24px -12px rgba(0, 74, 173, 0.75); }
+  .help-btn, .batch-item-head button, .batch-item-row .row-remove { padding-left: 14px; padding-right: 14px; }
+
+  .mode-switch { border-radius: 999px; background: rgba(0, 74, 173, 0.06); border: none; padding: 5px; }
+  .mode-btn { border-radius: 999px; }
+  .mode-btn.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 14px -6px rgba(0, 74, 173, 0.5); }
+  .bg-toggle { background: rgba(0, 74, 173, 0.06); border-radius: 999px; padding: 4px; gap: 4px; }
+  .bg-toggle button { border: none; background: transparent; }
+  .bg-toggle button.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 12px -6px rgba(0, 74, 173, 0.55); }
+
+  .edit-box, .batch-item-block {
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    padding: 18px;
+  }
+  .batch-item-row { border-radius: 18px; background: rgba(255, 255, 255, 0.7); }
+  textarea {
+    border-radius: 16px;
+    background: var(--field-bg);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--border);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  textarea:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 5px rgba(0, 74, 173, 0.1); }
+
+  .font-stepper .step-btn { border-radius: 50%; height: 44px; }
+  .font-stepper .step-value { border-radius: 999px; background: var(--field-bg); border-color: transparent; box-shadow: inset 0 0 0 1px var(--border); font-size: 18px; }
+  .dropzone, .color-swatches { border-radius: 18px; border: 2px dashed rgba(0, 74, 173, 0.22); background: rgba(255, 255, 255, 0.6); }
+  .color-swatch { border-radius: 50%; }
+  .color-swatch.selected { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent); }
+
+  .canvas-wrap {
+    border-radius: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(18px);
+    padding: 28px;
+    box-shadow: var(--shadow);
+  }
+  .canvas-wrap:focus-visible, .canvas-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 74, 173, 0.2), var(--shadow); }
+  canvas { border-radius: 20px; max-width: 580px; box-shadow: 0 20px 40px -24px rgba(0, 30, 70, 0.55); }
+  .batch-thumbs img, .batch-thumbs .thumb-placeholder { border-radius: 12px; }
+  .modal { border-radius: 24px; background: #fff; }
 </style>
 </head>
 <body>
@@ -1604,7 +1674,12 @@ function buildBatchItemBlock(item, index) {
   const textarea = document.createElement('textarea');
   textarea.placeholder = '黑人心梗主因曝！\n醫示警「1行為」\n悄悄埋下未爆彈';
   textarea.value = item.title;
-  textarea.addEventListener('input', () => { invalidateDone(); item.title = textarea.value; previewBatchItem(item); });
+  textarea.addEventListener('input', () => {
+    invalidateDone();
+    item.title = textarea.value;
+    previewBatchItem(item);
+    renderBatchThumbs(); // unfinished thumbnails show the title text
+  });
 
   const fontSizeField = document.createElement('div');
   fontSizeField.className = 'field';
