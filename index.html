@@ -481,8 +481,22 @@
   .mode-btn.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 14px -6px rgba(0, 74, 173, 0.5); }
   .bg-toggle { background: rgba(0, 74, 173, 0.06); border-radius: 999px; padding: 4px; gap: 4px; }
   .bg-toggle button { border: none; background: transparent; font-size: 15px; padding: 9px 6px; }
-  .preview-hint, .status { font-size: 14px; line-height: 1.6; }
-  .preview-hint { font-size: 20px; margin-top: 14px; }
+  .preview-hint { font-size: 14px; line-height: 1.6; margin-top: 12px; }
+  /* Live status gets its own box so it reads as a notification, not a hint. */
+  .status {
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 8px 20px -14px rgba(0, 43, 102, 0.4);
+    padding: 10px 16px;
+    margin: 12px auto 0;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .status:empty { display: none; }
   .bg-toggle button.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 12px -6px rgba(0, 74, 173, 0.55); }
 
   .edit-box, .batch-item-block {
@@ -541,6 +555,11 @@
       </div>
 
       <div id="singleFields">
+        <div class="btn-row" style="margin-top:0; margin-bottom:20px">
+          <button class="primary" id="downloadBtn" style="flex:1" disabled>下載圖片</button>
+          <button id="resetBtn" style="flex:1">全部清除</button>
+        </div>
+
         <div class="edit-box">
           <div class="field">
             <label>類別</label>
@@ -565,11 +584,6 @@
             <label>背景</label>
             <div id="singleBgPicker"></div>
           </div>
-        </div>
-
-        <div class="btn-row">
-          <button class="primary" id="downloadBtn" disabled>下載圖片</button>
-          <button id="resetBtn">全部清除</button>
         </div>
       </div>
 
