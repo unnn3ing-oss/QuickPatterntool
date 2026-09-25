@@ -292,7 +292,6 @@
   .bg-toggle button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .color-swatches {
     display: flex;
-    flex-direction: row-reverse;
     flex-wrap: wrap;
     gap: 8px;
     padding: 12px;
@@ -472,7 +471,9 @@
   .mode-btn { border-radius: 999px; }
   .mode-btn.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 14px -6px rgba(0, 74, 173, 0.5); }
   .bg-toggle { background: rgba(0, 74, 173, 0.06); border-radius: 999px; padding: 4px; gap: 4px; }
-  .bg-toggle button { border: none; background: transparent; }
+  .bg-toggle button { border: none; background: transparent; font-size: 15px; padding: 9px 6px; }
+  .preview-hint, .status { font-size: 14px; line-height: 1.6; }
+  .preview-hint { font-size: 20px; margin-top: 14px; }
   .bg-toggle button.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 12px -6px rgba(0, 74, 173, 0.55); }
 
   .edit-box, .batch-item-block {
@@ -712,16 +713,24 @@ function hexToHSB(hex) {
   return { hue, saturation: max === 0 ? 0 : delta / max, brightness: max };
 }
 
-// Grayscale swatches (white → black) first, then chromatic swatches by hue
-// (red → orange → yellow → green → blue → purple).
-const PRESET_COLORS = ['#c80000','#ff3916','#5fa646','#4c8b74','#ff9900','#1c6294','#cb6ce6','#d84040','#ff7ead','#004aad','#000000','#48413f','#a6a6a6','#5CAFCC']
-  .sort((a, b) => {
-    const ha = hexToHSB(a), hb = hexToHSB(b);
-    const aGray = ha.saturation === 0, bGray = hb.saturation === 0;
-    if (aGray !== bGray) return aGray ? -1 : 1;
-    if (aGray) return hb.brightness - ha.brightness;
-    return ha.hue - hb.hue;
-  });
+// Near-neutrals (black / grays, including the warm #48413f) come first,
+// dark → light; then colors by hue: red → orange → yellow → green → blue →
+// indigo → purple. Pinks/magentas (hue ≥ PINK_HUE_START) count as reds, so
+// the wheel is rotated to start there instead of at 0°. New colors only
+// need to be added to the list — the sort places them.
+const NEUTRAL_SATURATION = 0.15;
+const PINK_HUE_START = 320;
+const redFamilyHue = hue => (hue >= PINK_HUE_START ? hue - 360 : hue);
+const PRESET_COLORS = [
+  '#c80000','#ff3916','#5fa646','#4c8b74','#ff9900','#1c6294','#cb6ce6','#d84040','#ff7ead','#004aad',
+  '#000000','#48413f','#a6a6a6','#5CAFCC','#FFEBC4','#7261C9','#D13885','#3667A8','#3F8C59'
+].sort((a, b) => {
+  const ha = hexToHSB(a), hb = hexToHSB(b);
+  const aNeutral = ha.saturation < NEUTRAL_SATURATION, bNeutral = hb.saturation < NEUTRAL_SATURATION;
+  if (aNeutral !== bNeutral) return aNeutral ? -1 : 1;
+  if (aNeutral) return ha.brightness - hb.brightness;
+  return redFamilyHue(ha.hue) - redFamilyHue(hb.hue) || hb.saturation - ha.saturation;
+});
 
 // view: { zoom, x, y } — zoom 1 is a centered "cover" fit; x/y shift the
 // image (in canvas px) away from center. clampView keeps the canvas fully
