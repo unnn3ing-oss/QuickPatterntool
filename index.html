@@ -276,11 +276,6 @@
     font-weight: 600;
     margin-left: 8px;
   }
-  .batch-item-row .row-remove {
-    padding: 4px 10px;
-    font-size: 12px;
-    flex-shrink: 0;
-  }
   .batch-item-head {
     display: flex;
     align-items: center;
@@ -474,7 +469,26 @@
   button { border-radius: 999px; background: var(--field-bg); transition: background .15s, border-color .15s, box-shadow .15s; }
   button:hover:not(:disabled) { border-color: rgba(0, 74, 173, 0.35); }
   button.primary { border: none; box-shadow: 0 10px 24px -12px rgba(0, 74, 173, 0.75); }
-  .help-btn, .batch-item-head button, .batch-item-row .row-remove { padding-left: 14px; padding-right: 14px; }
+  .help-btn, .batch-item-head button { padding-left: 14px; padding-right: 14px; }
+
+  /* 移除: round red "×", same pill/circle language as the other controls. */
+  .remove-btn, .batch-item-head .remove-btn {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    background: #d93636;
+    box-shadow: 0 0 0 1px rgba(217, 54, 54, 0.35), 0 6px 14px -8px rgba(217, 54, 54, 0.9);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .remove-btn svg { width: 12px; height: 12px; stroke: #fff; stroke-width: 2; stroke-linecap: round; fill: none; }
+  .remove-btn:hover:not(:disabled), .batch-item-head .remove-btn:hover:not(:disabled) { background: #b92525; border-color: #fff; }
+  .remove-btn:focus-visible { outline: 2px solid #d93636; outline-offset: 2px; }
 
   .mode-switch { border-radius: 999px; background: rgba(0, 74, 173, 0.06); border: none; padding: 5px; }
   .mode-btn { border-radius: 999px; }
@@ -502,7 +516,9 @@
   .edit-box, .batch-item-block {
     border-radius: 22px;
     background: rgba(255, 255, 255, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.95);
+    /* Outlined like the collapsed rows, in the accent so the open one stands out. */
+    border: 1.5px solid rgba(0, 74, 173, 0.45);
+    box-shadow: 0 0 0 3px rgba(0, 74, 173, 0.07);
     padding: 18px;
   }
   .batch-item-row { border-radius: 18px; background: rgba(255, 255, 255, 0.7); }
@@ -1630,6 +1646,19 @@ function collapseBatchItems() {
   batchCanvas.classList.remove('pannable');
 }
 
+// Round red "×" used for 移除 on both the collapsed row and the open block.
+// The glyph is an SVG so it looks the same whatever UI font is in effect.
+function createRemoveButton(onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'remove-btn';
+  btn.title = '移除';
+  btn.setAttribute('aria-label', '移除');
+  btn.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>';
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
 function buildBatchItemRow(item, index) {
   const row = document.createElement('div');
   row.className = 'batch-item-row';
@@ -1662,11 +1691,7 @@ function buildBatchItemRow(item, index) {
   badge.className = 'row-badge' + (isDone ? '' : ' row-badge-pending');
   badge.textContent = isDone ? '✓ 已完成' : '未完成';
 
-  const removeBtn = document.createElement('button');
-  removeBtn.type = 'button';
-  removeBtn.className = 'row-remove';
-  removeBtn.textContent = '移除';
-  removeBtn.addEventListener('click', e => { e.stopPropagation(); removeBatchItem(item.id); });
+  const removeBtn = createRemoveButton(e => { e.stopPropagation(); removeBatchItem(item.id); });
 
   row.appendChild(thumb);
   row.appendChild(title);
@@ -1721,10 +1746,7 @@ function buildBatchItemBlock(item, index) {
   downloadBtn.addEventListener('click', async () => {
     if (isItemDone(item) || await completeBatchItem(item)) downloadDataUrl(item.resultFilename, item.resultDataUrl);
   });
-  const removeBtn = document.createElement('button');
-  removeBtn.type = 'button';
-  removeBtn.textContent = '移除';
-  removeBtn.addEventListener('click', () => removeBatchItem(item.id));
+  const removeBtn = createRemoveButton(() => removeBatchItem(item.id));
   headBtns.appendChild(completeBtn);
   headBtns.appendChild(downloadBtn);
   headBtns.appendChild(removeBtn);
