@@ -281,7 +281,14 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 8px;
+    cursor: pointer;
   }
+  .batch-item-head .label { display: inline-flex; align-items: center; gap: 6px; }
+  .collapse-chevron { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; background: rgba(0, 74, 173, 0.08); }
+  .collapse-chevron svg { width: 12px; height: 12px; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .batch-item-head:hover .collapse-chevron { background: rgba(0, 74, 173, 0.16); }
+  .batch-item-block { cursor: pointer; }
+  .batch-item-block > *:not(.batch-item-head) { cursor: auto; }
   .batch-item-head .label { font-size: 13px; font-weight: 600; }
   .batch-item-head button {
     padding: 4px 10px;
@@ -388,44 +395,79 @@
   .example-card figcaption strong { display: block; margin-bottom: 4px; font-size: 13px; }
   .example-card figcaption ul { margin: 0; padding-left: 16px; }
   .example-card figcaption li { margin-bottom: 2px; }
-  .batch-thumbs {
+  /* Thumbnail showcase: framed like the big preview, one scrollable row. */
+  .thumbs-shelf {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 14px 12px;
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 30px 70px -36px rgba(0, 43, 102, 0.35);
+  }
+  .thumbs-shelf[hidden] { display: none; }
+  .shelf-nav {
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    margin-top: 14px;
   }
+  .shelf-nav svg { width: 14px; height: 14px; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .shelf-nav:disabled { opacity: .3; }
+  .batch-thumbs {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    padding: 6px 4px;
+    scrollbar-width: thin;
+  }
+  .batch-thumbs > * { flex: 0 0 auto; scroll-snap-align: center; }
   .batch-thumbs img {
-    width: 64px;
-    height: 64px;
+    width: 104px;
+    height: 104px;
     object-fit: cover;
-    border-radius: 6px;
-    border: 1px solid var(--border);
+    border-radius: 14px;
+    border: 2px solid transparent;
     cursor: pointer;
+    box-shadow: 0 8px 18px -12px rgba(0, 30, 70, 0.6);
+    transition: transform .15s, border-color .15s;
   }
-  .batch-thumbs img:hover, .batch-thumbs .thumb-placeholder:hover { border-color: var(--accent); }
+  .batch-thumbs img:hover, .batch-thumbs .thumb-placeholder:hover { border-color: rgba(0, 74, 173, 0.4); transform: translateY(-2px); }
   .batch-thumbs img.active-thumb, .batch-thumbs .thumb-placeholder.active-thumb {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 74, 173, 0.2), 0 8px 18px -12px rgba(0, 30, 70, 0.6);
   }
   .batch-thumbs .thumb-placeholder {
-    width: 64px;
-    height: 64px;
-    border-radius: 6px;
-    border: 1px dashed var(--border);
+    width: 104px;
+    height: 104px;
+    border-radius: 14px;
+    border: 2px dashed rgba(0, 74, 173, 0.25);
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
-    padding: 4px;
-    background: var(--bg);
+    gap: 6px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.8);
     text-align: center;
     overflow: hidden;
+    transition: transform .15s, border-color .15s;
   }
   .batch-thumbs .thumb-title {
-    font-size: 9px;
+    font-size: 12px;
     color: var(--text);
     line-height: 1.2;
     display: -webkit-box;
@@ -434,7 +476,7 @@
     overflow: hidden;
   }
   .batch-thumbs .thumb-tag {
-    font-size: 9px;
+    font-size: 11px;
     color: #d97706;
     font-weight: 700;
   }
@@ -627,8 +669,8 @@
           <canvas id="canvas" width="1080" height="1080"></canvas>
           <textarea class="title-overlay" id="singlePreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1"></textarea>
         </div>
-        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
         <div class="status" id="status">請先上傳圖片並輸入標題</div>
+        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
       </div>
 
       <div id="batchPreview" style="display:none">
@@ -636,10 +678,14 @@
           <canvas id="batchCanvas" width="1080" height="1080"></canvas>
           <textarea class="title-overlay" id="batchPreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1" hidden></textarea>
         </div>
-        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
+        <div class="thumbs-shelf" id="batchThumbsShelf" hidden>
+          <button type="button" class="shelf-nav" id="batchThumbsPrev" aria-label="往左看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 3l-3 3 3 3"/></svg></button>
+          <div class="batch-thumbs" id="batchThumbs"></div>
+          <button type="button" class="shelf-nav" id="batchThumbsNext" aria-label="往右看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3"/></svg></button>
+        </div>
         <div class="preview-title" id="batchPreviewTitle"></div>
-        <div class="batch-thumbs" id="batchThumbs"></div>
         <div class="status" id="batchStatus">按某一組的「完成」後，預覽會顯示在這裡</div>
+        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
       </div>
     </div>
   </div>
@@ -697,10 +743,10 @@
       <h3>批次模式</h3>
       <ul>
         <li>按「＋ 再做一張」可新增一組新的圖卡設定，每一組都能各自設定類別、標題、字級與背景。</li>
-        <li>每組按「完成」可單獨產生該組的圖，完成後該組會自動收合，要再編輯可點預覽下方的縮圖或該列；或按上方「全部完成」一次產生所有尚未完成的組別，缺標題或背景的組別會被略過並提示原因。</li>
+        <li>每組按「完成」可單獨產生該組的圖，完成後該組會自動收合，要再編輯可點預覽下方的縮圖或該列；編輯中想先收起來，點該組標頭（「圖片 #N」那一列）或編輯框外圍即可，不必按完成；或按上方「全部完成」一次產生所有尚未完成的組別，缺標題或背景的組別會被略過並提示原因。</li>
         <li>每組編輯區上方的「下載」可以只下載這一組（尚未完成會先自動完成）；「移除」會先跳出確認框，避免誤刪。</li>
         <li>同時間只會展開一組的編輯區，其餘組別（不論完成與否）都會收合成一列；點任一列可重新展開該組編輯。</li>
-        <li>右側預覽區的畫布下方，會以縮小圖顯示「每一組」的狀態：已完成的顯示成品縮圖，尚未完成的則保留標題文字並標示「未完成」。點任一張縮圖都會跳到並展開對應組別的編輯區。</li>
+        <li>右側預覽區的畫布下方，會以可左右滑動的縮圖展示窗（可用兩側箭頭、滾輪或觸控板左右捲動）顯示「每一組」的狀態：已完成的顯示成品縮圖，尚未完成的則保留標題文字並標示「未完成」。點任一張縮圖都會跳到並展開對應組別的編輯區。</li>
         <li>預覽畫布下方會同步顯示該組標題（換行處自動接成全形空格），方便在很多組別時快速確認目前看的是哪一張。</li>
         <li>預覽區會懸浮跟隨畫面捲動，即使批次組數很多、編輯區拉得很長，也不用捲回最上方才能看到預覽。</li>
         <li>拖曳圖片檔案或直接 Ctrl+V 貼上圖片，可以直接對著「標題」輸入框操作，不必先點進下方的圖片上傳區。</li>
@@ -1450,6 +1496,20 @@ const batchCanvas = document.getElementById('batchCanvas');
 const batchCtx = batchCanvas.getContext('2d');
 const batchStatus = document.getElementById('batchStatus');
 const batchThumbs = document.getElementById('batchThumbs');
+const batchThumbsShelf = document.getElementById('batchThumbsShelf');
+const batchThumbsPrev = document.getElementById('batchThumbsPrev');
+const batchThumbsNext = document.getElementById('batchThumbsNext');
+batchThumbsPrev.addEventListener('click', () => batchThumbs.scrollBy({ left: -batchThumbs.clientWidth * 0.8 }));
+batchThumbsNext.addEventListener('click', () => batchThumbs.scrollBy({ left: batchThumbs.clientWidth * 0.8 }));
+// A plain mouse wheel scrolls the row sideways (trackpads already do).
+batchThumbs.addEventListener('wheel', e => {
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+  if (batchThumbs.scrollWidth <= batchThumbs.clientWidth) return;
+  e.preventDefault();
+  batchThumbs.scrollBy({ left: e.deltaY });
+}, { passive: false });
+batchThumbs.addEventListener('scroll', () => updateThumbNav(), { passive: true });
+new ResizeObserver(() => updateThumbNav()).observe(batchThumbs);
 const batchPreviewTitle = document.getElementById('batchPreviewTitle');
 
 let batchItems = [];   // { id, title, bg: {type,image,color}, frame, fontSize, fontSizeTouched, done, resultDataUrl, resultFilename }
@@ -1579,6 +1639,23 @@ function renderBatchThumbs() {
     el.addEventListener('click', () => expandBatchItem(item));
     batchThumbs.appendChild(el);
   });
+  batchThumbsShelf.hidden = batchItems.length === 0;
+  // Bring the open item into view, but only when it changes — this runs on
+  // every keystroke of a title, and the row mustn't jump back while browsing.
+  const active = batchThumbs.querySelector('.active-thumb');
+  if (active && expandedBatchItemId !== lastCenteredThumbId) {
+    batchThumbs.scrollTo({ left: active.offsetLeft - (batchThumbs.clientWidth - active.offsetWidth) / 2 });
+  }
+  lastCenteredThumbId = expandedBatchItemId;
+  updateThumbNav();
+}
+
+let lastCenteredThumbId = null;
+
+function updateThumbNav() {
+  const max = batchThumbs.scrollWidth - batchThumbs.clientWidth;
+  batchThumbsPrev.disabled = batchThumbs.scrollLeft <= 1;
+  batchThumbsNext.disabled = batchThumbs.scrollLeft >= max - 1;
 }
 
 // Replace only this item's own node in place (keeps every other block/row
@@ -1747,11 +1824,30 @@ function buildBatchItemBlock(item, index) {
     if (isItemDone(item) || await completeBatchItem(item)) downloadDataUrl(item.resultFilename, item.resultDataUrl);
   });
   const removeBtn = createRemoveButton(() => removeBatchItem(item.id));
-  headBtns.appendChild(completeBtn);
   headBtns.appendChild(downloadBtn);
+  headBtns.appendChild(completeBtn);
   headBtns.appendChild(removeBtn);
   head.appendChild(label);
   head.appendChild(headBtns);
+
+  // Clicking the open block's header, or its frame (the padding around the
+  // fields), folds it back into its row — same as 完成 but without finishing.
+  const chevron = document.createElement('span');
+  chevron.className = 'collapse-chevron';
+  chevron.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 7.5l3-3 3 3"/></svg>';
+  label.prepend(chevron);
+  head.title = '點一下收合';
+  // Only a press that *started* on the header/frame counts: a drag that
+  // begins inside a field (e.g. scrubbing the font size) and is released
+  // elsewhere also produces a click on their common ancestor, the block.
+  let pressedOnFrame = false;
+  block.addEventListener('pointerdown', e => {
+    pressedOnFrame = e.target === block || (head.contains(e.target) && !e.target.closest('button'));
+  });
+  block.addEventListener('click', e => {
+    const onFrame = e.target === block || (head.contains(e.target) && !e.target.closest('button'));
+    if (pressedOnFrame && onFrame) collapseBatchItems();
+  });
 
   const frameToggle = document.createElement('div');
   frameToggle.className = 'bg-toggle';
