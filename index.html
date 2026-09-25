@@ -553,6 +553,7 @@
     max-width: 100%;
   }
   .status:empty { display: none; }
+  .status::before { content: "📢"; margin-right: 8px; }
   .bg-toggle button.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 12px -6px rgba(0, 74, 173, 0.55); }
 
   .edit-box, .batch-item-block {
