@@ -158,6 +158,10 @@
   }
   .canvas-wrap .title-overlay::selection { background: rgba(61, 127, 224, 0.45); }
   .canvas-wrap .title-overlay.editing { pointer-events: auto; border-style: solid; border-color: #fff; }
+  /* Light solid background → headline is drawn dark, so the box follows. */
+  .canvas-wrap .title-overlay.on-light { caret-color: #111; border-color: rgba(17, 17, 17, 0.7); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4); }
+  .canvas-wrap .title-overlay.on-light::placeholder { color: rgba(17, 17, 17, 0.75); text-shadow: none; }
+  .canvas-wrap .title-overlay.on-light.editing { border-color: #111; }
   .canvas-wrap .title-overlay[hidden] { display: none; }
   canvas.pannable { cursor: grab; touch-action: none; }
   canvas.pannable.panning { cursor: grabbing; }
@@ -192,8 +196,12 @@
     font-size: 16px;
     font-weight: 600;
     cursor: ns-resize;
+    user-select: none;
+    touch-action: none;
   }
   .font-stepper .step-value:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .font-stepper.scrubbing .step-value { color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  .font-stepper.scrubbing, .font-stepper.scrubbing * { cursor: ns-resize; }
   .font-stepper.locked .step-value { cursor: not-allowed; color: var(--muted); }
   .preview-title:empty { display: none; }
   .mode-switch { display: flex; gap: 6px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
@@ -615,7 +623,7 @@
         <li>先選擇「類別」：新聞（藍框）或娛樂（粉框），會影響套版右上角的角標樣式。</li>
         <li>在「標題」欄貼上或輸入文字，按 Enter 換行，會照原樣分行顯示在圖上。</li>
         <li>「背景」可選擇「上傳圖片」或「純色背景」：上傳圖片支援點擊選取、拖曳檔案，或直接 Ctrl+V 貼上剪貼簿圖片；純色背景則從色票中點選一個顏色。</li>
-        <li>「字級」對照的是 Canva 字級：使用圖片背景（點選、拖曳或貼上）時固定為 50，無法調整；純色背景預設 60，可用左右按鈕或在數字上滾動滾輪調整（範圍 50～70）。</li>
+        <li>「字級」對照的是 Canva 字級：使用圖片背景（點選、拖曳或貼上）時固定為 50，無法調整；純色背景預設 60，可用左右按鈕、在數字上按住滑鼠上下拖曳（往上變大、往下變小），或滾動滾輪調整（範圍 50～70）。</li>
         <li>有標題且有背景（圖片或顏色）後，按「下載圖片」即可存成 PNG 檔（1080×1080）。</li>
         <li>「全部清除」會清空目前單張模式的所有設定，回到初始狀態（會先跳出確認框）。</li>
       </ul>
@@ -723,7 +731,7 @@ const PINK_HUE_START = 320;
 const redFamilyHue = hue => (hue >= PINK_HUE_START ? hue - 360 : hue);
 const PRESET_COLORS = [
   '#c80000','#ff3916','#5fa646','#4c8b74','#ff9900','#1c6294','#cb6ce6','#d84040','#ff7ead','#004aad',
-  '#000000','#48413f','#a6a6a6','#5CAFCC','#FFEBC4','#7261C9','#D13885','#3667A8','#3F8C59'
+  '#000000','#48413f','#a6a6a6','#5CAFCC','#FFDD30','#7261C9','#D13885','#3667A8','#3F8C59'
 ].sort((a, b) => {
   const ha = hexToHSB(a), hb = hexToHSB(b);
   const aNeutral = ha.saturation < NEUTRAL_SATURATION, bNeutral = hb.saturation < NEUTRAL_SATURATION;
@@ -880,6 +888,30 @@ function createFontStepper({ initial, onChange }) {
     e.preventDefault();
     setValue(value + (e.deltaY < 0 ? 1 : -1), true);
   }, { passive: false });
+  // Press on the number and drag up/down to scrub the value (up = bigger),
+  // one step per SCRUB_PX of vertical travel.
+  const SCRUB_PX = 8;
+  let scrub = null;
+  valueEl.addEventListener('pointerdown', e => {
+    if (locked || e.button !== 0) return;
+    e.preventDefault();
+    scrub = { id: e.pointerId, startY: e.clientY, startValue: value };
+    valueEl.setPointerCapture(e.pointerId);
+    root.classList.add('scrubbing');
+  });
+  valueEl.addEventListener('pointermove', e => {
+    if (!scrub || e.pointerId !== scrub.id) return;
+    const next = scrub.startValue + Math.round((scrub.startY - e.clientY) / SCRUB_PX);
+    const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, next));
+    if (clamped !== value) setValue(clamped, true);
+  });
+  const endScrub = e => {
+    if (!scrub || e.pointerId !== scrub.id) return;
+    scrub = null;
+    root.classList.remove('scrubbing');
+  };
+  valueEl.addEventListener('pointerup', endScrub);
+  valueEl.addEventListener('pointercancel', endScrub);
   valueEl.addEventListener('keydown', e => {
     if (e.key === 'ArrowUp') { e.preventDefault(); setValue(value + 1, true); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); setValue(value - 1, true); }
@@ -924,7 +956,27 @@ function parseLines(titleText) {
   return titleText.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
 }
 
-function drawTitle(targetCtx, lines, baseSize, centerY) {
+// Light solid backgrounds get dark headline text. Threshold is WCAG relative
+// luminance: above it white text drops below ~2.5:1 contrast (yellow, orange,
+// light pink/gray/blue), while the saturated news colors (reds, greens,
+// blues, purples) stay white as in the house style.
+const DARK_TEXT_LUMINANCE = 0.35;
+const TITLE_LIGHT = '#ffffff';
+const TITLE_DARK = '#111111';
+
+function relativeLuminance(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function usesDarkTitle(bg) {
+  return !!(bg && bg.type === 'color' && bg.color && relativeLuminance(bg.color) > DARK_TEXT_LUMINANCE);
+}
+
+function drawTitle(targetCtx, lines, baseSize, centerY, color = TITLE_LIGHT) {
   if (lines.length === 0) return;
 
   const paddingX = 60;
@@ -939,7 +991,7 @@ function drawTitle(targetCtx, lines, baseSize, centerY) {
 
   lines.forEach((line, i) => {
     const y = centerY - (n - 1) * lineHeight / 2 + i * lineHeight;
-    targetCtx.fillStyle = '#ffffff';
+    targetCtx.fillStyle = color;
     targetCtx.fillText(line, SIZE / 2, y);
   });
 }
@@ -953,7 +1005,7 @@ function renderComposite(targetCtx, source, titleText, fontSize, frame) {
     targetCtx.fillStyle = source.color;
     targetCtx.fillRect(0, 0, SIZE, SIZE);
     drawLogoBottom(targetCtx);
-    drawTitle(targetCtx, parseLines(titleText), fontSize, SIZE / 2);
+    drawTitle(targetCtx, parseLines(titleText), fontSize, SIZE / 2, usesDarkTitle(source) ? TITLE_DARK : TITLE_LIGHT);
   } else {
     drawImageCover(targetCtx, source.image, source.view);
     drawGradient(targetCtx);
@@ -969,6 +1021,7 @@ const TITLE_PAD_X = 60;
 const TITLE_BOX_PAD_Y = 12;
 
 function layoutTitleOverlay(overlay, canvasEl, bg, title, canvaSize) {
+  overlay.classList.toggle('on-light', usesDarkTitle(bg));
   const k = canvasEl.clientWidth / SIZE;
   if (!k) return;
   const measured = parseLines(title);
