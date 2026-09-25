@@ -28,14 +28,15 @@
     --accent-soft: #e8f0fc;
     --success: #16a34a;
     --shadow: 0 24px 60px -30px rgba(0, 43, 102, 0.35);
-    --ui-font: "WHZ-Heavy", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    /* UI text uses the OS's own CJK face (real light/regular/bold weights, crisp
+       at small sizes); the heavy template face is kept for the page title only. */
+    --ui-font: system-ui, -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    --brand-font: "WHZ-Heavy", "PingFang TC", "Microsoft JhengHei", sans-serif;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: var(--ui-font);
-    /* WHZ-Heavy has a single (heavy) weight — never fake-bold it further. */
-    font-synthesis: none;
     background: var(--bg);
     color: var(--text);
     padding: 24px;
@@ -455,7 +456,7 @@
   }
   .wrap { max-width: 1180px; }
   header { text-align: center; margin-bottom: 30px; }
-  h1 { font-size: 38px; letter-spacing: .06em; color: var(--accent); margin-bottom: 8px; }
+  h1 { font-family: var(--brand-font); font-weight: normal; font-synthesis: none; font-size: 38px; letter-spacing: .06em; color: var(--accent); margin-bottom: 8px; }
   p.sub { max-width: 56ch; margin: 0 auto; }
   .help-btn { margin-top: 14px; }
   .layout { grid-template-columns: 380px 1fr; gap: 28px; }
