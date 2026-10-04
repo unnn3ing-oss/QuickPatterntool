@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>圖片套版產生器</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="sidepanel.css">
+</head>
+<body class="sidepanel">
+<div class="wrap">
+  <header>
+    <h1>圖片套版產生器</h1>
+    <button type="button" id="helpBtn" class="help-btn">使用說明</button>
+  </header>
+
+  <!-- 版面順序：預覽（固定）→ 快速產圖 → 複製圖文格式 → 新聞／娛樂 → 單格編輯區 -->
+  <div class="layout">
+    <div class="preview-col">
+      <div id="singlePreview">
+        <div class="canvas-wrap">
+          <canvas id="canvas" width="1080" height="1080"></canvas>
+          <textarea class="title-overlay" id="singlePreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1"></textarea>
+        </div>
+        <div class="status" id="status">請先上傳圖片並輸入標題</div>
+      </div>
+
+      <!-- 批次模式在側邊欄不使用；保留這些元素是因為共用的 app.js 會找它們 -->
+      <div id="batchPreview" style="display:none">
+        <div class="canvas-wrap">
+          <canvas id="batchCanvas" width="1080" height="1080"></canvas>
+          <textarea class="title-overlay" id="batchPreviewTitleInput" hidden></textarea>
+        </div>
+        <div class="thumbs-shelf" id="batchThumbsShelf" hidden>
+          <button type="button" id="batchThumbsPrev"></button>
+          <div class="batch-thumbs" id="batchThumbs"></div>
+          <button type="button" id="batchThumbsNext"></button>
+        </div>
+        <div class="preview-title" id="batchPreviewTitle"></div>
+        <div class="status" id="batchStatus"></div>
+      </div>
+    </div>
+
+    <section class="card sp-card" id="quickFill">
+      <h2>快速產圖</h2>
+      <div class="qf-row">
+        <input type="url" id="qfUrl" placeholder="貼上文章網址" autocomplete="off" spellcheck="false">
+        <button type="button" class="primary" id="qfBtn">快速產圖</button>
+      </div>
+      <div class="qf-status" id="qfStatus" role="status"></div>
+    </section>
+
+    <section class="card sp-card" id="copyFormat">
+      <h2>複製圖文格式</h2>
+      <textarea id="qfCopyText" rows="4" placeholder="【標題】&#10;（圖／OOO 攝）&#10;#標籤 #標籤 #標籤" spellcheck="false"></textarea>
+      <button type="button" class="success" id="qfCopyBtn" disabled>複製圖文格式</button>
+    </section>
+
+    <section class="card sp-card" id="frameCard">
+      <h2>套版</h2>
+      <div class="bg-toggle" id="singleFrameToggle">
+        <button type="button" class="active" data-frame="news">新聞（藍框）</button>
+        <button type="button" data-frame="entertainment">娛樂（粉框）</button>
+      </div>
+    </section>
+
+    <section class="card sp-card" id="singleFields">
+      <h2>編輯</h2>
+      <div class="edit-box">
+        <div class="field">
+          <label for="title">標題（Enter 換行）</label>
+          <textarea id="title" placeholder="黑人心梗主因曝！&#10;醫示警「1行為」&#10;悄悄埋下未爆彈"></textarea>
+        </div>
+
+        <div class="field">
+          <label>字級（對照 Canva 字級）</label>
+          <div id="singleFontStepper"></div>
+          <div class="hint" id="singleFontHint">圖片背景固定使用字級 50，無法調整</div>
+        </div>
+
+        <div class="field" style="margin-bottom:0">
+          <label>背景</label>
+          <div id="singleBgPicker"></div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button id="resetBtn" style="flex:1">全部清除</button>
+        <button id="copyImageBtn" style="flex:1" disabled>複製圖片</button>
+        <button class="primary" id="downloadBtn" style="flex:1" disabled>下載圖片</button>
+      </div>
+    </section>
+
+    <section class="card sp-card" id="updateCard">
+      <h2>版本更新</h2>
+      <div class="up-status" id="upStatus">尚未檢查更新</div>
+      <div class="btn-row">
+        <button type="button" id="upCheckBtn" style="flex:1">檢查更新</button>
+        <button type="button" class="primary" id="upApplyBtn" style="flex:1" hidden>更新到最新版</button>
+      </div>
+      <div class="hint" id="upHint"></div>
+    </section>
+  </div>
+
+  <!-- 共用的 app.js 需要的元素（側邊欄不顯示） -->
+  <div hidden>
+    <button type="button" id="modeSingleBtn"></button>
+    <button type="button" id="modeBatchBtn"></button>
+    <div id="batchFields">
+      <button id="batchGenerateBtn"></button>
+      <button id="batchDownloadAllBtn"></button>
+      <div id="batchItemsList"></div>
+      <button id="addBatchItemBtn"></button>
+      <button id="batchResetBtn"></button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="helpOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>使用說明</h2>
+      <button type="button" id="helpCloseBtn" class="modal-close" aria-label="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <h3>快速產圖</h3>
+      <ul>
+        <li>貼上文章網址，按「快速產圖」（或在網址欄按 Enter）。</li>
+        <li>標題會帶進編輯區，遇到空格、「！」「？」就換行；文章的第一張圖會放進背景，抓不到會自動換下一張。</li>
+        <li>圖說和 hashtag 會一起抓好，放進「複製圖文格式」。</li>
+      </ul>
+      <h3>複製圖文格式</h3>
+      <ul>
+        <li>格式是：第一行【標題】（不換行）、第二行圖說、第三行前三個 hashtag（空格隔開）。</li>
+        <li>文字框可以直接修改，按「複製圖文格式」就會複製目前框內的內容。</li>
+      </ul>
+      <h3>套版與編輯</h3>
+      <ul>
+        <li>選新聞（藍框）或娛樂（粉框）；標題、背景都可以再手動改，也能直接貼上或拖曳圖片換圖。</li>
+        <li>預覽上滾輪縮放、拖曳調整位置，點兩下可直接輸入標題。</li>
+        <li>按「下載圖片」存成 1080×1080 的 PNG；按「複製圖片」會把成品圖直接放進剪貼簿，可以直接貼到其他地方。</li>
+      </ul>
+      <h3>版本更新</h3>
+      <ul>
+        <li>「檢查更新」會和 GitHub 上最新版本比對；有新版時按「更新到最新版」。</li>
+        <li>第一次更新需要選擇這個擴充功能所在的資料夾（之後會記住）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-head">
+      <h2 id="confirmTitle">確定要全部清除？</h2>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0" id="confirmMessage">這會清空目前畫面上的所有設定，且無法復原。</p>
+      <div class="btn-row" style="justify-content:flex-end; margin-top:16px">
+        <button type="button" id="confirmCancelBtn">取消</button>
+        <button type="button" id="confirmOkBtn" class="primary">全部清除</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="updater.js"></script>
+<script src="app.js"></script>
+<script src="quickfill.js"></script>
+<script src="sidepanel.js"></script>
+</body>
+</html>
