@@ -12,6 +12,25 @@
   }
   const fmtDate = iso => new Date(iso).toLocaleString('zh-TW', { hour12: false });
 
+  // 還沒選過資料夾時，先在按鈕旁邊寫明資料夾在哪（系統的選資料夾視窗會蓋住畫面，所以要事先講）
+  async function refreshFolderHint() {
+    hintEl.textContent = '';
+    if (await Updater.hasSavedFolder()) { applyBtn.textContent = '更新到最新版'; return; }
+    applyBtn.textContent = '選擇資料夾並更新';
+    hintEl.append(
+      '第一次更新要先選擇這個擴充功能所在的資料夾（只需選這一次）。',
+      document.createElement('br'),
+      '資料夾位置：開啟下面的「詳細資料」頁，找到「來源」那一行的路徑。',
+      document.createElement('br'));
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'up-link';
+    link.id = 'upOpenExt';
+    link.textContent = '開啟擴充功能詳細資料頁';
+    link.addEventListener('click', () => chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` }));
+    hintEl.append(link);
+  }
+
   async function check() {
     checkBtn.disabled = true;
     show('檢查中…');
@@ -21,6 +40,7 @@
       if (latest.hasUpdate) {
         show(`有新版本（${latest.changed.length} 個檔案不同）：${latest.message}｜${fmtDate(latest.date)}`, true);
         applyBtn.hidden = false;
+        await refreshFolderHint();
         chrome.action.setBadgeText({ text: '新' }).catch(() => {});
         chrome.action.setBadgeBackgroundColor({ color: '#d92d20' }).catch(() => {});
       } else {
@@ -41,11 +61,7 @@
     applyBtn.disabled = checkBtn.disabled = true;
     try {
       let dir = await Updater.getFolder();
-      if (!dir) {
-        hintEl.textContent = '請選擇這個擴充功能所在的資料夾（就是「載入未封裝項目」時選的那個）。只需要選這一次。';
-        dir = await Updater.pickFolder();
-        hintEl.textContent = '';
-      }
+      if (!dir) dir = await Updater.pickFolder();
       await Updater.apply(dir, latest, msg => show(msg));
       show('更新完成，重新載入擴充功能…');
       setTimeout(() => chrome.runtime.reload(), 400);

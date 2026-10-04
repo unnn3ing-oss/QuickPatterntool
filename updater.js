@@ -116,6 +116,11 @@
     return dir;
   }
 
+  // 之前有沒有選過資料夾（只看有沒有記錄，不會跳權限詢問）
+  async function hasSavedFolder() {
+    try { return !!(await kv('readonly', s => s.get('folder'))); } catch (e) { return false; }
+  }
+
   // 取回之前選過的資料夾；權限過期時（需使用者操作）重新要求
   async function getFolder() {
     let dir;
@@ -157,5 +162,5 @@
     }
   }
 
-  root.Updater = { REPO, checkLatest, pickFolder, getFolder, apply, gitBlobSha };
+  root.Updater = { REPO, checkLatest, pickFolder, getFolder, hasSavedFolder, apply, gitBlobSha };
 })(self);

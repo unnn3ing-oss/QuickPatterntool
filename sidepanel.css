@@ -52,3 +52,10 @@ body.sidepanel { padding: 12px 12px 28px; background-attachment: fixed; }
 
 #actionsCard { padding: 12px 16px; }
 #actionsCard .btn-row { margin-top: 0; }
+
+#upHint { line-height: 1.6; }
+.up-link {
+  margin-top: 6px; padding: 0; border: none; background: none; box-shadow: none; border-radius: 0;
+  color: var(--accent); font-size: 12.5px; text-decoration: underline; cursor: pointer;
+}
+.up-link:hover:not(:disabled) { background: none; color: var(--accent-dark); }
