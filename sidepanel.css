@@ -24,8 +24,8 @@ body.sidepanel { padding: 12px 12px 28px; background-attachment: fixed; }
 }
 .sidepanel .canvas-wrap { padding: 10px; border-radius: 22px; }
 .sidepanel canvas { border-radius: 14px; max-width: max(200px, min(100%, 46vh)); }
-.sidepanel .status { margin: 6px auto 0; padding: 4px 12px; font-size: 12px; border-radius: 999px; }
-.sidepanel .status::before { margin-right: 6px; }
+/* 預覽下方的「預覽已更新」狀態列不顯示（元素保留，共用的 app.js 會寫入它） */
+.sidepanel .status { display: none; }
 
 .sidepanel .card.sp-card { padding: 14px 16px; border-radius: 22px; }
 .sp-card h2 { margin: 0 0 10px; font-size: 15px; color: #22324d; }
@@ -49,3 +49,6 @@ body.sidepanel { padding: 12px 12px 28px; background-attachment: fixed; }
 
 #qfCopyText { min-height: 92px; margin-bottom: 10px; font-size: 14px; line-height: 1.6; }
 #qfCopyBtn { width: 100%; padding: 10px; }
+
+#actionsCard { padding: 12px 16px; }
+#actionsCard .btn-row { margin-top: 0; }
