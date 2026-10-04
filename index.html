@@ -10,13 +10,17 @@
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="deploy.css">
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>圖片套版產生器</h1>
     <p class="sub">貼上標題（換行照原樣分行）、選擇娛樂（粉框）或新聞（藍框），上傳圖片或選純色背景，自動套上 TVBS 版型</p>
-    <button type="button" id="helpBtn" class="help-btn">📖 使用說明</button>
+    <div class="header-actions">
+      <button type="button" id="helpBtn" class="help-btn">📖 使用說明</button>
+      <button type="button" id="deployBtn" class="help-btn">🧩 部署到 Chrome 插件</button>
+    </div>
   </header>
 
   <div class="layout">
@@ -186,6 +190,36 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="deployOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>部署到 Chrome 插件</h2>
+      <button type="button" id="deployCloseBtn" class="modal-close" aria-label="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <p>把這個工具裝成 Chrome 的側邊欄插件（可貼文章網址快速產圖）。網頁沒辦法直接替瀏覽器安裝插件，所以分兩步：先把最新版檔案準備好，再到 Chrome 載入一次。</p>
+
+      <h3>第 1 步：準備檔案（GitHub 上的最新版）</h3>
+      <div class="deploy-actions">
+        <button type="button" class="primary" id="deployPickBtn">選擇資料夾並寫入</button>
+        <button type="button" id="deployZipBtn">改下載 ZIP</button>
+      </div>
+      <div class="hint">請選一個「空的」資料夾（選取視窗裡可按「新增資料夾」）。Chrome 可能不允許直接選「下載」「文件」「桌面」本身，請選裡面的新資料夾。</div>
+      <div class="deploy-status" id="deployStatus" role="status"></div>
+
+      <h3>第 2 步：到 Chrome 載入</h3>
+      <ol>
+        <li>在網址列開啟 <code>chrome://extensions</code> <button type="button" class="deploy-link" id="deployCopyUrl">複製網址</button>（網頁不能直接開啟這個頁面）</li>
+        <li>打開右上角的「開發人員模式」。</li>
+        <li>按「載入未封裝項目」，選第 1 步的資料夾（用 ZIP 的話，先解壓縮再選）。</li>
+        <li>點工具列的圖示（可先釘選），就會開啟側邊欄。</li>
+      </ol>
+      <div class="hint">之後要更新，在側邊欄最下面按「檢查更新」就好，不用再回到這裡。</div>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
+<script src="deploy.js"></script>
 </body>
 </html>
