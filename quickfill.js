@@ -4,9 +4,10 @@
 // 需要在 app.js 之後載入（會呼叫它的 singleBgPicker 並透過 DOM 填標題）。
 (function (root) {
   // ---- 標題換行 ----------------------------------------------------------------
-  // 每個空格（半形／全形）換一行（空格本身丟掉）；「！」「？」之後也換行，
-  // 連續的「！？」和緊接著的右引號／右括號留在同一行。
-  const BREAK_AFTER = /[！？!?]/;
+  // 每個空格（半形／全形）換一行（空格本身丟掉）；「！」「？」「：」之後也換行
+  // （標點留在上一行），連續的標點和緊接著的右引號／右括號留在同一行。
+  // 只認全形「：」，半形「:」常出現在時間（12:30）或網址裡，不拆。
+  const BREAK_AFTER = /[！？!?：]/;
   const CLOSERS = /[」』）)”’》】〕]/;
   function breakTitle(title) {
     const s = String(title).replace(/\s*\n\s*/g, ' ').trim();
@@ -27,18 +28,58 @@
   }
 
   // ---- 圖說（攝影／來源）-------------------------------------------------------
-  // 例：（圖／王小明攝）、（示意圖／Shutterstock達志影像）
-  const CREDIT_KIND = '(?:示意圖|資料照|圖|翻攝畫面|翻攝|照片|畫面)';
-  const CAPTION_RE = new RegExp(`[（(]\\s*${CREDIT_KIND}\\s*[／/][^（）()]{1,60}?[）)]`);
-  const CREDIT_PLAIN_RE = new RegExp(`^\\s*${CREDIT_KIND}\\s*[／/]\\s*\\S[^（）()]{0,60}$`);
+  // 直接抓括號「（…）」「(…)」裡的文字，例如：
+  //   （圖／王小明攝）、（示意圖／Shutterstock達志影像）、（組圖／沈伯洋辦公室提供、柯文哲臉書）
+  // 不再限定開頭一定要是「圖」「示意圖」…。不過括號在內文裡也很常見（「（記者王小明／台北報導）」），
+  // 所以依文字出現的位置分三級，位置越不可靠，認定越嚴格：
+  //   any    ：圖片自己的 figcaption，括號裡任何文字都算（有「／」的優先）
+  //   slash  ：圖片旁邊的文字、alt／title，要「短標籤／內容」的形式
+  //   strict ：整頁文字裡找，標籤還必須以「圖、照、片、畫面、影像、翻攝」等結尾
+  const SLASH_INNER = /^[^／/]{1,12}[／/]\s*\S/;
+  const STRICT_INNER = /^[^（）()／/\s]{0,10}(?:圖|照|片|畫面|影像|翻攝|攝影)\s*[／/]\s*\S/;
+  const MAX_CAPTION = 90;
+
   function normalizeCaption(s) {
     return s.replace(/\(/g, '（').replace(/\)/g, '）').replace(/\//, '／').replace(/\s+/g, ' ').trim();
   }
-  function pickCaption(text) {
+
+  // 找出最外層的括號群組（支援括號裡再有括號，半形全形混用）
+  function parenGroups(text) {
+    const out = [];
+    let depth = 0, start = -1;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '（' || ch === '(') { if (depth === 0) start = i; depth++; }
+      else if ((ch === '）' || ch === ')') && depth > 0) {
+        depth--;
+        if (depth === 0) out.push(text.slice(start, i + 1));
+      }
+    }
+    return out;
+  }
+
+  function pickCaption(text, mode = 'slash') {
     if (!text) return '';
-    const m = CAPTION_RE.exec(text);
-    if (m) return normalizeCaption(m[0]);
-    if (CREDIT_PLAIN_RE.test(text.trim())) return `（${normalizeCaption(text.trim())}）`;
+    const groups = parenGroups(text).filter(g => {
+      const inner = g.slice(1, -1).trim();
+      return inner && inner.length <= MAX_CAPTION;
+    });
+    const innerOf = g => g.slice(1, -1).trim();
+    if (mode === 'any') {
+      const hit = groups.find(g => SLASH_INNER.test(innerOf(g))) || groups[0];
+      if (hit) return normalizeCaption(hit);
+    } else if (mode === 'slash') {
+      const hit = groups.find(g => SLASH_INNER.test(innerOf(g)));
+      if (hit) return normalizeCaption(hit);
+    } else {
+      const hit = groups.find(g => STRICT_INNER.test(innerOf(g)));
+      if (hit) return normalizeCaption(hit);
+    }
+    // 沒有括號、整段就是「圖／來源」的寫法時，自己補上括號
+    const plain = text.trim();
+    if (mode !== 'strict' && plain.length <= MAX_CAPTION && STRICT_INNER.test(plain) && !/[（）()]/.test(plain)) {
+      return `（${normalizeCaption(plain)}）`;
+    }
     return '';
   }
 
@@ -91,7 +132,7 @@
   function captionForImg(img) {
     const fig = img.closest('figure');
     if (fig) {
-      const c = pickCaption((fig.querySelector('figcaption') || {}).textContent || '');
+      const c = pickCaption((fig.querySelector('figcaption') || {}).textContent || '', 'any');
       if (c) return c;
     }
     let node = img;
@@ -100,12 +141,12 @@
         if (sib.tagName === 'IMG' || sib.querySelector('img')) break;   // 那是下一張圖，圖說不屬於這張
         const text = (sib.textContent || '').trim();
         if (text.length <= 200) {
-          const c = pickCaption(text);
+          const c = pickCaption(text, 'slash');
           if (c) return c;
         }
       }
     }
-    return pickCaption(img.getAttribute('alt') || '') || pickCaption(img.getAttribute('title') || '');
+    return pickCaption(img.getAttribute('alt') || '', 'slash') || pickCaption(img.getAttribute('title') || '', 'slash');
   }
 
   function collectHashtags(doc) {
@@ -178,7 +219,7 @@
     }
     bodyImages.forEach(b => { if (!images.some(i => sameImage(i.url, b.url))) images.push(b); });
 
-    const fallbackCaption = firstBodyCaption || pickCaption(scope.textContent || '');
+    const fallbackCaption = firstBodyCaption || pickCaption(scope.textContent || '', 'strict');
     return { title, tags: collectHashtags(doc), images, fallbackCaption };
   }
 
@@ -205,6 +246,7 @@
   const copyText = document.getElementById('qfCopyText');
   const copyBtn = document.getElementById('qfCopyBtn');
   const titleEl = document.getElementById('title');
+  const downloadBtn = document.getElementById('downloadBtn');
   const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
   let runId = 0;
 
@@ -237,6 +279,18 @@
     return null;
   }
 
+  // 等「這次」抓到的圖真的換進預覽才下載（不然會用到上一張圖）；失敗回傳 false
+  async function downloadWhenReady(previousImage) {
+    for (let i = 0; i < 60; i++) {
+      if (singleBg.image && singleBg.image !== previousImage && !downloadBtn.disabled) {
+        downloadBtn.click();
+        return true;
+      }
+      await new Promise(r => setTimeout(r, 75));
+    }
+    return false;
+  }
+
   async function run() {
     const url = normalizeUrl(urlInput.value);
     if (!url) { setStatus('請先貼上文章網址', 'err'); return; }
@@ -256,6 +310,7 @@
       titleEl.dispatchEvent(new Event('input'));
 
       const notes = [];
+      const previousImage = singleBg.image;
       let caption = article.fallbackCaption;
       const got = await loadFirstUsableImage(article.images, (i, n) => setStatus(`標題已帶入，抓取圖片 ${i + 1}/${n}…`));
       if (mine !== runId) return;
@@ -265,14 +320,20 @@
         singleBgPicker.handleFile(new File([got.blob], `article-image.${ext}`, { type }));
         caption = got.cand.caption || article.fallbackCaption;
       } else {
-        notes.push(article.images.length ? '圖片都抓不到，請手動放圖' : '網頁裡沒找到圖片，請手動放圖');
+        notes.push(article.images.length ? '圖片都抓不到，請手動放圖（不會自動下載）' : '網頁裡沒找到圖片，請手動放圖（不會自動下載）');
       }
       if (!caption) notes.push('沒抓到圖說');
       if (!article.tags.length) notes.push('沒抓到 hashtag');
 
       copyText.value = formatCopy({ title: article.title, caption, tags: article.tags });
       copyBtn.disabled = !copyText.value;
-      setStatus(notes.length ? `完成，但${notes.join('、')}` : '完成：標題、圖片、圖說、hashtag 都帶入了', notes.length ? 'warn' : 'ok');
+
+      // 有圖就直接下載成品；沒抓到圖就沒有東西可下載
+      const downloaded = got ? await downloadWhenReady(previousImage) : false;
+      if (mine !== runId) return;
+      if (got && !downloaded) notes.push('圖片沒能載入預覽，沒有自動下載');
+      const base = downloaded ? '完成：已下載圖片，標題、圖說、hashtag 也帶入了' : '完成';
+      setStatus(notes.length ? `${base}，但${notes.join('、')}` : base, notes.length ? 'warn' : 'ok');
     } catch (err) {
       if (mine === runId) setStatus(err.message || String(err), 'err');
     } finally {

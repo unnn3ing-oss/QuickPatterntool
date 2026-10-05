@@ -1,13 +1,20 @@
-/* Chrome 側邊欄版面：疊在 style.css 之後，只改版面，不動套版本身的樣式。 */
-body.sidepanel { padding: 12px 12px 28px; background-attachment: fixed; }
+/* Chrome 側邊欄版面：疊在 style.css 之後，只改版面，不動套版本身的樣式。
+   整個介面的尺寸由 --sp 一個倍率控制（1 = 原尺寸，0.85 = 縮小 15%）；
+   字級不會小於 12px，避免中文字太小難讀。想再縮小或放大，只改這個數字。 */
+body.sidepanel {
+  --sp: 0.85;
+  --pad: calc(12px * var(--sp));
+  background-attachment: fixed;
+  padding: var(--pad) var(--pad) calc(28px * var(--sp));
+}
 .sidepanel .wrap { max-width: none; }
 
-.sidepanel header { display: flex; align-items: center; justify-content: space-between; text-align: left; margin-bottom: 10px; }
-.sidepanel h1 { font-size: 22px; margin: 0; }
-.sidepanel .help-btn { margin: 0; padding: 6px 14px; font-size: 13px; }
+.sidepanel header { display: flex; align-items: center; justify-content: space-between; text-align: left; margin-bottom: calc(10px * var(--sp)); }
+.sidepanel h1 { font-size: calc(22px * var(--sp)); margin: 0; }
+.sidepanel .help-btn { margin: 0; padding: calc(6px * var(--sp)) calc(14px * var(--sp)); font-size: 12px; }
 
 /* 單欄：預覽固定在最上面，其餘區塊在它下面捲動 */
-.sidepanel .layout { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.sidepanel .layout { display: flex; flex-direction: column; align-items: stretch; gap: calc(12px * var(--sp)); }
 
 /* Required: the preview stays pinned while the sections below scroll — same
    rule as the web version. Don't make this a normal scrolling block. */
@@ -17,45 +24,77 @@ body.sidepanel { padding: 12px 12px 28px; background-attachment: fixed; }
   z-index: 10;
   max-height: none;
   overflow: visible;
-  margin: -12px -12px 0;
-  padding: 12px 12px 10px;
+  margin: calc(-1 * var(--pad)) calc(-1 * var(--pad)) 0;
+  padding: var(--pad) var(--pad) calc(10px * var(--sp));
   background: rgba(242, 246, 252, 0.94);
   backdrop-filter: blur(14px);
 }
-.sidepanel .canvas-wrap { padding: 10px; border-radius: 22px; }
-.sidepanel canvas { border-radius: 14px; max-width: max(200px, min(100%, 46vh)); }
+/* 預覽縮小 1/4：框的寬度 = 原本（受視窗寬度與 46vh 限制）的 75%，置中（不跟著 --sp 縮放） */
+.sidepanel .canvas-wrap {
+  padding: 10px; border-radius: 22px;
+  width: calc(min(100%, 46vh + 20px) * 0.75 + 5px);
+  min-width: 150px;
+  margin: 0 auto;
+}
+.sidepanel canvas { border-radius: 14px; max-width: 100%; }
 /* 預覽下方的「預覽已更新」狀態列不顯示（元素保留，共用的 app.js 會寫入它） */
 .sidepanel .status { display: none; }
 
-.sidepanel .card.sp-card { padding: 14px 16px; border-radius: 22px; }
-.sp-card h2 { margin: 0 0 10px; font-size: 15px; color: #22324d; }
-.sp-card .btn-row { margin-top: 12px; }
+/* 卡片與標題 */
+.sidepanel .card.sp-card { padding: calc(14px * var(--sp)) calc(16px * var(--sp)); border-radius: calc(22px * var(--sp)); }
+.sp-card h2 { margin: 0 0 calc(10px * var(--sp)); font-size: max(12px, calc(15px * var(--sp))); color: #22324d; }
+.sp-card .btn-row { margin-top: calc(12px * var(--sp)); gap: calc(8px * var(--sp)); }
 .sp-card .edit-box { padding: 0; background: transparent; border: none; box-shadow: none; }
+.sidepanel label { font-size: max(12px, calc(15px * var(--sp))); }
+.sidepanel .field { margin-bottom: calc(16px * var(--sp)); }
 
-.qf-row { display: flex; gap: 8px; }
+/* 按鈕、輸入框 */
+.sp-card .btn-row button, .qf-row button, #qfCopyBtn {
+  font-size: max(12px, calc(14px * var(--sp)));
+  padding: calc(10px * var(--sp)) calc(16px * var(--sp));
+}
+.qf-row { display: flex; gap: calc(8px * var(--sp)); }
 .qf-row input {
-  flex: 1; min-width: 0; padding: 10px 14px; font: inherit; font-size: 14px;
+  flex: 1; min-width: 0; padding: calc(10px * var(--sp)) calc(14px * var(--sp)); font: inherit; font-size: max(12px, calc(14px * var(--sp)));
   border: none; border-radius: 999px; background: var(--field-bg);
   box-shadow: inset 0 0 0 1px var(--border); color: var(--text);
 }
 .qf-row input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rgba(0, 74, 173, 0.12); }
-.qf-row button { flex: 0 0 auto; padding-left: 16px; padding-right: 16px; }
-.qf-status, .up-status { margin-top: 8px; font-size: 12.5px; color: var(--muted); min-height: 1em; }
+.qf-row button { flex: 0 0 auto; }
+.sidepanel textarea { font-size: max(12px, calc(15px * var(--sp))); padding: calc(10px * var(--sp)); border-radius: calc(16px * var(--sp)); }
+#qfCopyText { min-height: calc(92px * var(--sp)); margin-bottom: calc(10px * var(--sp)); font-size: max(12px, calc(14px * var(--sp))); line-height: 1.6; }
+#qfCopyBtn { width: 100%; }
+.sidepanel #title { min-height: calc(96px * var(--sp)); }
+
+.qf-status, .up-status { margin-top: calc(8px * var(--sp)); font-size: 12px; color: var(--muted); min-height: 1em; }
 .qf-status.ok { color: var(--success); }
 .qf-status.warn { color: #b45309; }
 .qf-status.err { color: #d92d20; }
 .up-status { margin-top: 0; }
 .up-status.has-update { color: #d92d20; font-weight: 600; }
+.sidepanel .hint { font-size: 12px; }
 
-#qfCopyText { min-height: 92px; margin-bottom: 10px; font-size: 14px; line-height: 1.6; }
-#qfCopyBtn { width: 100%; padding: 10px; }
-
-#actionsCard { padding: 12px 16px; }
+#actionsCard { padding: calc(12px * var(--sp)) calc(16px * var(--sp)); }
 #actionsCard .btn-row { margin-top: 0; }
+
+/* 新聞／娛樂切換、背景切換 */
+.sidepanel .bg-toggle { padding: calc(4px * var(--sp)); gap: calc(4px * var(--sp)); }
+.sidepanel .bg-toggle button { font-size: max(12px, calc(15px * var(--sp))); padding: calc(9px * var(--sp)) calc(6px * var(--sp)); }
+
+/* 字級步進器 */
+.sidepanel .font-stepper { gap: calc(8px * var(--sp)); }
+.sidepanel .font-stepper .step-btn { flex: 0 0 calc(44px * var(--sp)); height: calc(44px * var(--sp)); font-size: max(12px, calc(18px * var(--sp))); }
+.sidepanel .font-stepper .step-value { height: calc(44px * var(--sp)); font-size: max(12px, calc(18px * var(--sp))); }
+
+/* 背景圖上傳區：預覽已經在最上面，縮圖不用佔滿整個寬度 */
+.sidepanel .dropzone { padding: calc(20px * var(--sp)) calc(12px * var(--sp)); font-size: 12px; border-radius: calc(18px * var(--sp)); }
+.sidepanel .batch-item-thumb { width: 45%; margin: 0 auto; }
+.sidepanel .color-swatches { gap: calc(8px * var(--sp)); padding: calc(12px * var(--sp)); border-radius: calc(18px * var(--sp)); }
+.sidepanel .color-swatch { width: calc(30px * var(--sp)); height: calc(30px * var(--sp)); }
 
 #upHint { line-height: 1.6; }
 .up-link {
   margin-top: 6px; padding: 0; border: none; background: none; box-shadow: none; border-radius: 0;
-  color: var(--accent); font-size: 12.5px; text-decoration: underline; cursor: pointer;
+  color: var(--accent); font-size: 12px; text-decoration: underline; cursor: pointer;
 }
 .up-link:hover:not(:disabled) { background: none; color: var(--accent-dark); }
