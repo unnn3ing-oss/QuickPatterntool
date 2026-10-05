@@ -13,6 +13,14 @@
     statusEl.textContent = msg;
     statusEl.classList.toggle('has-update', !!hasUpdate);
   }
+  // 版本號顯示：已是最新「 v1.24」；有新版「 v1.25（目前 v1.23，3 個檔案不同）」
+  const ver = v => (v ? `v${v}` : '');
+  function updateHeadline(info) {
+    const n = `${info.changed.length} 個檔案不同`;
+    if (!info.version) return `有新版本（${n}）`;
+    if (info.version === info.localVersion) return `有新版本（版本號仍是 ${ver(info.version)}，${n}）`;
+    return `有新版本 ${ver(info.version)}（目前 ${ver(info.localVersion)}，${n}）`;
+  }
   const fmtDate = iso => new Date(iso).toLocaleString('zh-TW', { hour12: false });
 
   // 還沒選過資料夾時，先在按鈕旁邊寫明資料夾在哪（系統的選資料夾視窗會蓋住畫面，所以要事先講）
@@ -59,14 +67,14 @@
     try {
       latest = await Updater.checkLatest();
       if (latest.hasUpdate) {
-        show(`有新版本（${latest.changed.length} 個檔案不同）：${latest.message}｜${fmtDate(latest.date)}`, true);
+        show(`${updateHeadline(latest)}：${latest.message}｜${fmtDate(latest.date)}`, true);
         applyBtn.hidden = false;
         showFiles(latest.changed);
         await refreshFolderHint();
         chrome.action.setBadgeText({ text: '新' }).catch(() => {});
         chrome.action.setBadgeBackgroundColor({ color: '#d92d20' }).catch(() => {});
       } else {
-        show(`已是最新版本（${fmtDate(latest.date)}）`);
+        show(`已是最新版本${latest.version ? ' ' + ver(latest.version) : ''}（${fmtDate(latest.date)}）`);
         applyBtn.hidden = true;
         chrome.action.setBadgeText({ text: '' }).catch(() => {});
       }

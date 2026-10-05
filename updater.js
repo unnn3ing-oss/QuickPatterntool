@@ -76,11 +76,31 @@
     return 'modified';
   }
 
+  // 讀最新版 manifest.json 裡的 version（例如 "1.24"），給畫面顯示「目前 v1.23 → 最新 v1.24」。
+  // 只是顯示用：抓不到或格式怪怪的就回傳 null，不影響檢查更新。內容有用 git blob SHA 驗證。
+  async function fetchRemoteVersion(commitSha, files) {
+    const f = files.find(x => x.path === 'manifest.json');
+    if (!f) return null;
+    try {
+      const res = await fetch(`${RAW}/${commitSha}/manifest.json`, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if ((await gitBlobSha(bytes)) !== f.sha) return null;
+      const v = JSON.parse(new TextDecoder().decode(bytes)).version;
+      return typeof v === 'string' && /^\d+(\.\d+){0,3}$/.test(v) ? v : null;
+    } catch (e) { return null; }
+  }
+
   // 取得 main 最新的 commit 和（要同步的）檔案清單；盡量用快取
   async function getRemote() {
     const cache = await cacheGet();
     const res = await request(`${API}/commits/${REPO.branch}`, cache && cache.etag ? { 'If-None-Match': cache.etag } : {});
-    if (res.status === 304 && cache) return cache;
+    if (res.status === 304 && cache) {
+      if (cache.version !== undefined) return cache;
+      const upgraded = { ...cache, version: await fetchRemoteVersion(cache.sha, cache.files) };   // 舊版快取沒有版本號
+      await cacheSet(upgraded);
+      return upgraded;
+    }
     const commit = await res.json();
     const info = { sha: commit.sha, date: commit.commit.committer.date, message: commit.commit.message.split('\n')[0] };
     let files = cache && cache.sha === commit.sha ? cache.files : null;
@@ -91,12 +111,14 @@
       if (blobs.some(t => !isSafePath(t.path))) throw new Error('GitHub 上的檔案清單含有不安全的路徑，已停止');
       files = blobs.map(t => ({ path: t.path, sha: t.sha, size: t.size }));
     }
-    const out = { ...info, files, etag: res.headers.get('etag') || null };
+    const sameCommit = cache && cache.sha === commit.sha && cache.version !== undefined;
+    const version = sameCommit ? cache.version : await fetchRemoteVersion(commit.sha, files);
+    const out = { ...info, files, version, etag: res.headers.get('etag') || null };
     await cacheSet(out);
     return out;
   }
 
-  // 回傳 { sha, date, message, changed: [{path, sha, size, status}], hasUpdate }
+  // 回傳 { sha, date, message, version（GitHub 上最新版的版本號）, localVersion, changed: [{path, sha, size, status}], hasUpdate }
   async function checkLatest() {
     const remote = await getRemote();
     const changed = [];
@@ -104,7 +126,8 @@
       const status = await compareFile(f.path, f.sha);
       if (status !== 'same') changed.push({ ...f, status });
     }
-    return { sha: remote.sha, date: remote.date, message: remote.message, changed, hasUpdate: changed.length > 0 };
+    return { sha: remote.sha, date: remote.date, message: remote.message, version: remote.version || null,
+      localVersion: chrome.runtime.getManifest().version, changed, hasUpdate: changed.length > 0 };
   }
 
   // 新版 manifest 比現在的多了哪些「讓擴充功能能做更多事」的設定？回傳中文說明的陣列（空陣列＝沒有增加）
