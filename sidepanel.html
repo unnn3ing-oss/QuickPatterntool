@@ -48,6 +48,13 @@
         <button type="button" class="primary" id="qfBtn">快速產圖</button>
       </div>
       <div class="qf-status" id="qfStatus" role="status"></div>
+      <div class="qf-ask" id="qfAsk" role="group" aria-label="下載確認" hidden>
+        <span class="qf-ask-text">圖片做好了，要直接下載嗎？</span>
+        <div class="qf-ask-btns">
+          <button type="button" class="primary" id="qfAskDownload">直接下載</button>
+          <button type="button" id="qfAskEdit">還要修改</button>
+        </div>
+      </div>
     </section>
 
     <section class="card sp-card" id="copyFormat">
@@ -129,7 +136,7 @@
       <ul>
         <li>貼上文章網址，按「快速產圖」（或在網址欄按 Enter）。</li>
         <li>標題會帶進編輯區，遇到空格、「！」「？」「：」就換行；文章的第一張圖會放進背景，抓不到會自動換下一張。</li>
-        <li>完成後會<b>自動下載</b>做好的圖片（1080×1080 PNG）；沒抓到圖時不會下載，請手動放圖後按「下載圖片」。</li>
+        <li>完成後會先讓你看預覽，並詢問<b>「直接下載」</b>或<b>「還要修改」</b>：選直接下載就存成 1080×1080 的 PNG；選還要修改就不下載，改好後再按「下載圖片」。沒抓到圖時不會詢問，請手動放圖。</li>
         <li>圖說（照片旁括號裡的文字，如「（圖／王小明攝）」「（組圖／…）」）和 hashtag 會一起抓好，放進「複製圖文格式」。</li>
       </ul>
       <h3>複製圖文格式</h3>

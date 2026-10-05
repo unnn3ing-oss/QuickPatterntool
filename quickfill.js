@@ -247,6 +247,9 @@
   const copyBtn = document.getElementById('qfCopyBtn');
   const titleEl = document.getElementById('title');
   const downloadBtn = document.getElementById('downloadBtn');
+  const askBox = document.getElementById('qfAsk');
+  const askDownloadBtn = document.getElementById('qfAskDownload');
+  const askEditBtn = document.getElementById('qfAskEdit');
   const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
   let runId = 0;
 
@@ -279,16 +282,20 @@
     return null;
   }
 
-  // 等「這次」抓到的圖真的換進預覽才下載（不然會用到上一張圖）；失敗回傳 false
-  async function downloadWhenReady(previousImage) {
+  // 等「這次」抓到的圖真的換進預覽（不然「直接下載」會下到上一張圖）；逾時回傳 false
+  async function waitForNewImage(previousImage) {
     for (let i = 0; i < 60; i++) {
-      if (singleBg.image && singleBg.image !== previousImage && !downloadBtn.disabled) {
-        downloadBtn.click();
-        return true;
-      }
+      if (singleBg.image && singleBg.image !== previousImage && !downloadBtn.disabled) return true;
       await new Promise(r => setTimeout(r, 75));
     }
     return false;
+  }
+
+  // 完成後詢問：直接下載／還要修改。嵌在卡片裡（不用跳窗），預覽完整露出來讓使用者先看
+  const hideAsk = () => { askBox.hidden = true; };
+  function showAsk() {
+    askBox.hidden = false;
+    askDownloadBtn.focus({ preventScroll: true });
   }
 
   async function run() {
@@ -296,6 +303,7 @@
     if (!url) { setStatus('請先貼上文章網址', 'err'); return; }
     const mine = ++runId;
     runBtn.disabled = true;
+    hideAsk();
     setStatus('讀取文章中…');
     try {
       let res;
@@ -320,7 +328,7 @@
         singleBgPicker.handleFile(new File([got.blob], `article-image.${ext}`, { type }));
         caption = got.cand.caption || article.fallbackCaption;
       } else {
-        notes.push(article.images.length ? '圖片都抓不到，請手動放圖（不會自動下載）' : '網頁裡沒找到圖片，請手動放圖（不會自動下載）');
+        notes.push(article.images.length ? '圖片都抓不到，請手動放圖' : '網頁裡沒找到圖片，請手動放圖');
       }
       if (!caption) notes.push('沒抓到圖說');
       if (!article.tags.length) notes.push('沒抓到 hashtag');
@@ -328,12 +336,12 @@
       copyText.value = formatCopy({ title: article.title, caption, tags: article.tags });
       copyBtn.disabled = !copyText.value;
 
-      // 有圖就直接下載成品；沒抓到圖就沒有東西可下載
-      const downloaded = got ? await downloadWhenReady(previousImage) : false;
+      // 有圖就問使用者要直接下載還是還要修改；沒抓到圖就沒有東西可下載，不用問
+      const ready = got ? await waitForNewImage(previousImage) : false;
       if (mine !== runId) return;
-      if (got && !downloaded) notes.push('圖片沒能載入預覽，沒有自動下載');
-      const base = downloaded ? '完成：已下載圖片，標題、圖說、hashtag 也帶入了' : '完成';
-      setStatus(notes.length ? `${base}，但${notes.join('、')}` : base, notes.length ? 'warn' : 'ok');
+      if (got && !ready) notes.push('圖片沒能載入預覽');
+      if (ready) showAsk();
+      setStatus(notes.length ? `完成，但${notes.join('、')}` : '完成：標題、圖片、圖說、hashtag 都帶入了', notes.length ? 'warn' : 'ok');
     } catch (err) {
       if (mine === runId) setStatus(err.message || String(err), 'err');
     } finally {
@@ -349,6 +357,19 @@
     }
   }
 
+  askDownloadBtn.addEventListener('click', () => {
+    hideAsk();
+    if (downloadBtn.disabled) { setStatus('現在還不能下載，請先補上標題和背景', 'warn'); return; }
+    downloadBtn.click();
+    setStatus('已下載圖片', 'ok');
+  });
+  askEditBtn.addEventListener('click', () => {
+    hideAsk();
+    setStatus('好，修改完成後按「下載圖片」就能下載', 'ok');
+  });
+  // 使用者自己按了「下載圖片」，就不用再問了
+  downloadBtn.addEventListener('click', hideAsk);
+
   runBtn.addEventListener('click', run);
   urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
   copyText.addEventListener('input', () => { copyBtn.disabled = !copyText.value.trim(); });
@@ -361,6 +382,7 @@
   // 套版區按「全部清除」確認後，快速產圖欄位一併清空
   document.addEventListener('qpt:reset', () => {
     runId++;
+    hideAsk();
     urlInput.value = '';
     copyText.value = '';
     copyBtn.disabled = true;
