@@ -301,7 +301,36 @@
     return lines.join('\n');
   }
 
-  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickCaption };
+  // ---- 網址安全：不讓文章裡的圖片網址把瀏覽器導向內網 ---------------------------------
+  // 文章網頁是別人寫的，裡面的 og:image／<img> 可以填任何網址，包括 http://192.168.1.1/…（路由器、NVR）。
+  // 擴充功能有 <all_urls> 權限、不受跨網域限制，會真的送出這個請求（雖然看不到回應，但 GET 本身可能有作用）。
+  // 所以：文章本身在公開網站時，圖片網址必須也是公開網站；文章本身就在內網／本機時（自己測試用）不限制。
+  function isPrivateHost(host) {
+    let h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
+    if (!h) return true;
+    if (h.includes(':')) {   // IPv6：本機、唯一本地位址 fc00::/7、連結本地 fe80::/10、IPv4 對應位址（一律保守視為內網）
+      return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:');
+    }
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m) {
+      const [a, b] = [Number(m[1]), Number(m[2])];
+      return a === 0 || a === 10 || a === 127 || a >= 224
+        || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+        || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    }
+    if (!h.includes('.')) return true;   // 沒有網域後綴（例如 nas、router）只可能是內網
+    return /(^|\.)(localhost|local|internal|lan|home\.arpa)$/.test(h);
+  }
+
+  // 圖片網址可不可以抓？articleUrl 是文章自己的網址
+  function isAllowedImageUrl(imageUrl, articleUrl) {
+    let u, a;
+    try { u = new URL(imageUrl); a = new URL(articleUrl); } catch (e) { return false; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    return isPrivateHost(a.hostname) || !isPrivateHost(u.hostname);
+  }
+
+  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickCaption, isPrivateHost, isAllowedImageUrl };
 
   // ---- 側邊欄互動 --------------------------------------------------------------
   const urlInput = document.getElementById('qfUrl');
@@ -318,7 +347,13 @@
   const askDownloadBtn = document.getElementById('qfAskDownload');
   const askEditBtn = document.getElementById('qfAskEdit');
   const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
+  // 抓取上限：避免一個卡住或超大的網站讓快速產圖一直轉、或吃光記憶體
+  const ARTICLE_TIMEOUT = 15000, IMAGE_TIMEOUT = 20000;       // 毫秒（整個下載過程，不只是連線）
+  const MAX_ARTICLE_BYTES = 5 * 1024 * 1024, MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+  const MAX_PIXELS = 50e6;        // 5,000 萬畫素（約 7000×7000）
+  const MAX_IMAGE_TRIES = 6;      // 最多試前幾張圖
   let runId = 0;
+  let runCtrl = null;    // 目前這次快速產圖的 AbortController；重新產圖或全部清除時中止上一次
   let lastRunUrl = '';   // 最近一次快速產圖用的網址；詢問中在網址欄再按 Enter（網址沒變）就當作「直接下載」
 
   // 功能提示：每次載入（重新載入）插件都會重新出現。
@@ -339,19 +374,54 @@
     try { return new URL(s).href; } catch (e) { return ''; }
   }
 
-  // 依序嘗試，抓不到或太小就換下一張
-  async function loadFirstUsableImage(cands, onTry) {
-    for (let i = 0; i < cands.length; i++) {
-      onTry(i, cands.length);
+  // 有逾時、有大小上限的下載。逾時涵蓋整個下載過程；超過上限就中止。回傳 { res, blob }
+  async function fetchLimited(url, { timeoutMs, maxBytes, signal }) {
+    const ctrl = new AbortController();
+    let why = '';
+    const timer = setTimeout(() => { why = 'timeout'; ctrl.abort(); }, timeoutMs);
+    const onOuterAbort = () => ctrl.abort();
+    if (signal) { if (signal.aborted) ctrl.abort(); else signal.addEventListener('abort', onOuterAbort); }
+    try {
+      const res = await fetch(url, { credentials: 'omit', signal: ctrl.signal });
+      if (!res.ok) return { res, blob: null };
+      if (Number(res.headers.get('content-length')) > maxBytes) { why = 'toobig'; ctrl.abort(); throw new Error('toobig'); }
+      const chunks = [];
+      let size = 0;
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > maxBytes) { why = 'toobig'; ctrl.abort(); throw new Error('toobig'); }
+        chunks.push(value);
+      }
+      return { res, blob: new Blob(chunks, { type: res.headers.get('content-type') || '' }) };
+    } catch (e) {
+      const err = new Error(why || (e && e.message) || 'network');
+      err.reason = why || (signal && signal.aborted ? 'cancelled' : 'network');
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onOuterAbort);
+    }
+  }
+
+  // 依序嘗試（最多 MAX_IMAGE_TRIES 張），抓不到、太小、太大或網址不安全就換下一張
+  async function loadFirstUsableImage(cands, articleUrl, onTry, signal) {
+    const safe = cands.filter(c => isAllowedImageUrl(c.url, articleUrl)).slice(0, MAX_IMAGE_TRIES);
+    for (let i = 0; i < safe.length; i++) {
+      onTry(i, safe.length);
       try {
-        const res = await fetch(cands[i].url, { credentials: 'omit' });
-        if (!res.ok) continue;
-        const blob = await res.blob();
+        const { res, blob } = await fetchLimited(safe[i].url, { timeoutMs: IMAGE_TIMEOUT, maxBytes: MAX_IMAGE_BYTES, signal });
+        if (!blob || !isAllowedImageUrl(res.url || safe[i].url, articleUrl)) continue;   // 轉址後落在內網也不要
         const bmp = await createImageBitmap(blob);
-        const ok = bmp.width >= MIN_W && bmp.height >= MIN_H;
+        const ok = bmp.width >= MIN_W && bmp.height >= MIN_H && bmp.width * bmp.height <= MAX_PIXELS;
         bmp.close();
-        if (ok) return { cand: cands[i], blob };
-      } catch (e) { /* 這張不行，試下一張 */ }
+        if (ok) return { cand: safe[i], blob };
+      } catch (e) {
+        if (e && e.reason === 'cancelled') throw e;   // 使用者重新產圖或清除了，整個停下來
+        /* 這張不行，試下一張 */
+      }
     }
     return null;
   }
@@ -378,17 +448,25 @@
     const url = normalizeUrl(urlInput.value);
     if (!url) { setStatus('請先貼上文章網址', 'err'); return; }
     const mine = ++runId;
+    if (runCtrl) runCtrl.abort();
+    runCtrl = new AbortController();
+    const signal = runCtrl.signal;
     lastRunUrl = url;
     runBtn.disabled = true;
     hideTip();
     hideAsk();
     setStatus('讀取文章中…');
     try {
-      let res;
-      try { res = await fetch(url, { credentials: 'omit' }); }
-      catch (e) { throw new Error('連線失敗，請確認網址和網路'); }
-      if (!res.ok) throw new Error(`文章讀取失敗（HTTP ${res.status}）`);
-      const article = parseArticle(await res.text(), res.url || url);
+      let got0;
+      try { got0 = await fetchLimited(url, { timeoutMs: ARTICLE_TIMEOUT, maxBytes: MAX_ARTICLE_BYTES, signal }); }
+      catch (e) {
+        if (e.reason === 'timeout') throw new Error(`文章讀取逾時（超過 ${ARTICLE_TIMEOUT / 1000} 秒），請稍後再試`);
+        if (e.reason === 'toobig') throw new Error('文章檔案太大，已停止讀取');
+        throw new Error('連線失敗，請確認網址和網路');
+      }
+      if (!got0.res.ok) throw new Error(`文章讀取失敗（HTTP ${got0.res.status}）`);
+      const articleUrl = got0.res.url || url;
+      const article = parseArticle(await got0.blob.text(), articleUrl);
       if (mine !== runId) return;
       if (!article.title) throw new Error('這個網頁抓不到標題');
 
@@ -398,7 +476,7 @@
       const notes = [];
       const previousImage = singleBg.image;
       let caption = article.fallbackCaption;
-      const got = await loadFirstUsableImage(article.images, (i, n) => setStatus(`標題已帶入，抓取圖片 ${i + 1}/${n}…`));
+      const got = await loadFirstUsableImage(article.images, articleUrl, (i, n) => setStatus(`標題已帶入，抓取圖片 ${i + 1}/${n}…`), signal);
       if (mine !== runId) return;
       if (got) {
         const type = got.blob.type && got.blob.type.startsWith('image/') ? got.blob.type : 'image/jpeg';
@@ -421,7 +499,7 @@
       if (ready) showAsk();
       setStatus(notes.length ? `完成，但${notes.join('、')}` : '完成：標題、圖片、圖說、hashtag 都帶入了', notes.length ? 'warn' : 'ok');
     } catch (err) {
-      if (mine === runId) setStatus(err.message || String(err), 'err');
+      if (mine === runId && !(err && err.reason === 'cancelled')) setStatus(err.message || String(err), 'err');
     } finally {
       if (mine === runId) runBtn.disabled = false;
     }
@@ -472,6 +550,7 @@
   // 套版區按「全部清除」確認後，快速產圖欄位一併清空
   document.addEventListener('qpt:reset', () => {
     runId++;
+    if (runCtrl) runCtrl.abort();
     hideAsk();
     urlInput.value = '';
     copyText.value = '';

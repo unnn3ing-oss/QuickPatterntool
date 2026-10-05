@@ -108,6 +108,10 @@
     <section class="card sp-card" id="updateCard">
       <h2>版本更新</h2>
       <div class="up-status" id="upStatus">尚未檢查更新</div>
+      <details class="up-files" id="upFiles" hidden>
+        <summary id="upFilesSummary">要更新的檔案</summary>
+        <ul id="upFileList"></ul>
+      </details>
       <div class="btn-row">
         <button type="button" id="upCheckBtn" style="flex:1">檢查更新</button>
         <button type="button" class="primary" id="upApplyBtn" style="flex:1" hidden>更新到最新版</button>
@@ -159,6 +163,7 @@
       <ul>
         <li>「檢查更新」會和 GitHub 上最新版本比對；有新版時按「更新到最新版」。</li>
         <li>第一次更新需要選擇這個擴充功能所在的資料夾（之後會記住）。</li>
+        <li>有新版時會列出要更新的檔案；如果新版增加了權限，更新前會再請你確認一次。</li>
       </ul>
     </div>
   </div>

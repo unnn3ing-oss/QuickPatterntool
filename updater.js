@@ -16,13 +16,32 @@
   const API = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}`;
   const RAW = `https://raw.githubusercontent.com/${REPO.owner}/${REPO.repo}`;
 
-  async function getJson(url) {
+  // 檔案路徑必須是「資料夾裡的相對路徑」：不能是空的、絕對路徑，也不能含 .、..、反斜線、冒號。
+  // （瀏覽器的檔案 API 本來就會擋 ..，這裡再擋一次，不單靠它。）
+  function isSafePath(p) {
+    return typeof p === 'string' && !!p && !p.startsWith('/')
+      && p.split('/').every(seg => seg && seg !== '.' && seg !== '..' && !/[\\:\0]/.test(seg));
+  }
+
+  async function request(url, headers = {}) {
     let res;
-    try { res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' }); }
+    try { res = await fetch(url, { headers: { Accept: 'application/vnd.github+json', ...headers }, cache: 'no-store' }); }
     catch (e) { throw new Error('連不上 GitHub，請確認網路連線'); }
     if (res.status === 403 || res.status === 429) throw new Error('GitHub 暫時限制查詢次數，請稍後再試');
-    if (!res.ok) throw new Error(`連不上 GitHub（HTTP ${res.status}）`);
-    return res.json();
+    if (!res.ok && res.status !== 304) throw new Error(`連不上 GitHub（HTTP ${res.status}）`);
+    return res;
+  }
+  const getJson = async url => (await request(url)).json();
+
+  // 上一次查到的 commit、檔案清單和 ETag 存在 chrome.storage.local：
+  // 下次先帶 ETag 問「有變嗎」，沒變（HTTP 304）就不用再抓檔案清單，每小時的檢查只花 1 次 API，
+  // 而且 304 不計入 GitHub 的次數限制（未登入每個 IP 每小時 60 次，辦公室共用 IP 很容易用完）。
+  const CACHE_KEY = 'qpt-update-cache';
+  async function cacheGet() {
+    try { return (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY] || null; } catch (e) { return null; }
+  }
+  async function cacheSet(v) {
+    try { await chrome.storage.local.set({ [CACHE_KEY]: v }); } catch (e) { /* 存不了就下次再查 */ }
   }
 
   // git 的 blob SHA-1：sha1("blob <位元組數>\0" + 內容)，和 GitHub 檔案清單裡的 sha 同一種算法
@@ -44,35 +63,69 @@
     return { sha, bytes };
   }
 
+  // 回傳 'same'｜'new'（本機沒有這個檔）｜'modified'
   // Windows 用 git clone 取得的文字檔可能被轉成 CRLF，換行不同不算有新版
-  async function sameContent(path, remoteSha) {
+  async function compareFile(path, remoteSha) {
     const local = await localSha(path);
-    if (!local) return false;
-    if (local.sha === remoteSha) return true;
+    if (!local) return 'new';
+    if (local.sha === remoteSha) return 'same';
     if (TEXT_EXT.test(path)) {
       const text = new TextDecoder().decode(local.bytes).replace(/\r\n/g, '\n');
-      return (await gitBlobSha(new TextEncoder().encode(text))) === remoteSha;
+      if ((await gitBlobSha(new TextEncoder().encode(text))) === remoteSha) return 'same';
     }
-    return false;
+    return 'modified';
   }
 
-  // 回傳 { sha, date, message, changed: [{path, sha, size}], hasUpdate }
-  async function checkLatest() {
-    const commit = await getJson(`${API}/commits/${REPO.branch}`);
-    const tree = await getJson(`${API}/git/trees/${commit.commit.tree.sha}?recursive=1`);
-    if (tree.truncated) throw new Error('檔案太多，GitHub 沒有回傳完整清單');
-    const files = tree.tree.filter(t => t.type === 'blob' && !SKIP.some(re => re.test(t.path)));
-    const changed = [];
-    for (const f of files) {
-      if (!(await sameContent(f.path, f.sha))) changed.push({ path: f.path, sha: f.sha, size: f.size });
+  // 取得 main 最新的 commit 和（要同步的）檔案清單；盡量用快取
+  async function getRemote() {
+    const cache = await cacheGet();
+    const res = await request(`${API}/commits/${REPO.branch}`, cache && cache.etag ? { 'If-None-Match': cache.etag } : {});
+    if (res.status === 304 && cache) return cache;
+    const commit = await res.json();
+    const info = { sha: commit.sha, date: commit.commit.committer.date, message: commit.commit.message.split('\n')[0] };
+    let files = cache && cache.sha === commit.sha ? cache.files : null;
+    if (!files) {
+      const tree = await getJson(`${API}/git/trees/${commit.commit.tree.sha}?recursive=1`);
+      if (tree.truncated) throw new Error('檔案太多，GitHub 沒有回傳完整清單');
+      const blobs = tree.tree.filter(t => t.type === 'blob' && !SKIP.some(re => re.test(t.path)));
+      if (blobs.some(t => !isSafePath(t.path))) throw new Error('GitHub 上的檔案清單含有不安全的路徑，已停止');
+      files = blobs.map(t => ({ path: t.path, sha: t.sha, size: t.size }));
     }
-    return {
-      sha: commit.sha,
-      date: commit.commit.committer.date,
-      message: commit.commit.message.split('\n')[0],
-      changed,
-      hasUpdate: changed.length > 0,
-    };
+    const out = { ...info, files, etag: res.headers.get('etag') || null };
+    await cacheSet(out);
+    return out;
+  }
+
+  // 回傳 { sha, date, message, changed: [{path, sha, size, status}], hasUpdate }
+  async function checkLatest() {
+    const remote = await getRemote();
+    const changed = [];
+    for (const f of remote.files) {
+      const status = await compareFile(f.path, f.sha);
+      if (status !== 'same') changed.push({ ...f, status });
+    }
+    return { sha: remote.sha, date: remote.date, message: remote.message, changed, hasUpdate: changed.length > 0 };
+  }
+
+  // 新版 manifest 比現在的多了哪些「讓擴充功能能做更多事」的設定？回傳中文說明的陣列（空陣列＝沒有增加）
+  // 未封裝的擴充功能重新載入時，Chrome 不一定會再問一次權限，所以更新前由這裡先攔下來讓使用者確認。
+  function diffManifest(oldM, newM) {
+    const out = [];
+    const set = (m, k) => new Set([].concat((m && m[k]) || []));
+    const labels = { permissions: '權限', optional_permissions: '選用權限', host_permissions: '可存取的網站', optional_host_permissions: '選用的網站存取' };
+    const hadAllUrls = ['<all_urls>', '*://*/*'].some(p => set(oldM, 'host_permissions').has(p));
+    for (const k of Object.keys(labels)) {
+      const old = set(oldM, k);
+      const added = [...set(newM, k)].filter(x => !old.has(x));
+      if (k === 'host_permissions' && hadAllUrls) continue;   // 原本就能存取所有網站，新增的網站只是重複
+      if (added.length) out.push(`新增${labels[k]}：${added.join('、')}`);
+    }
+    const sensitive = { content_scripts: '會在網頁裡執行的程式（content_scripts）', externally_connectable: '開放給網頁連線的設定（externally_connectable）',
+      content_security_policy: '內容安全政策（CSP）', update_url: '更新網址（update_url）' };
+    for (const [k, label] of Object.entries(sensitive)) {
+      if (JSON.stringify((newM || {})[k] ?? null) !== JSON.stringify((oldM || {})[k] ?? null)) out.push(`${label}有變動`);
+    }
+    return out;
   }
 
   // ---- 記住使用者選的資料夾（FileSystemDirectoryHandle 可以存進 IndexedDB）----
@@ -144,11 +197,14 @@
     await w.close();
   }
 
-  // 先把所有有差異的檔案下載並驗證完，全部沒問題才開始寫入，避免寫到一半停住造成版本不一致
-  async function apply(dir, info, onProgress = () => {}) {
+  // 先把所有有差異的檔案下載並驗證完，全部沒問題才開始寫入，避免寫到一半停住造成版本不一致。
+  // 新版 manifest.json 如果增加了權限或敏感設定，會先呼叫 confirmFn(說明陣列)，回傳 false 就整個取消；
+  // manifest.json 最後才寫入，這樣即使中途失敗，也不會是「新設定配舊程式」。
+  async function apply(dir, info, onProgress = () => {}, confirmFn = null) {
     const downloads = [];
     for (let i = 0; i < info.changed.length; i++) {
       const f = info.changed[i];
+      if (!isSafePath(f.path)) throw new Error(`檔案路徑不安全（${f.path}），已取消更新`);
       onProgress(`下載 ${i + 1}/${info.changed.length}：${f.path}`);
       const res = await fetch(`${RAW}/${info.sha}/${f.path.split('/').map(encodeURIComponent).join('/')}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`下載 ${f.path} 失敗（HTTP ${res.status}）`);
@@ -156,11 +212,23 @@
       if ((await gitBlobSha(bytes)) !== f.sha) throw new Error(`${f.path} 下載內容和 GitHub 上的不一致，已取消更新`);
       downloads.push({ path: f.path, bytes });
     }
+    const manifest = downloads.find(d => d.path === 'manifest.json');
+    if (manifest) {
+      let newM;
+      try { newM = JSON.parse(new TextDecoder().decode(manifest.bytes)); } catch (e) { throw new Error('新版的 manifest.json 格式不正確，已取消更新'); }
+      const risks = diffManifest(chrome.runtime.getManifest(), newM);
+      if (risks.length && !(confirmFn && await confirmFn(risks))) {
+        const err = new Error('已取消更新');
+        err.name = 'AbortError';
+        throw err;
+      }
+    }
+    downloads.sort((a, b) => (a.path === 'manifest.json') - (b.path === 'manifest.json'));
     for (let i = 0; i < downloads.length; i++) {
       onProgress(`寫入 ${i + 1}/${downloads.length}：${downloads[i].path}`);
       await writeFile(dir, downloads[i].path, downloads[i].bytes);
     }
   }
 
-  root.Updater = { REPO, checkLatest, pickFolder, getFolder, hasSavedFolder, apply, gitBlobSha };
+  root.Updater = { REPO, checkLatest, pickFolder, getFolder, hasSavedFolder, apply, gitBlobSha, diffManifest, isSafePath };
 })(self);

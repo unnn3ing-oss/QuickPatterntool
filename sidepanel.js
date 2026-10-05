@@ -4,6 +4,9 @@
   const hintEl = document.getElementById('upHint');
   const checkBtn = document.getElementById('upCheckBtn');
   const applyBtn = document.getElementById('upApplyBtn');
+  const filesBox = document.getElementById('upFiles');
+  const filesSummary = document.getElementById('upFilesSummary');
+  const fileList = document.getElementById('upFileList');
   let latest = null;
 
   function show(msg, hasUpdate) {
@@ -31,15 +34,34 @@
     hintEl.append(link);
   }
 
+  // 列出這次要更新的檔案（新增／修改），讓使用者更新前看得到會動到什麼
+  function showFiles(changed) {
+    fileList.textContent = '';
+    for (const f of changed) {
+      const li = document.createElement('li');
+      li.textContent = f.path;
+      const tag = document.createElement('span');
+      tag.className = 'up-tag';
+      tag.textContent = f.status === 'new' ? '新增' : '修改';
+      li.append(tag);
+      fileList.append(li);
+    }
+    filesSummary.textContent = `要更新的檔案（${changed.length}）`;
+    filesBox.hidden = !changed.length;
+    filesBox.open = false;
+  }
+
   async function check() {
     checkBtn.disabled = true;
     show('檢查中…');
     hintEl.textContent = '';
+    filesBox.hidden = true;
     try {
       latest = await Updater.checkLatest();
       if (latest.hasUpdate) {
         show(`有新版本（${latest.changed.length} 個檔案不同）：${latest.message}｜${fmtDate(latest.date)}`, true);
         applyBtn.hidden = false;
+        showFiles(latest.changed);
         await refreshFolderHint();
         chrome.action.setBadgeText({ text: '新' }).catch(() => {});
         chrome.action.setBadgeBackgroundColor({ color: '#d92d20' }).catch(() => {});
@@ -62,7 +84,11 @@
     try {
       let dir = await Updater.getFolder();
       if (!dir) dir = await Updater.pickFolder();
-      await Updater.apply(dir, latest, msg => show(msg));
+      await Updater.apply(dir, latest, msg => show(msg), risks => askConfirm({
+        title: '這次更新會增加權限',
+        message: `新版的 manifest.json 有以下變動：\n・${risks.join('\n・')}\n\n只有信任這份更新時才要繼續。`,
+        okText: '仍要更新'
+      }));
       show('更新完成，重新載入擴充功能…');
       setTimeout(() => chrome.runtime.reload(), 400);
     } catch (err) {

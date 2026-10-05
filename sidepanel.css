@@ -157,3 +157,10 @@ body.sidepanel {
 .sidepanel .layout > .sp-card {
   width: 100%;
 }
+
+/* 版本更新：要更新的檔案清單 */
+.sidepanel .up-files { margin: 6px 0 8px; font-size: calc(12px*var(--fs)); }
+.sidepanel .up-files summary { cursor: pointer; color: var(--muted); }
+.sidepanel .up-files ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; word-break: break-all; }
+.sidepanel .up-tag { margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+#confirmMessage { white-space: pre-line; }

@@ -25,6 +25,12 @@
     return res.json();
   }
 
+  // 和 updater.js 的 isSafePath 相同：相對路徑，不含 .、..、反斜線、冒號
+  function isSafePath(p) {
+    return typeof p === 'string' && !!p && !p.startsWith('/')
+      && p.split('/').every(seg => seg && seg !== '.' && seg !== '..' && !/[\\:\0]/.test(seg));
+  }
+
   async function gitBlobSha(bytes) {
     const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
     const all = new Uint8Array(header.length + bytes.length);
@@ -42,6 +48,7 @@
     if (tree.truncated) throw new Error('檔案太多，GitHub 沒有回傳完整清單');
     const list = tree.tree.filter(t => t.type === 'blob' && !SKIP.some(re => re.test(t.path)));
     if (!list.some(f => f.path === 'manifest.json')) throw new Error('GitHub 上找不到 manifest.json');
+    if (list.some(f => !isSafePath(f.path))) throw new Error('GitHub 上的檔案清單含有不安全的路徑，已停止');
     const files = [];
     for (let i = 0; i < list.length; i++) {
       const f = list[i];

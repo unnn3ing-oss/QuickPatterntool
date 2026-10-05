@@ -464,26 +464,32 @@ function createBackgroundPicker(opts) {
   btnImage.addEventListener('click', () => setMode('image'));
   btnColor.addEventListener('click', () => setMode('color'));
 
+  let currentUrl = null;
+
   function handleFile(file) {
     if (!isImageFile(file)) {
       hint.textContent = file ? `無法辨識「${file.name}」為圖片檔` : '';
       return;
     }
-    const reader = new FileReader();
-    reader.onerror = () => { hint.textContent = `讀取「${file.name}」失敗，請換一張圖片`; };
-    reader.onload = e => {
-      const image = new Image();
-      image.onerror = () => { hint.textContent = `「${file.name}」無法開啟，可能是不支援的圖片格式（例如 HEIC），請改用 JPG/PNG`; };
-      image.onload = () => {
-        thumb.src = image.src;
-        thumb.style.display = 'block';
-        dzText.style.display = 'none';
-        hint.textContent = `已載入：${file.name}`;
-        opts.onImage(image, file.name);
-      };
-      image.src = e.target.result;
+    // Object URL instead of FileReader→data URL: no base64 copy (+33% memory) and no extra decode pass.
+    // The previous picture's URL is released once this one replaces it; the current one stays alive
+    // because batch mode re-reads image.src to rebuild the thumbnail.
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      hint.textContent = `「${file.name}」無法開啟，可能是不支援的圖片格式（例如 HEIC），請改用 JPG/PNG`;
     };
-    reader.readAsDataURL(file);
+    image.onload = () => {
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      currentUrl = url;
+      thumb.src = image.src;
+      thumb.style.display = 'block';
+      dzText.style.display = 'none';
+      hint.textContent = `已載入：${file.name}`;
+      opts.onImage(image, file.name);
+    };
+    image.src = url;
   }
 
   dz.addEventListener('click', () => fi.click());
@@ -638,9 +644,12 @@ function writeUint32BE(bytes, offset, value) {
   bytes[offset + 3] = value & 0xFF;
 }
 
-function withPngDpi(pngDataUrl, dpi) {
-  const bytes = Uint8Array.from(atob(pngDataUrl.slice(pngDataUrl.indexOf(',') + 1)), c => c.charCodeAt(0));
-
+// Canvas → PNG Blob with the pHYs chunk spliced in. Works on the raw bytes and
+// builds a Blob from the pieces, so there's no base64 round trip (the old
+// data-URL path blocked the page for ~0.5s on a photo-heavy 1080×1080 export).
+async function pngBlobWithDpi(targetCanvas, dpi) {
+  const blob = await new Promise((resolve, reject) =>
+    targetCanvas.toBlob(b => (b ? resolve(b) : reject(new Error('產生圖片失敗'))), 'image/png'));
   const pixelsPerMeter = Math.round(dpi / 0.0254);
   const physChunk = new Uint8Array(4 + 4 + 9 + 4); // length + "pHYs" + data + crc
   writeUint32BE(physChunk, 0, 9);
@@ -649,29 +658,32 @@ function withPngDpi(pngDataUrl, dpi) {
   writeUint32BE(physChunk, 12, pixelsPerMeter);
   physChunk[16] = 1; // unit specifier: meter
   writeUint32BE(physChunk, 17, pngCrc32(physChunk.subarray(4, 17)));
-
   const ihdrEnd = 8 + 25;
-  const out = new Uint8Array(bytes.length + physChunk.length);
-  out.set(bytes.subarray(0, ihdrEnd), 0);
-  out.set(physChunk, ihdrEnd);
-  out.set(bytes.subarray(ihdrEnd), ihdrEnd + physChunk.length);
-
-  let binary = '';
-  for (let i = 0; i < out.length; i++) binary += String.fromCharCode(out[i]);
-  return 'data:image/png;base64,' + btoa(binary);
+  return new Blob([blob.slice(0, ihdrEnd), physChunk, blob.slice(ihdrEnd)], { type: 'image/png' });
 }
 
-function downloadCanvas(targetCanvas, filename) {
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function downloadCanvas(targetCanvas, filename) {
+  const blob = await pngBlobWithDpi(targetCanvas, PNG_DPI);
   const a = document.createElement('a');
   a.download = filename;
-  a.href = withPngDpi(targetCanvas.toDataURL('image/png'), PNG_DPI);
+  a.href = URL.createObjectURL(blob);
   a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 downloadBtn.addEventListener('click', async () => {
   await whzFontReady;
   render();
-  downloadCanvas(canvas, `${safeFilename(titleEl.value, '娛樂新聞圖')}.png`);
+  await downloadCanvas(canvas, `${safeFilename(titleEl.value, '娛樂新聞圖')}.png`);
 });
 
 resetBtn.addEventListener('click', async () => {
@@ -924,7 +936,7 @@ async function completeBatchItem(item) {
   setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
   item.resultFilename = `${String(index + 1).padStart(2, '0')}_${safeFilename(item.title, '娛樂新聞圖' + (index + 1))}.png`;
-  item.resultDataUrl = withPngDpi(batchCanvas.toDataURL('image/png'), PNG_DPI);
+  item.resultDataUrl = await blobToDataUrl(await pngBlobWithDpi(batchCanvas, PNG_DPI));
   item.done = true;
   batchStatus.textContent = `已完成：${item.resultFilename}`;
   refreshBatchItem(item);
