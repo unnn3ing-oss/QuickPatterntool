@@ -120,17 +120,20 @@ body.sidepanel {
 }
 .up-link:hover:not(:disabled) { background: none; color: var(--accent-dark); }
 
-/* 快速產圖完成後的詢問：直接下載／還要修改（嵌在卡片裡，不蓋住預覽） */
+/* 快速產圖完成後的詢問：直接下載／還要修改（嵌在卡片裡，不蓋住預覽）。
+   兩欄格子：問題文字佔滿一列，兩顆按鈕各佔一欄；「再按一次Enter即下載」的提示固定放在右欄、
+   置中對齊「直接下載」，箭頭正對著它（提示隱藏時這一列就不存在）。 */
 .qf-ask {
-  display: flex; flex-wrap: wrap; align-items: center; gap: calc(8px * var(--sp));
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: calc(8px * var(--sp)); align-items: center;
   margin-top: calc(10px * var(--sp)); padding: calc(10px * var(--sp)) calc(12px * var(--sp));
   background: var(--accent-soft); border-radius: calc(16px * var(--sp));
 }
 .qf-ask[hidden] { display: none; }
-.qf-ask-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: calc(8px * var(--sp)); flex: 1 1 100%; }
-.qf-ask-text { flex: 0 1 auto; font-size: calc(13px * var(--fs)); color: #22324d; font-weight: 600; }
-.qf-ask-btns { display: flex; gap: calc(8px * var(--sp)); flex: 1 1 100%; }
-.qf-ask-btns button { flex: 1; font-size: calc(14px * var(--fs)); padding: calc(9px * var(--sp)) calc(12px * var(--sp)); }
+.qf-ask-top, .qf-ask-btns { display: contents; }   /* 讓裡面的元素直接排進上面的格子 */
+.qf-ask-text { grid-column: 1 / -1; margin-bottom: calc(8px * var(--sp)); font-size: calc(13px * var(--fs)); color: #22324d; font-weight: 600; }
+.qf-ask .tip { grid-column: 2; justify-self: center; margin-bottom: calc(10px * var(--sp)); }
+.qf-ask .tip::after { right: auto; left: 50%; transform: translateX(-50%); }   /* 箭頭在氣泡正中間，指向正下方的「直接下載」 */
+.qf-ask-btns button { font-size: calc(14px * var(--fs)); padding: calc(9px * var(--sp)) calc(12px * var(--sp)); }
 
 /* 功能提示氣泡（深色小氣泡，下方有箭頭指向下面的輸入框／按鈕）。放在卡片的標題列／詢問列裡，
    空間不夠時會自己換行，不會蓋到別的文字。 */
