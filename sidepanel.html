@@ -51,16 +51,18 @@
       <div class="qf-ask" id="qfAsk" role="group" aria-label="下載確認" hidden>
         <span class="qf-ask-text">圖片做好了，要直接下載嗎？</span>
         <div class="qf-ask-btns">
-          <button type="button" class="primary" id="qfAskDownload">直接下載</button>
           <button type="button" id="qfAskEdit">還要修改</button>
+          <button type="button" class="primary" id="qfAskDownload">直接下載</button>
         </div>
       </div>
     </section>
 
     <section class="card sp-card" id="copyFormat">
-      <h2>複製圖文格式</h2>
+      <div class="sp-card-head">
+        <h2>複製圖文格式</h2>
+        <button type="button" class="success" id="qfCopyBtn" disabled>複製圖文格式</button>
+      </div>
       <textarea id="qfCopyText" rows="4" placeholder="【標題】&#10;（圖／OOO 攝）&#10;#標籤 #標籤 #標籤" spellcheck="false"></textarea>
-      <button type="button" class="success" id="qfCopyBtn" disabled>複製圖文格式</button>
     </section>
 
     <section class="card sp-card" id="actionsCard">
@@ -82,9 +84,9 @@
     <section class="card sp-card" id="singleFields">
       <h2>編輯</h2>
       <div class="edit-box">
-        <div class="field">
-          <label for="title">標題（Enter 換行）</label>
-          <textarea id="title" placeholder="黑人心梗主因曝！&#10;醫示警「1行為」&#10;悄悄埋下未爆彈"></textarea>
+        <!-- 標題直接在預覽上點兩下修改，這個輸入框不顯示；元素保留，因為共用的 app.js 和快速產圖用它存標題 -->
+        <div class="field" hidden>
+          <textarea id="title" tabindex="-1" aria-hidden="true"></textarea>
         </div>
 
         <div class="field">
@@ -135,7 +137,7 @@
       <h3>快速產圖</h3>
       <ul>
         <li>貼上文章網址，按「快速產圖」（或在網址欄按 Enter）。</li>
-        <li>標題會帶進編輯區，遇到空格、「！」「？」「：」就換行；文章的第一張圖會放進背景，抓不到會自動換下一張。</li>
+        <li>標題會帶進編輯區，遇到空格、「！」「？」就換行；標題以 3 段為主，「：」只在不足 3 段、或某一行超過 14 個字放不下時才多拆一段；文章的第一張圖會放進背景，抓不到會自動換下一張。</li>
         <li>完成後會先讓你看預覽，並詢問<b>「直接下載」</b>或<b>「還要修改」</b>：選直接下載就存成 1080×1080 的 PNG；選還要修改就不下載，改好後再按「下載圖片」。沒抓到圖時不會詢問，請手動放圖。</li>
         <li>圖說（照片旁括號裡的文字，如「（圖／王小明攝）」「（組圖／…）」）和 hashtag 會一起抓好，放進「複製圖文格式」。</li>
       </ul>
@@ -146,7 +148,7 @@
       </ul>
       <h3>套版與編輯</h3>
       <ul>
-        <li>選新聞（藍框）或娛樂（粉框）；標題、背景都可以再手動改，也能直接貼上或拖曳圖片換圖。</li>
+        <li>選新聞（藍框）或娛樂（粉框）；背景可以直接貼上或拖曳圖片換圖。標題直接在預覽上<b>點兩下</b>就能修改。</li>
         <li>預覽上滾輪縮放、拖曳調整位置，點兩下可直接輸入標題。</li>
         <li>按「下載圖片」存成 1080×1080 的 PNG；按「複製圖片」會把成品圖直接放進剪貼簿，可以直接貼到其他地方。</li>
       </ul>

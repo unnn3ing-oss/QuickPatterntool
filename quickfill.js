@@ -4,13 +4,30 @@
 // 需要在 app.js 之後載入（會呼叫它的 singleBgPicker 並透過 DOM 填標題）。
 (function (root) {
   // ---- 標題換行 ----------------------------------------------------------------
-  // 每個空格（半形／全形）換一行（空格本身丟掉）；「！」「？」「：」之後也換行
-  // （標點留在上一行），連續的標點和緊接著的右引號／右括號留在同一行。
+  // 強斷點：每個空格（半形／全形）換一行（空格本身丟掉）；「！」「？」之後也換行（標點留在上一行），
+  //        連續的標點和緊接著的右引號／右括號留在同一行。標題裡有幾個強斷點就一定會分成幾段。
+  // 弱斷點：全形「：」。標題通常 2～3 段，所以：
+  //   1) 強斷點切出來不到 3 段時，用「：」補斷，補到 3 段為止；
+  //   2) 已經有 3 段以上時，「：」不拆（例：「蔡英文現身！12萬洋流挺沈伯洋　賴清德：對手認知作戰已開始」維持 3 段）；
+  //   3) 但如果某一行字數太多（放不下一行、會被縮小字級），才在那行的「：」多拆一段，變 4 段。
+  // 一行放得下多少：畫布標題區寬 960px ÷ 字級 67px ≈ 14.3 個全形字，所以超過 14 個全形字算太長。
   // 只認全形「：」，半形「:」常出現在時間（12:30）或網址裡，不拆。
-  const BREAK_AFTER = /[！？!?：]/;
+  const STRONG_BREAK = /[！？!?]/;
   const CLOSERS = /[」』）)”’》】〕]/;
-  function breakTitle(title) {
-    const s = String(title).replace(/\s*\n\s*/g, ' ').trim();
+  const TARGET_LINES = 3;
+  const LINE_CAPACITY = 14;   // 一行放得下的全形字數
+
+  // 估算一行的寬度（以全形字為 1）：全形 1、英數約 0.55、其他半形符號約 0.35
+  function lineWidth(text) {
+    let w = 0;
+    for (const ch of text) {
+      if (ch.charCodeAt(0) > 0x7f) w += 1;
+      else w += /[A-Za-z0-9]/.test(ch) ? 0.55 : 0.35;
+    }
+    return w;
+  }
+
+  function splitStrong(s) {
     const lines = [];
     let cur = '';
     const push = () => { if (cur.trim()) lines.push(cur.trim()); cur = ''; };
@@ -18,13 +35,61 @@
       const ch = s[i];
       if (/[\s　]/.test(ch)) { push(); continue; }
       cur += ch;
-      if (BREAK_AFTER.test(ch)) {
-        while (i + 1 < s.length && (BREAK_AFTER.test(s[i + 1]) || CLOSERS.test(s[i + 1]))) cur += s[++i];
+      if (STRONG_BREAK.test(ch)) {
+        while (i + 1 < s.length && (STRONG_BREAK.test(s[i + 1]) || CLOSERS.test(s[i + 1]))) cur += s[++i];
         push();
       }
     }
     push();
     return lines;
+  }
+
+  // 在一行裡找「：」的斷點（冒號後面還有字才算；緊接著的標點、右引號留在冒號那一行）
+  function colonCuts(line) {
+    const cuts = [];
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] !== '：') continue;
+      let j = i;
+      while (j + 1 < line.length && (line[j + 1] === '：' || STRONG_BREAK.test(line[j + 1]) || CLOSERS.test(line[j + 1]))) j++;
+      if (j + 1 < line.length) cuts.push(j + 1);
+      i = j;
+    }
+    return cuts;
+  }
+
+  // 太長的一行：在「：」拆成兩半（選讓較長那半最短的斷點），拆完還太長就再拆
+  function splitIfTooLong(line) {
+    if (lineWidth(line) <= LINE_CAPACITY) return [line];
+    const cuts = colonCuts(line);
+    if (!cuts.length) return [line];
+    const cut = cuts.reduce((best, c) =>
+      Math.max(lineWidth(line.slice(0, c)), lineWidth(line.slice(c))) < Math.max(lineWidth(line.slice(0, best)), lineWidth(line.slice(best))) ? c : best, cuts[0]);
+    return [...splitIfTooLong(line.slice(0, cut)), ...splitIfTooLong(line.slice(cut))];
+  }
+
+  function breakTitle(title) {
+    const s = String(title).replace(/\s*\n\s*/g, ' ').trim();
+    let lines = splitStrong(s);
+
+    // 1) 不到 3 段：用「：」補斷到 3 段
+    let budget = TARGET_LINES - lines.length;
+    if (budget > 0) {
+      const topped = [];
+      for (const line of lines) {
+        let from = 0;
+        for (const cut of colonCuts(line)) {
+          if (budget <= 0) break;
+          topped.push(line.slice(from, cut));
+          from = cut;
+          budget--;
+        }
+        topped.push(line.slice(from));
+      }
+      lines = topped;
+    }
+
+    // 2) 還有放不下一行的長句：才在「：」多拆一段（可能因此變成 4 段）
+    return lines.flatMap(splitIfTooLong);
   }
 
   // ---- 圖說（攝影／來源）-------------------------------------------------------
