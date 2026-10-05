@@ -68,7 +68,8 @@ body.sidepanel {
 /* 卡片標題列：標題在左，動作按鈕在右上角、和標題同一列 */
 .sp-card-head { display: flex; align-items: center; justify-content: space-between; gap: calc(8px * var(--sp)); margin-bottom: calc(10px * var(--sp)); }
 .sp-card-head h2 { margin: 0; }
-#qfCopyBtn { flex: 0 0 auto; padding: calc(6px * var(--sp)) calc(14px * var(--sp)); font-size: calc(13px * var(--fs)); white-space: nowrap; }
+/* 字級、內距、高度和「快速產圖」按鈕共用同一套（見上面「按鈕、輸入框」），這裡只管不縮、不換行 */
+#qfCopyBtn { flex: 0 0 auto; white-space: nowrap; }
 .sidepanel .field[hidden] { display: none; }
 
 .qf-status, .up-status { margin-top: calc(8px * var(--sp)); font-size: calc(12.5px * var(--fs)); color: var(--muted); min-height: 1em; }
@@ -79,8 +80,19 @@ body.sidepanel {
 .up-status.has-update { color: #d92d20; font-weight: 600; }
 .sidepanel .hint { font-size: calc(12px * var(--fs)); }
 
-#actionsCard { padding: calc(12px * var(--sp)) calc(16px * var(--sp)); }
-#actionsCard .btn-row { margin-top: 0; }
+/* 動作列：在預覽框上方，放在固定的預覽欄裡所以跟著預覽一起固定；
+   整排按鈕用 --ab 等比縮小（1 = 一般按鈕大小，0.8 = 縮小 20%）。寬度對齊預覽框。 */
+.sidepanel .preview-col { --ab: 0.8; }
+.action-bar {
+  display: flex; gap: calc(6px * var(--ab));
+  width: max(calc(min(100%, 46vh + 20px) * 0.75 + 5px), 232px); max-width: 100%;
+  margin: 0 auto calc(8px * var(--sp));
+}
+.action-bar button {
+  flex: 1 1 0; min-width: 0; white-space: nowrap;
+  font-size: calc(14px * var(--fs) * var(--ab));
+  padding: calc(10px * var(--sp) * var(--ab)) calc(8px * var(--ab));
+}
 
 /* 新聞／娛樂切換、背景切換 */
 .sidepanel .bg-toggle { padding: calc(4px * var(--sp)); gap: calc(4px * var(--sp)); }
