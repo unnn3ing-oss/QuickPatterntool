@@ -4,6 +4,7 @@
 body.sidepanel {
   --sp: 0.85;
   --fs: 1;
+  --pv: 0.9;   /* 預覽框的寬度比例（1 = 一般大小；上一版是 0.75）。動作列寬度跟著預覽框 */
   --pad: calc(12px * var(--sp));
   background-attachment: fixed;
   padding: var(--pad) var(--pad) calc(28px * var(--sp));
@@ -30,10 +31,11 @@ body.sidepanel {
   background: rgba(242, 246, 252, 0.94);
   backdrop-filter: blur(14px);
 }
-/* 預覽縮小 1/4：框的寬度 = 原本（受視窗寬度與 46vh 限制）的 75%，置中（不跟著 --sp 縮放） */
+/* 預覽框的寬度 = 原本（受視窗寬度與 46vh 限制）乘上 --pv，置中（不跟著 --sp 縮放）。
+   後面加的 20px × (1 − --pv) 是框的內距，讓「畫布本身」剛好是原本的 --pv 倍。 */
 .sidepanel .canvas-wrap {
   padding: 10px; border-radius: 22px;
-  width: calc(min(100%, 46vh + 20px) * 0.75 + 5px);
+  width: calc(min(100%, 46vh + 20px) * var(--pv) + 20px * (1 - var(--pv)));
   min-width: 150px;
   margin: 0 auto;
 }
@@ -85,7 +87,7 @@ body.sidepanel {
 .sidepanel .preview-col { --ab: 0.8; }
 .action-bar {
   display: flex; gap: calc(6px * var(--ab));
-  width: max(calc(100% * 0.75 + 5px), 248px); max-width: 100%;
+  width: max(calc(100% * var(--pv) + 20px * (1 - var(--pv))), 248px); max-width: 100%;
   margin: 0 auto calc(8px * var(--sp));
 }
 .action-bar button {
@@ -145,14 +147,10 @@ body.sidepanel {
 }
 .tip[hidden] { display: none; }
 
-/* 整個介面的寬度 = 預覽框的寬度（側邊欄寬度的 75%），置中。
-   文字、按鈕的大小都不變，只有排版跟著這個寬度伸縮；側邊欄拉寬，整個介面也一起橫向變寬。
-   預覽框本身因為是正方形、要顧到高度，仍然另外受 46vh 限制（見上面 .canvas-wrap）。
-   最小 248px：再窄內容會擠不下（例如新聞／娛樂兩顆切換鈕）。 */
+/* 標題列與各張卡片撐滿側邊欄的可用寬度（只留左右內距），側邊欄拉寬時也一起橫向變寬。
+   文字、按鈕的大小都不變。預覽框與它上面的動作列（寬度跟預覽框一樣）因為預覽是正方形、
+   還要顧到高度，所以寬度另外用 --pv 控制（見上面 .canvas-wrap、.action-bar），置中。 */
 .sidepanel header,
 .sidepanel .layout > .sp-card {
-  width: max(calc(100% * 0.75 + 5px), 248px);
-  max-width: 100%;
-  margin-left: auto;
-  margin-right: auto;
+  width: 100%;
 }
