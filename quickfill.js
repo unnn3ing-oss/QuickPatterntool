@@ -312,11 +312,20 @@
   const copyBtn = document.getElementById('qfCopyBtn');
   const titleEl = document.getElementById('title');
   const downloadBtn = document.getElementById('downloadBtn');
+  const tipEl = document.getElementById('qfTip');
+  const askTipEl = document.getElementById('qfAskTip');
   const askBox = document.getElementById('qfAsk');
   const askDownloadBtn = document.getElementById('qfAskDownload');
   const askEditBtn = document.getElementById('qfAskEdit');
   const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
   let runId = 0;
+  let lastRunUrl = '';   // 最近一次快速產圖用的網址；詢問中在網址欄再按 Enter（網址沒變）就當作「直接下載」
+
+  // 功能提示：每次載入（重新載入）插件都會重新出現。
+  //   「貼上連結按Enter可以產圖」：載入時顯示，使用者開始輸入、按下快速產圖、或點一下提示就收起來。
+  //   「再按一次Enter即下載」：這次載入的第一張圖才顯示，同一次使用中的第二張起不再跳；重新載入後又從頭計算。
+  const hideTip = () => { if (tipEl) tipEl.hidden = true; };
+  let askTipShown = false;
 
   function setStatus(msg, kind) {
     statusEl.textContent = msg;
@@ -360,6 +369,8 @@
   const hideAsk = () => { askBox.hidden = true; };
   function showAsk() {
     askBox.hidden = false;
+    askTipEl.hidden = askTipShown;   // 這次載入的第一張圖才顯示提示
+    askTipShown = true;
     askDownloadBtn.focus({ preventScroll: true });
   }
 
@@ -367,7 +378,9 @@
     const url = normalizeUrl(urlInput.value);
     if (!url) { setStatus('請先貼上文章網址', 'err'); return; }
     const mine = ++runId;
+    lastRunUrl = url;
     runBtn.disabled = true;
+    hideTip();
     hideAsk();
     setStatus('讀取文章中…');
     try {
@@ -422,12 +435,13 @@
     }
   }
 
-  askDownloadBtn.addEventListener('click', () => {
+  function confirmDownload() {
     hideAsk();
     if (downloadBtn.disabled) { setStatus('現在還不能下載，請先補上標題和背景', 'warn'); return; }
     downloadBtn.click();
     setStatus('已下載圖片', 'ok');
-  });
+  }
+  askDownloadBtn.addEventListener('click', confirmDownload);
   askEditBtn.addEventListener('click', () => {
     hideAsk();
     setStatus('好，修改完成後按「下載圖片」就能下載', 'ok');
@@ -436,7 +450,18 @@
   downloadBtn.addEventListener('click', hideAsk);
 
   runBtn.addEventListener('click', run);
-  urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+  // Enter：沒有詢問時＝快速產圖；詢問還開著、網址沒改過時＝「再按一次 Enter 即下載」；網址改了就是重新產圖
+  urlInput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (!askBox.hidden && normalizeUrl(urlInput.value) === lastRunUrl) confirmDownload(); else run();
+  });
+  // 詢問開著、焦點不在任何輸入元件上（例如點過畫面空白處）時，Enter 一樣是下載
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !askBox.hidden && document.activeElement === document.body) { e.preventDefault(); confirmDownload(); }
+  });
+  urlInput.addEventListener('input', hideTip);
+  if (tipEl) tipEl.addEventListener('click', hideTip);
   copyText.addEventListener('input', () => { copyBtn.disabled = !copyText.value.trim(); });
   copyBtn.addEventListener('click', async () => {
     const ok = await copyToClipboard(copyText.value);

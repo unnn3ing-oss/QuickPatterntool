@@ -85,13 +85,15 @@ body.sidepanel {
 .sidepanel .preview-col { --ab: 0.8; }
 .action-bar {
   display: flex; gap: calc(6px * var(--ab));
-  width: max(calc(min(100%, 46vh + 20px) * 0.75 + 5px), 232px); max-width: 100%;
+  width: max(calc(100% * 0.75 + 5px), 248px); max-width: 100%;
   margin: 0 auto calc(8px * var(--sp));
 }
 .action-bar button {
   flex: 1 1 0; min-width: 0; white-space: nowrap;
-  font-size: calc(14px * var(--fs) * var(--ab));
-  padding: calc(10px * var(--sp) * var(--ab)) calc(8px * var(--ab));
+  /* 字級可以單獨調大，按鈕大小不跟著動：高度固定（= 一般按鈕 35px 的 --ab 倍再加一點），寬度由 flex 平分 */
+  font-size: calc(13px * var(--fs));
+  height: calc(var(--ab) * 38.24px);
+  padding: 0 calc(8px * var(--ab));
 }
 
 /* 新聞／娛樂切換、背景切換 */
@@ -123,6 +125,34 @@ body.sidepanel {
   background: var(--accent-soft); border-radius: calc(16px * var(--sp));
 }
 .qf-ask[hidden] { display: none; }
-.qf-ask-text { flex: 1 1 100%; font-size: calc(13px * var(--fs)); color: #22324d; font-weight: 600; }
+.qf-ask-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: calc(8px * var(--sp)); flex: 1 1 100%; }
+.qf-ask-text { flex: 0 1 auto; font-size: calc(13px * var(--fs)); color: #22324d; font-weight: 600; }
 .qf-ask-btns { display: flex; gap: calc(8px * var(--sp)); flex: 1 1 100%; }
 .qf-ask-btns button { flex: 1; font-size: calc(14px * var(--fs)); padding: calc(9px * var(--sp)) calc(12px * var(--sp)); }
+
+/* 功能提示氣泡（深色小氣泡，下方有箭頭指向下面的輸入框／按鈕）。放在卡片的標題列／詢問列裡，
+   空間不夠時會自己換行，不會蓋到別的文字。 */
+.sp-card-head { flex-wrap: wrap; row-gap: calc(8px * var(--sp)); }
+.tip {
+  position: relative; flex: 0 0 auto; white-space: nowrap;
+  background: #22324d; color: #fff; font-size: calc(12px * var(--fs)); font-weight: 600; line-height: 1.3;
+  padding: calc(5px * var(--sp)) calc(10px * var(--sp)); border-radius: calc(10px * var(--sp));
+  box-shadow: 0 6px 14px -8px rgba(0, 30, 70, 0.6);
+}
+.tip::after {
+  content: ""; position: absolute; top: 100%; right: calc(22px * var(--sp));
+  border: 5px solid transparent; border-top-color: #22324d;
+}
+.tip[hidden] { display: none; }
+
+/* 整個介面的寬度 = 預覽框的寬度（側邊欄寬度的 75%），置中。
+   文字、按鈕的大小都不變，只有排版跟著這個寬度伸縮；側邊欄拉寬，整個介面也一起橫向變寬。
+   預覽框本身因為是正方形、要顧到高度，仍然另外受 46vh 限制（見上面 .canvas-wrap）。
+   最小 248px：再窄內容會擠不下（例如新聞／娛樂兩顆切換鈕）。 */
+.sidepanel header,
+.sidepanel .layout > .sp-card {
+  width: max(calc(100% * 0.75 + 5px), 248px);
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}

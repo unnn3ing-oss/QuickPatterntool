@@ -47,14 +47,20 @@
     </div>
 
     <section class="card sp-card" id="quickFill">
-      <h2>快速產圖</h2>
+      <div class="sp-card-head">
+        <h2>快速產圖</h2>
+        <div class="tip" id="qfTip" role="status">貼上連結按Enter可以產圖</div>
+      </div>
       <div class="qf-row">
         <input type="url" id="qfUrl" placeholder="貼上文章網址" autocomplete="off" spellcheck="false">
         <button type="button" class="primary" id="qfBtn">快速產圖</button>
       </div>
       <div class="qf-status" id="qfStatus" role="status"></div>
       <div class="qf-ask" id="qfAsk" role="group" aria-label="下載確認" hidden>
-        <span class="qf-ask-text">圖片做好了，要直接下載嗎？</span>
+        <div class="qf-ask-top">
+          <span class="qf-ask-text">圖片做好了，要直接下載嗎？</span>
+          <div class="tip" id="qfAskTip" hidden>再按一次Enter即下載</div>
+        </div>
         <div class="qf-ask-btns">
           <button type="button" id="qfAskEdit">還要修改</button>
           <button type="button" class="primary" id="qfAskDownload">直接下載</button>
