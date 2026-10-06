@@ -1,6 +1,4 @@
 /* 網頁版專用：「部署到 Chrome 插件」按鈕與彈窗。 */
-.header-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
-.header-actions .help-btn { margin-top: 0; }
 
 #deployOverlay .modal { max-width: 560px; }
 #deployOverlay .modal-body p { margin: 0 0 8px; line-height: 1.6; }

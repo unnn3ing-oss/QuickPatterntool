@@ -15,19 +15,27 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="deploy.css">
+<link rel="stylesheet" href="watermark.css">
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>圖片套版產生器</h1>
-    <p class="sub">貼上標題（換行照原樣分行）、選擇娛樂（粉框）或新聞（藍框），上傳圖片或選純色背景，自動套上 TVBS 版型</p>
-    <div class="header-actions">
+<!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印）、右側說明與部署按鈕 -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <h1 class="topbar-title">圖片套版產生器</h1>
+    <div class="func-switch" role="group" aria-label="切換功能">
+      <button type="button" class="func-btn active" id="funcLayoutBtn" aria-pressed="true">圖片套版</button>
+      <button type="button" class="func-btn" id="funcWatermarkBtn" aria-pressed="false">浮水印</button>
+    </div>
+    <div class="topbar-actions">
       <button type="button" id="helpBtn" class="help-btn">📖 使用說明</button>
       <button type="button" id="deployBtn" class="help-btn">🧩 部署到 Chrome 插件</button>
     </div>
-  </header>
+  </div>
+</header>
 
-  <div class="layout">
+<div class="wrap">
+
+  <div class="layout" id="layoutApp">
     <div class="card">
       <div class="mode-switch">
         <button type="button" class="mode-btn active" id="modeSingleBtn">單張</button>
@@ -111,6 +119,95 @@
       </div>
     </div>
   </div>
+
+  <!-- 浮水印功能（網頁版專用，邏輯在 watermark.js） -->
+  <div class="layout" id="watermarkApp" hidden>
+    <div class="card">
+      <!-- 左上：拖放／點擊選取照片（可一次選多張） -->
+      <div class="dropzone wm-photo-drop" id="wmPhotoDrop" tabindex="0">
+        <div id="wmPhotoText">點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張；也能直接 Ctrl+V 貼上</div>
+        <input type="file" id="wmPhotoInput" accept="image/*" multiple>
+      </div>
+      <div class="hint" id="wmPhotoHint">輸出會保持原圖尺寸</div>
+
+      <div class="btn-row" style="margin-top:16px; margin-bottom:20px">
+        <button id="wmResetBtn" style="flex:1">全部清除</button>
+        <button class="primary" id="wmDownloadBtn" style="flex:1" disabled>下載圖片</button>
+        <button class="primary" id="wmDownloadAllBtn" style="flex:1 1 100%" hidden>全部下載</button>
+      </div>
+
+      <div class="edit-box">
+        <div class="field">
+          <label>浮水印圖</label>
+          <div class="bg-toggle" id="wmLogoToggle">
+            <button type="button" class="active" data-logo="new">新版 NEWS</button>
+            <button type="button" data-logo="old">舊版 新聞網</button>
+            <button type="button" data-logo="custom">自己上傳</button>
+          </div>
+          <div class="dropzone wm-logo-drop" id="wmLogoDrop" tabindex="0" hidden>
+            <img id="wmLogoThumb" class="batch-item-thumb" alt="" hidden>
+            <div id="wmLogoText">點擊選擇浮水印圖<br>或拖曳到此處（建議用背景透明的 PNG／SVG）</div>
+            <input type="file" id="wmLogoInput" accept="image/*">
+          </div>
+          <div class="hint" id="wmLogoHint">新版是向量圖、放多大都清楚；舊版是 170×100 的白色 PNG，放大會偏糊。兩個都是淺色，照片偏亮時可以改成自己上傳的圖。</div>
+        </div>
+
+        <div class="field">
+          <label>位置</label>
+          <div class="wm-grid" id="wmGrid" role="group" aria-label="浮水印位置">
+            <button type="button" data-px="0" data-py="0" aria-label="左上"></button>
+            <button type="button" data-px="0.5" data-py="0" aria-label="上方置中"></button>
+            <button type="button" data-px="1" data-py="0" aria-label="右上"></button>
+            <button type="button" data-px="0" data-py="0.5" aria-label="左側置中"></button>
+            <span class="wm-grid-gap" aria-hidden="true"></span>
+            <button type="button" data-px="1" data-py="0.5" aria-label="右側置中"></button>
+            <button type="button" data-px="0" data-py="1" aria-label="左下"></button>
+            <button type="button" data-px="0.5" data-py="1" aria-label="下方置中"></button>
+            <button type="button" data-px="1" data-py="1" aria-label="右下"></button>
+          </div>
+          <div class="hint">也可以在預覽上直接拖曳浮水印，它會吸附到這 8 個位置（沒有正中央）。</div>
+        </div>
+
+        <div class="field">
+          <label for="wmSize">大小<output id="wmSizeOut" for="wmSize"></output></label>
+          <input type="range" id="wmSize" min="5" max="60" step="1" value="13">
+        </div>
+        <div class="field">
+          <label for="wmTransparency">透明度<output id="wmTransparencyOut" for="wmTransparency"></output></label>
+          <input type="range" id="wmTransparency" min="0" max="90" step="1" value="0">
+          <div class="hint">0% 是完全不透明，數字越大越淡。</div>
+        </div>
+        <div class="field">
+          <label for="wmMargin">邊距<output id="wmMarginOut" for="wmMargin"></output></label>
+          <input type="range" id="wmMargin" min="0" max="15" step="1" value="3">
+        </div>
+
+        <div class="field" style="margin-bottom:0">
+          <label>輸出格式</label>
+          <div class="bg-toggle" id="wmFormat">
+            <button type="button" class="active" data-fmt="auto">沿用原圖</button>
+            <button type="button" data-fmt="jpeg">JPG</button>
+            <button type="button" data-fmt="png">PNG</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-col">
+      <div class="canvas-wrap wm-stage" id="wmStage">
+        <div class="wm-empty" id="wmEmpty">上傳或貼上照片，浮水印會自動疊上去</div>
+        <canvas id="wmCanvas" width="1080" height="720" hidden></canvas>
+      </div>
+      <div class="status" id="wmStatus">請先上傳照片</div>
+      <!-- 展示窗：跟「圖片套版」的批次一樣，多張照片排成一列，點一張就在上面預覽 -->
+      <div class="thumbs-shelf" id="wmShelf" hidden>
+        <button type="button" class="shelf-nav" id="wmShelfPrev" aria-label="往左看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 3l-3 3 3 3"/></svg></button>
+        <div class="batch-thumbs" id="wmThumbs"></div>
+        <button type="button" class="shelf-nav" id="wmShelfNext" aria-label="往右看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3"/></svg></button>
+      </div>
+      <div class="hint preview-hint">在預覽上拖曳浮水印可以換位置；滑鼠停在浮水印上滾動滾輪可以放大縮小。大小、透明度、邊距、位置會套用到所有照片。</div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="helpOverlay">
@@ -120,6 +217,17 @@
       <button type="button" id="helpCloseBtn" class="modal-close" aria-label="關閉">✕</button>
     </div>
     <div class="modal-body">
+      <h3>切換功能</h3>
+      <ul>
+        <li>上排中間可以在「圖片套版」和「浮水印」之間切換，兩邊的內容各自獨立、互不影響。</li>
+      </ul>
+      <h3>浮水印</h3>
+      <ul>
+        <li>把照片拖到左上角的區域（或點擊選取、Ctrl+V 貼上），<b>可以一次放多張</b>；多張時預覽下方會出現展示窗，點一張就能預覽，也能按 ✕ 移除。</li>
+        <li>預設在右上角疊上新版 TVBS NEWS Logo（大小 13%、邊距 3%、不透明）；「浮水印圖」可以切換成舊版「新聞網」Logo，或自己上傳的圖（建議用背景透明的 PNG 或 SVG）。</li>
+        <li>用九宮格選位置，或直接在預覽上拖曳浮水印：它只會停在周圍 8 個位置（沒有正中央）。再用「大小」「透明度」「邊距」微調，設定會套用到所有照片。</li>
+        <li>下載的檔案維持原圖尺寸，格式可「沿用原圖」或指定 JPG（品質 95%）／PNG，檔名是「原檔名_浮水印」。多張時可按「下載本張」或「全部下載」（瀏覽器第一次可能會詢問是否允許下載多個檔案）。</li>
+      </ul>
       <h3>單張模式</h3>
       <ul>
         <li>先選擇「類別」：新聞（藍框）或娛樂（粉框），會影響套版右上角的角標樣式。</li>
@@ -292,5 +400,6 @@
 
 <script src="app.js"></script>
 <script src="deploy.js"></script>
+<script src="watermark.js"></script>
 </body>
 </html>
