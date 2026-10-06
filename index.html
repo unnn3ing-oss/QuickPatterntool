@@ -154,18 +154,13 @@
 
         <div class="field">
           <label>位置</label>
-          <div class="wm-grid" id="wmGrid" role="group" aria-label="浮水印位置">
+          <div class="wm-corners" id="wmGrid" role="group" aria-label="浮水印位置（四個角）">
             <button type="button" data-px="0" data-py="0" aria-label="左上"></button>
-            <button type="button" data-px="0.5" data-py="0" aria-label="上方置中"></button>
             <button type="button" data-px="1" data-py="0" aria-label="右上"></button>
-            <button type="button" data-px="0" data-py="0.5" aria-label="左側置中"></button>
-            <span class="wm-grid-gap" aria-hidden="true"></span>
-            <button type="button" data-px="1" data-py="0.5" aria-label="右側置中"></button>
             <button type="button" data-px="0" data-py="1" aria-label="左下"></button>
-            <button type="button" data-px="0.5" data-py="1" aria-label="下方置中"></button>
             <button type="button" data-px="1" data-py="1" aria-label="右下"></button>
           </div>
-          <div class="hint">也可以在預覽上直接拖曳浮水印，它會吸附到這 8 個位置（沒有正中央）。</div>
+          <div class="hint" id="wmPosHint"></div>
         </div>
 
         <div class="field">
@@ -205,7 +200,7 @@
         <div class="batch-thumbs" id="wmThumbs"></div>
         <button type="button" class="shelf-nav" id="wmShelfNext" aria-label="往右看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3"/></svg></button>
       </div>
-      <div class="hint preview-hint">在預覽上拖曳浮水印可以換位置；滑鼠停在浮水印上滾動滾輪可以放大縮小。大小、透明度、邊距、位置會套用到所有照片。</div>
+      <div class="hint preview-hint">在預覽上拖曳浮水印（抓的範圍比 Logo 大）可以換位置，只會改目前這一張；滑鼠停在浮水印上滾動滾輪可以放大縮小。大小、透明度、邊距，以及左側的位置鈕會套用到所有照片。</div>
     </div>
   </div>
 </div>
@@ -225,8 +220,8 @@
       <ul>
         <li>把照片拖到左上角的區域（或點擊選取、Ctrl+V 貼上），<b>可以一次放多張</b>；多張時預覽下方會出現展示窗，點一張就能預覽，也能按 ✕ 移除。</li>
         <li>預設在右上角疊上新版 TVBS NEWS Logo（大小 13%、邊距 3%、不透明）；「浮水印圖」可以切換成舊版「新聞網」Logo，或自己上傳的圖（建議用背景透明的 PNG 或 SVG）。</li>
-        <li>用九宮格選位置，或直接在預覽上拖曳浮水印：它只會停在周圍 8 個位置（沒有正中央）。再用「大小」「透明度」「邊距」微調，設定會套用到所有照片。</li>
-        <li>下載的檔案維持原圖尺寸，格式可「沿用原圖」或指定 JPG（品質 95%）／PNG，檔名是「原檔名_浮水印」。多張時可按「下載本張」或「全部下載」（瀏覽器第一次可能會詢問是否允許下載多個檔案）。</li>
+        <li>位置只有四個角（左上、右上、左下、右下）。<b>在預覽上直接拖曳 Logo（抓的範圍比 Logo 大）只會改目前這一張</b>，它會吸附到最近的角；<b>按左側的位置鈕則是全部照片一起改</b>，如果有照片已經單獨調整過，會先問你要不要全部改掉。「大小」「透明度」「邊距」套用到所有照片。</li>
+        <li>下載的檔案維持原圖尺寸，格式可「沿用原圖」或指定 JPG（品質 95%）／PNG，檔名是「原檔名_浮水印」。「下載本張」維持原檔名；「全部下載」的檔名是「YYMMDDHHMM_第幾張」（例如 2610122312_1，時間是按下按鈕那一刻的，每張間隔 0.5～1 秒），瀏覽器第一次可能會詢問是否允許下載多個檔案。</li>
       </ul>
       <h3>單張模式</h3>
       <ul>

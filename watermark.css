@@ -35,18 +35,22 @@ h1.topbar-title {
 #layoutApp[hidden], #watermarkApp[hidden] { display: none; }
 
 /* ---- 浮水印 ---- */
-.wm-grid { display: grid; grid-template-columns: repeat(3, 44px); gap: 6px; margin: 2px 0 6px; }
-.wm-grid button {
-  width: 44px; height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--border);
-  background: var(--field-bg); position: relative; cursor: pointer;
+/* 位置：一個縮小的照片框，四個角各一顆按鈕 */
+.wm-corners { position: relative; width: 168px; height: 108px; margin: 4px 0 8px; border-radius: 14px; border: 1px solid var(--border); background: rgba(0, 74, 173, 0.04); }
+.wm-corners button {
+  position: absolute; width: 44px; height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--field-bg); cursor: pointer;
 }
-.wm-grid-gap { width: 44px; height: 44px; border-radius: 12px; border: 1px dashed rgba(0, 74, 173, 0.15); }   /* 正中央不能放，留空 */
-.wm-grid button::after {            /* 小圓點表示位置 */
+.wm-corners button:nth-child(1) { left: 6px; top: 6px; }
+.wm-corners button:nth-child(2) { right: 6px; top: 6px; }
+.wm-corners button:nth-child(3) { left: 6px; bottom: 6px; }
+.wm-corners button:nth-child(4) { right: 6px; bottom: 6px; }
+.wm-corners button::after {            /* 小圓點表示位置 */
   content: ""; position: absolute; inset: 0; margin: auto; width: 10px; height: 10px; border-radius: 50%; background: #c3cde0;
 }
-.wm-grid button:hover:not(.active)::after { background: var(--accent); opacity: .6; }
-.wm-grid button.active { border-color: var(--accent); background: var(--accent-soft); }
-.wm-grid button.active::after { background: var(--accent); width: 14px; height: 14px; }
+.wm-corners button:hover:not(.active)::after { background: var(--accent); opacity: .6; }
+.wm-corners button.active { border-color: var(--accent); background: var(--accent-soft); }
+.wm-corners button.active::after { background: var(--accent); width: 14px; height: 14px; }
 #watermarkApp label { display: flex; justify-content: space-between; align-items: baseline; }
 #watermarkApp output { font-weight: 600; color: var(--accent); font-size: 14px; }
 #watermarkApp input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
@@ -88,3 +92,9 @@ h1.topbar-title {
 .wm-thumb .wm-thumb-rm { position: absolute; right: -8px; top: -8px; width: 22px; height: 22px; opacity: 0; transition: opacity .15s; }
 .wm-thumb .wm-thumb-rm svg { width: 10px; height: 10px; }
 .wm-thumb:hover .wm-thumb-rm, .wm-thumb.active-thumb .wm-thumb-rm, .wm-thumb .wm-thumb-rm:focus-visible { opacity: 1; }
+
+/* 位置是在預覽上單獨調整過的縮圖：左下角一個小圓點 */
+.wm-thumb.own-pos::after {
+  content: ""; position: absolute; left: 6px; bottom: 6px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); pointer-events: none;
+}
