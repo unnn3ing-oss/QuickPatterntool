@@ -3,9 +3,9 @@
 .header-actions .help-btn { margin-top: 0; }
 
 #deployOverlay .modal { max-width: 560px; }
-#deployOverlay .modal-body p { margin: 0 0 4px; line-height: 1.6; }
+#deployOverlay .modal-body p { margin: 0 0 8px; line-height: 1.6; }
 #deployOverlay ol { margin: 0; padding-left: 22px; line-height: 1.8; }
-#deployOverlay code { background: var(--accent-soft); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+#deployOverlay code { background: var(--accent-soft); padding: 1px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }
 .deploy-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 6px; }
 .deploy-actions button { flex: 1 1 160px; }
 .deploy-actions button[hidden] { display: none; }
@@ -15,4 +15,43 @@
 .deploy-link {
   padding: 0; border: none; background: none; box-shadow: none; border-radius: 0;
   color: var(--accent); font-size: inherit; text-decoration: underline; cursor: pointer;
+}
+
+/* 步驟精靈：進度列 ─ 內容（一次只顯示一個步驟）─ 底部上一步／下一步 */
+.deploy-steps {
+  list-style: none; margin: 0; padding: 18px 12px 10px;
+  display: flex; border-bottom: 1px solid var(--border);
+}
+.deploy-steps li { flex: 1 1 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.deploy-steps li::before {            /* 連到前一個圓點的線 */
+  content: ""; position: absolute; top: 9px; right: 50%; width: 100%; height: 2px; background: #d7deea;
+}
+.deploy-steps li:first-child::before { display: none; }
+.deploy-steps .dot {
+  position: relative; z-index: 1; width: 20px; height: 20px; box-sizing: border-box;
+  border-radius: 50%; background: #fff; border: 2px solid #d7deea; display: grid; place-items: center;
+  font-size: 11px; line-height: 1; color: #fff;
+}
+.deploy-steps .lbl { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.3; }
+.deploy-steps li.done::before, .deploy-steps li.current::before { background: var(--accent); }
+.deploy-steps li.done .dot { background: var(--accent); border-color: var(--accent); }
+.deploy-steps li.done .dot::after { content: "✓"; }
+.deploy-steps li.current .dot { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.deploy-steps li.current .dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.deploy-steps li.current .lbl { color: var(--accent); font-weight: 600; }
+
+.deploy-body { min-height: 230px; }
+.deploy-panel[hidden] { display: none; }
+.deploy-panel h3 { margin: 0 0 10px; font-size: 15px; outline: none; }
+.deploy-name { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 8px; }
+.deploy-name code { font-size: 15px; padding: 6px 10px; }
+.deploy-foot {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 12px 20px 16px; border-top: 1px solid var(--border);
+}
+.deploy-foot button { min-width: 110px; }
+.deploy-foot button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 480px) {
+  .deploy-steps .lbl { font-size: 11px; }
+  .deploy-steps { padding-left: 4px; padding-right: 4px; }
 }

@@ -195,30 +195,76 @@
 </div>
 
 <div class="modal-overlay" id="deployOverlay">
-  <div class="modal">
+  <div class="modal deploy-modal" role="dialog" aria-modal="true" aria-labelledby="deployTitle">
     <div class="modal-head">
-      <h2>部署到 Chrome 插件</h2>
+      <h2 id="deployTitle">部署到 Chrome 插件</h2>
       <button type="button" id="deployCloseBtn" class="modal-close" aria-label="關閉">✕</button>
     </div>
-    <div class="modal-body">
-      <p>把這個工具裝成 Chrome 的側邊欄插件（可貼文章網址快速產圖）。網頁沒辦法直接替瀏覽器安裝插件，所以分兩步：先把最新版檔案準備好，再到 Chrome 載入一次。</p>
 
-      <h3>第 1 步：準備檔案（GitHub 上的最新版）</h3>
-      <div class="deploy-actions">
-        <button type="button" class="primary" id="deployPickBtn">選擇資料夾並寫入</button>
-        <button type="button" id="deployZipBtn">改下載 ZIP</button>
-      </div>
-      <div class="hint">請選一個「空的」資料夾（選取視窗裡可按「新增資料夾」）。Chrome 可能不允許直接選「下載」「文件」「桌面」本身，請選裡面的新資料夾。</div>
-      <div class="deploy-status" id="deployStatus" role="status"></div>
+    <!-- 進度列：只用「上一步／下一步」切換，圓點不能點 -->
+    <ol class="deploy-steps" id="deploySteps" aria-label="安裝步驟">
+      <li><span class="dot"></span><span class="lbl">建立資料夾</span></li>
+      <li><span class="dot"></span><span class="lbl">取得檔案</span></li>
+      <li><span class="dot"></span><span class="lbl">開啟擴充頁</span></li>
+      <li><span class="dot"></span><span class="lbl">載入插件</span></li>
+      <li><span class="dot"></span><span class="lbl">完成</span></li>
+    </ol>
 
-      <h3>第 2 步：到 Chrome 載入</h3>
-      <ol>
-        <li>在網址列開啟 <code>chrome://extensions</code> <button type="button" class="deploy-link" id="deployCopyUrl">複製網址</button>（網頁不能直接開啟這個頁面）</li>
-        <li>打開右上角的「開發人員模式」。</li>
-        <li>按「載入未封裝項目」，選第 1 步的資料夾（用 ZIP 的話，先解壓縮再選）。</li>
-        <li>點工具列的圖示（可先釘選），就會開啟側邊欄。</li>
-      </ol>
-      <div class="hint">之後要更新，在側邊欄最下面按「檢查更新」就好，不用再回到這裡。</div>
+    <div class="modal-body deploy-body">
+      <section class="deploy-panel" data-step="1">
+        <h3 tabindex="-1">步驟 1／5　建立放插件的資料夾</h3>
+        <p>網頁沒辦法直接替瀏覽器安裝插件，所以要先在電腦上準備一個資料夾，把檔案放進去，再到 Chrome 載入一次。</p>
+        <p>建議的資料夾名稱：</p>
+        <div class="deploy-name">
+          <code id="deployFolderName">QuickPatterntool</code>
+          <button type="button" id="deployCopyName">複製名稱</button>
+        </div>
+        <div class="hint">在下一步的選取視窗按「新增資料夾」，貼上這個名稱就好。瀏覽器不能替你預先填好名稱，所以才做了複製按鈕。</div>
+        <div class="hint">也可以直接選一個已經有東西的資料夾：我會在裡面自動建立同名的資料夾，不會動到其他檔案。Chrome 可能不允許直接選「下載」「文件」「桌面」本身，請選它們裡面的資料夾。</div>
+      </section>
+
+      <section class="deploy-panel" data-step="2" hidden>
+        <h3 tabindex="-1">步驟 2／5　取得最新版檔案</h3>
+        <p>從 GitHub 下載最新版，並寫進資料夾。</p>
+        <div class="deploy-actions">
+          <button type="button" class="primary" id="deployPickBtn">選擇資料夾並寫入</button>
+          <button type="button" id="deployZipBtn">改下載 ZIP</button>
+        </div>
+        <div class="hint">選「空的資料夾」就直接寫在裡面；選到有東西的資料夾，會在裡面建立「<span class="deploy-folder-name">QuickPatterntool</span>」。選已經是這個插件的資料夾則會更新成最新版。用 ZIP 的話，下載後請先解壓縮。</div>
+        <div class="deploy-status" id="deployStatus" role="status"></div>
+      </section>
+
+      <section class="deploy-panel" data-step="3" hidden>
+        <h3 tabindex="-1">步驟 3／5　開啟 Chrome 的擴充功能頁</h3>
+        <ol>
+          <li>在 Chrome 網址列輸入 <code>chrome://extensions</code> 後按 Enter。<button type="button" class="deploy-link" id="deployCopyUrl">複製網址</button></li>
+          <li>打開頁面右上角的「<b>開發人員模式</b>」開關。</li>
+        </ol>
+        <div class="hint">網頁不能直接開啟這個頁面，所以請自己貼到網址列。</div>
+      </section>
+
+      <section class="deploy-panel" data-step="4" hidden>
+        <h3 tabindex="-1">步驟 4／5　載入插件</h3>
+        <ol>
+          <li>按左上角的「<b>載入未封裝項目</b>」。</li>
+          <li>選擇資料夾「<code id="deployLoadFolder">QuickPatterntool</code>」（步驟 2 寫入的那個；用 ZIP 的話，選解壓縮後的資料夾）。</li>
+          <li>載入成功後，清單裡會出現「圖片套版產生器」。</li>
+        </ol>
+      </section>
+
+      <section class="deploy-panel" data-step="5" hidden>
+        <h3 tabindex="-1">步驟 5／5　完成，開始使用</h3>
+        <ol>
+          <li>點 Chrome 右上角的拼圖圖示，把「圖片套版產生器」釘選到工具列。</li>
+          <li>點一下它的圖示，就會開啟側邊欄，貼上文章網址即可快速產圖。</li>
+        </ol>
+        <div class="hint">之後要更新，在側邊欄最下面按「檢查更新」就好，不用再回到這裡。</div>
+      </section>
+    </div>
+
+    <div class="deploy-foot">
+      <button type="button" id="deployPrevBtn">上一步</button>
+      <button type="button" class="primary" id="deployNextBtn">下一步</button>
     </div>
   </div>
 </div>

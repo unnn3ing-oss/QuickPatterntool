@@ -10,6 +10,7 @@
 (function () {
   const REPO = { owner: 'unnn3ing-oss', repo: 'QuickPatterntool', branch: 'main' };
   const EXT_NAME = '圖片套版產生器';
+  const EXT_FOLDER = 'QuickPatterntool';   // 建議的資料夾名稱（ZIP 裡的最上層資料夾也用這個名稱）
   const SKIP = [/^README\.md$/i, /^examples\//, /^\.gitignore$/, /^\.github\//,
     /^index\.html$/, /^favicon/, /^apple-touch-icon/, /^deploy\.(js|css)$/];
   const API = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}`;
@@ -65,17 +66,32 @@
   }
 
   // ---- A. 寫入資料夾 -----------------------------------------------------------
-  // 只允許寫進「空資料夾」或「已經是這個擴充功能的資料夾」，避免蓋掉使用者其他檔案
-  async function assertSafeFolder(dir) {
-    const names = [];
-    for await (const [name] of dir.entries()) names.push(name);
-    if (!names.length) return;
-    let ours = false;
+  // 瀏覽器的「選資料夾」視窗沒有辦法預先填好資料夾名稱，所以改成：
+  //   - 選到空資料夾，或本來就是這個擴充功能的資料夾 → 直接寫在裡面
+  //   - 選到有其他東西的資料夾 → 在裡面建立（或沿用）名為 EXT_FOLDER 的子資料夾，只新增、不動其他檔案
+  async function isOurs(dir) {
     try {
       const file = await (await dir.getFileHandle('manifest.json')).getFile();
-      ours = JSON.parse(await file.text()).name === EXT_NAME;
-    } catch (e) { /* 沒有 manifest.json 或不是 JSON，就不是我們的資料夾 */ }
-    if (!ours) throw new Error(`「${dir.name}」裡已經有其他檔案。請選一個空的資料夾（選取視窗裡可以按「新增資料夾」）`);
+      return JSON.parse(await file.text()).name === EXT_NAME;
+    } catch (e) { return false; }   // 沒有 manifest.json 或不是 JSON，就不是我們的資料夾
+  }
+  async function isEmpty(dir) {
+    for await (const _ of dir.entries()) return false;
+    return true;
+  }
+  // 回傳 { dir, label }：實際要寫入的資料夾，以及給使用者看的路徑
+  async function resolveTarget(picked) {
+    if ((await isEmpty(picked)) || (await isOurs(picked))) return { dir: picked, label: picked.name };
+    let sub = null;
+    try { sub = await picked.getDirectoryHandle(EXT_FOLDER); } catch (e) { /* 還沒有同名資料夾 */ }
+    if (sub) {
+      if (!(await isEmpty(sub)) && !(await isOurs(sub))) {
+        throw new Error(`「${picked.name}」裡已經有一個「${EXT_FOLDER}」資料夾，但裡面不是空的，也不是這個插件。請換一個資料夾，或把它改名。`);
+      }
+    } else {
+      sub = await picked.getDirectoryHandle(EXT_FOLDER, { create: true });
+    }
+    return { dir: sub, label: `${picked.name}/${EXT_FOLDER}` };
   }
 
   async function writeFile(dir, path, bytes) {
@@ -88,15 +104,15 @@
     await w.close();
   }
 
-  // 先檢查資料夾、再下載、全部驗證通過才開始寫入
-  async function deployToFolder(dir, onProgress) {
-    await assertSafeFolder(dir);
+  // 先決定目標資料夾、再下載、全部驗證通過才開始寫入。回傳 { count, label }
+  async function deployToFolder(picked, onProgress) {
+    const target = await resolveTarget(picked);
     const files = await fetchExtensionFiles(onProgress);
     for (let i = 0; i < files.length; i++) {
       onProgress(`寫入 ${i + 1}/${files.length}：${files[i].path}`);
-      await writeFile(dir, files[i].path, files[i].bytes);
+      await writeFile(target.dir, files[i].path, files[i].bytes);
     }
-    return files.length;
+    return { count: files.length, label: target.label };
   }
 
   // ---- B. 打包 ZIP（不壓縮，只是把檔案裝在一起）-------------------------------------
@@ -150,12 +166,12 @@
   async function buildZipOfExtension(onProgress) {
     const files = await fetchExtensionFiles(onProgress);
     onProgress('打包 ZIP…');
-    return { blob: buildZip(files.map(f => ({ name: `QuickPatterntool-extension/${f.path}`, bytes: f.bytes }))), count: files.length };
+    return { blob: buildZip(files.map(f => ({ name: `${EXT_FOLDER}/${f.path}`, bytes: f.bytes }))), count: files.length };
   }
 
-  window.Deploy = { fetchExtensionFiles, deployToFolder, buildZip, buildZipOfExtension, crc32, REPO };
+  window.Deploy = { fetchExtensionFiles, deployToFolder, buildZip, buildZipOfExtension, crc32, REPO, EXT_FOLDER };
 
-  // ---- 彈窗 --------------------------------------------------------------------
+  // ---- 彈窗（步驟精靈）------------------------------------------------------------
   const overlay = document.getElementById('deployOverlay');
   if (!overlay) return;
   const openBtn = document.getElementById('deployBtn');
@@ -163,22 +179,57 @@
   const pickBtn = document.getElementById('deployPickBtn');
   const zipBtn = document.getElementById('deployZipBtn');
   const copyUrlBtn = document.getElementById('deployCopyUrl');
+  const copyNameBtn = document.getElementById('deployCopyName');
   const statusEl = document.getElementById('deployStatus');
+  const prevBtn = document.getElementById('deployPrevBtn');
+  const nextBtn = document.getElementById('deployNextBtn');
+  const panels = [...overlay.querySelectorAll('.deploy-panel')];
+  const dots = [...overlay.querySelectorAll('#deploySteps li')];
+  const loadFolderEl = document.getElementById('deployLoadFolder');
+  const TOTAL = panels.length;
+  let step = 1;
   let busy = false;
 
-  const setStatus = (msg, kind) => { statusEl.textContent = msg; statusEl.className = 'deploy-status' + (kind ? ` ${kind}` : ''); };
-  const setBusy = b => { busy = b; pickBtn.disabled = zipBtn.disabled = b; };
-  const close = () => overlay.classList.remove('open');
+  document.getElementById('deployFolderName').textContent = EXT_FOLDER;
+  overlay.querySelectorAll('.deploy-folder-name').forEach(el => { el.textContent = EXT_FOLDER; });
+  loadFolderEl.textContent = EXT_FOLDER;
 
-  openBtn.addEventListener('click', () => overlay.classList.add('open'));
+  const setStatus = (msg, kind) => { statusEl.textContent = msg; statusEl.className = 'deploy-status' + (kind ? ` ${kind}` : ''); };
+  const refreshNav = () => {
+    prevBtn.disabled = busy || step === 1;
+    nextBtn.disabled = busy;
+    nextBtn.textContent = step === TOTAL ? '完成' : '下一步';
+  };
+  const setBusy = b => { busy = b; pickBtn.disabled = zipBtn.disabled = b; refreshNav(); };
+
+  function goTo(n, focus = true) {
+    step = Math.min(TOTAL, Math.max(1, n));
+    panels.forEach((p, i) => { p.hidden = i !== step - 1; });
+    dots.forEach((d, i) => {
+      d.classList.toggle('done', i < step - 1);
+      d.classList.toggle('current', i === step - 1);
+      if (i === step - 1) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
+    });
+    refreshNav();
+    if (focus) panels[step - 1].querySelector('h3').focus({ preventScroll: true });
+    overlay.querySelector('.deploy-body').scrollTop = 0;
+  }
+
+  const close = () => overlay.classList.remove('open');
+  const open = () => { setStatus(''); loadFolderEl.textContent = EXT_FOLDER; goTo(1, false); overlay.classList.add('open'); };
+
+  openBtn.addEventListener('click', open);
   closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('open')) close(); });
+  prevBtn.addEventListener('click', () => { if (!busy) goTo(step - 1); });
+  nextBtn.addEventListener('click', () => { if (busy) return; if (step === TOTAL) close(); else goTo(step + 1); });
 
   // 不支援選資料夾的瀏覽器（Firefox、Safari）只留 ZIP
   if (typeof window.showDirectoryPicker !== 'function') {
     pickBtn.hidden = true;
     zipBtn.classList.add('primary');
+    zipBtn.textContent = '下載 ZIP';
   }
 
   pickBtn.addEventListener('click', async () => {
@@ -188,8 +239,9 @@
     catch (err) { if (err && err.name === 'AbortError') return; setStatus(`無法開啟這個資料夾：${err.message || err}`, 'err'); return; }
     setBusy(true);
     try {
-      const n = await deployToFolder(dir, msg => setStatus(msg));
-      setStatus(`已把 ${n} 個檔案寫入「${dir.name}」。接著請做第 2 步，載入時選這個資料夾。`, 'ok');
+      const { count, label } = await deployToFolder(dir, msg => setStatus(msg));
+      loadFolderEl.textContent = label;
+      setStatus(`已把 ${count} 個檔案寫入「${label}」。請按「下一步」繼續。`, 'ok');
     } catch (err) {
       setStatus(err.message || String(err), 'err');
     } finally { setBusy(false); }
@@ -202,20 +254,26 @@
       const { blob, count } = await buildZipOfExtension(msg => setStatus(msg));
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'QuickPatterntool-extension.zip';
+      a.download = `${EXT_FOLDER}.zip`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-      setStatus(`已下載 ZIP（${count} 個檔案）。請先解壓縮，第 2 步載入時選解壓縮後的「QuickPatterntool-extension」資料夾。`, 'ok');
+      loadFolderEl.textContent = EXT_FOLDER;
+      setStatus(`已下載 ZIP（${count} 個檔案）。請先解壓縮，解壓縮後的資料夾就是「${EXT_FOLDER}」，再按「下一步」。`, 'ok');
     } catch (err) {
       setStatus(err.message || String(err), 'err');
     } finally { setBusy(false); }
   });
 
-  copyUrlBtn.addEventListener('click', async () => {
-    const label = copyUrlBtn.textContent;
-    let ok = false;
-    try { await navigator.clipboard.writeText('chrome://extensions'); ok = true; } catch (e) { /* 剪貼簿被拒絕 */ }
-    copyUrlBtn.textContent = ok ? '已複製 ✓' : '複製失敗，請手動輸入';
-    setTimeout(() => { copyUrlBtn.textContent = label; }, 1600);
-  });
+  // 複製按鈕共用：按下後短暫顯示結果
+  function bindCopy(btn, text) {
+    btn.addEventListener('click', async () => {
+      const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      let ok = false;
+      try { await navigator.clipboard.writeText(typeof text === 'function' ? text() : text); ok = true; } catch (e) { /* 剪貼簿被拒絕 */ }
+      btn.textContent = ok ? '已複製 ✓' : '複製失敗，請手動輸入';
+      setTimeout(() => { btn.textContent = label; }, 1600);
+    });
+  }
+  bindCopy(copyUrlBtn, 'chrome://extensions');
+  bindCopy(copyNameBtn, EXT_FOLDER);
 })();
