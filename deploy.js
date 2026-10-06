@@ -277,3 +277,21 @@
   bindCopy(copyUrlBtn, 'chrome://extensions');
   bindCopy(copyNameBtn, EXT_FOLDER);
 })();
+
+// ---- 右下角「其他工具」彈窗（網頁版專用）---------------------------------------------
+// 圓形「N」按鈕開關彈窗；按 Esc、點彈窗外面、按 ✕ 都會收起來。
+(function () {
+  const fab = document.getElementById('toolsFab');
+  if (!fab) return;
+  const btn = document.getElementById('toolsBtn');
+  const pop = document.getElementById('toolsPop');
+  const set = open => {
+    pop.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  };
+  btn.addEventListener('click', () => set(pop.hidden));
+  document.getElementById('toolsClose').addEventListener('click', () => { set(false); btn.focus(); });
+  // 用 pointerdown（而且在捕捉階段）判斷「點到外面」：停用中的按鈕不會送出 click，只聽 click 的話點到它們就收不起來
+  document.addEventListener('pointerdown', e => { if (!pop.hidden && !fab.contains(e.target)) set(false); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { set(false); btn.focus(); } });
+})();

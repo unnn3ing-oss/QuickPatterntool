@@ -55,3 +55,33 @@
   .deploy-steps .lbl { font-size: 11px; }
   .deploy-steps { padding-left: 4px; padding-right: 4px; }
 }
+
+/* 右下角「其他工具」浮動按鈕與彈窗（網頁版專用）。z-index 低於彈窗遮罩（100），開啟部署視窗時會被蓋住。 */
+.tools-fab { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 90; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 10px; }   /* DOM 裡按鈕在前（Tab 先到按鈕再進彈窗），畫面上彈窗在按鈕上方 */
+.tools-btn {
+  width: 48px; height: 48px; padding: 0; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--accent); color: #fff; font: 800 20px/1 var(--ui-font);
+  box-shadow: 0 8px 20px -6px rgba(0, 43, 102, .55);
+  transition: transform .15s ease, background .15s ease;
+}
+.tools-btn:hover { background: var(--accent-dark); transform: translateY(-1px); }
+.tools-btn[aria-expanded="true"] { background: var(--accent-dark); }
+.tools-btn:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
+.tools-pop {
+  width: min(320px, calc(100vw - 32px)); box-sizing: border-box; padding: 14px 14px 12px;
+  background: #fff; border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 24px 50px -20px rgba(0, 43, 102, .45);
+}
+.tools-pop[hidden] { display: none; }
+.tools-head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 8px; }
+.tools-head h2 { margin: 0; font-size: 15px; color: var(--text); }
+.tools-close { padding: 2px 9px; font-size: 13px; line-height: 1.4; border-radius: 8px; }
+.tools-item {
+  display: flex; flex-direction: column; gap: 4px; padding: 11px 12px; margin-top: 8px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--field-bg);
+  color: var(--text); text-decoration: none; transition: border-color .15s ease, background .15s ease;
+}
+.tools-item:hover, .tools-item:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+.tools-name { font-size: 14px; font-weight: 700; color: var(--accent); }
+.tools-desc { font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+.tools-go { margin-top: 2px; font-size: 12.5px; font-weight: 600; color: var(--accent); }

@@ -269,6 +269,27 @@
   </div>
 </div>
 
+<!-- 右下角「其他工具」：圓形 N 按鈕，點開後介紹同一位作者的其他網頁版工具（網頁版專用，樣式與腳本放在 deploy.css／deploy.js） -->
+<div class="tools-fab" id="toolsFab">
+  <button type="button" class="tools-btn" id="toolsBtn" aria-label="其他工具" aria-haspopup="dialog" aria-expanded="false" aria-controls="toolsPop" title="其他工具">N</button>
+  <div class="tools-pop" id="toolsPop" role="dialog" aria-labelledby="toolsTitle" hidden>
+    <div class="tools-head">
+      <h2 id="toolsTitle">其他工具</h2>
+      <button type="button" class="tools-close" id="toolsClose" aria-label="關閉">✕</button>
+    </div>
+    <a class="tools-item" id="toolLine" href="https://unnn3ing-oss.github.io/LinePushPatternTool/" target="_blank" rel="noopener noreferrer">
+      <span class="tools-name">Line 推播套版產生器</span>
+      <span class="tools-desc">做「熱門話題」六宮格推播圖：貼上整段推播標題就自動填滿，圖片可拖曳縮放，另有娛樂版與拼圖，下載 300 DPI 的 JPG。</span>
+      <span class="tools-go">前往網頁版 ↗</span>
+    </a>
+    <a class="tools-item" id="toolVideo" href="https://unnn3ing-oss.github.io/videodownload/" target="_blank" rel="noopener noreferrer">
+      <span class="tools-name">YouTube 批量下載器</span>
+      <span class="tools-desc">把公司頻道的公開影片批量下載到自己的電腦（720p／1080p），檔名直接用影片標題。需搭配 Chrome 擴充功能與本機小程式。</span>
+      <span class="tools-go">前往網頁版 ↗</span>
+    </a>
+  </div>
+</div>
+
 <script src="app.js"></script>
 <script src="deploy.js"></script>
 </body>
