@@ -11,6 +11,9 @@
   const wmApp = $('watermarkApp');
   if (!layoutApp || !wmApp) return;
 
+  // 網頁版的「圖片套版」固定用批次（沒有單張／批次切換）：載入時就切到批次
+  $('modeBatchBtn').click();
+
   // ---- 功能切換 ------------------------------------------------------------------
   const funcBtns = { layout: $('funcLayoutBtn'), watermark: $('funcWatermarkBtn') };
   function setFunc(name) {

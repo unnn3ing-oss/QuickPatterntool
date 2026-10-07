@@ -1,0 +1,37 @@
+/* 切換開關（圖片套版／浮水印、單張／批次、新聞／娛樂、各種選項切換）的滑動動畫。
+   網頁版與 Chrome 側邊欄共用；搭配 segmented.js。
+
+   效能做法：滑動的「白色圓塊」只用 transform 位移（交給 GPU 合成，不觸發版面重排）；
+   圓塊的尺寸只在量測後才設定一次；will-change 只在移動的那 0.3 秒才掛上；
+   沒有 JS 或使用者設定「減少動態效果」時，退回原本的樣式／無動畫。 */
+
+.func-switch, .mode-switch, .bg-toggle {
+  position: relative;            /* 圓塊用絕對定位疊在底下 */
+  touch-action: pan-y;           /* 橫向手勢留給「滑動切換」，直向照常捲動頁面 */
+  -webkit-user-select: none; user-select: none;
+}
+
+.seg-thumb {
+  position: absolute; left: 0; top: 0; z-index: 0;
+  width: 0; height: 0; border-radius: 999px;
+  background: var(--field-bg, #fff);
+  box-shadow: 0 4px 14px -6px rgba(0, 74, 173, 0.5);
+  pointer-events: none;
+  opacity: 0;                    /* 還沒量測完之前先藏著，免得閃一下 */
+  transform: translate3d(0, 0, 0);
+  transition: transform .34s cubic-bezier(.32, .72, 0, 1), width .34s cubic-bezier(.32, .72, 0, 1), height .34s cubic-bezier(.32, .72, 0, 1);
+}
+.seg-ready > .seg-thumb { opacity: 1; }
+.seg-thumb.is-moving { will-change: transform; }
+.seg-thumb.seg-notrans, .seg-dragging > .seg-thumb { transition: none; }
+
+/* 圓塊接手畫「目前選到的」底色，所以按鈕自己的底色要拿掉；文字顏色改成漸變 */
+.seg-ready > button { position: relative; z-index: 1; transition: color .24s ease; }
+.seg-ready.seg-ready > button.active { background: transparent; box-shadow: none; }
+
+.seg-dragging, .seg-dragging > button { cursor: grabbing; }
+
+@media (prefers-reduced-motion: reduce) {
+  .seg-thumb { transition: none; }
+  .seg-ready > button { transition: none; }
+}

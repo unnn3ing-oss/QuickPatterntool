@@ -15,7 +15,7 @@ h1.topbar-title {
   margin: 0; font-family: var(--ui-font); font-size: 18px; font-weight: 700; font-synthesis: weight;
   letter-spacing: 0; color: var(--text); white-space: nowrap;
 }
-.func-switch { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(0, 74, 173, 0.07); }
+.func-switch { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(0, 74, 173, 0.07); }   /* 兩格同寬：滑動圓塊只要位移、不用改寬度 */
 .func-btn {
   border: none; background: transparent; border-radius: 999px; padding: 7px 20px;
   font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "圖片套版產生器",
-  "version": "2.10",
+  "version": "3.00",
   "description": "TVBS 新聞／娛樂圖卡套版：貼上文章網址，自動帶入標題與首圖，並複製圖文格式。",
   "icons": {
     "16": "icons/icon-16.png",

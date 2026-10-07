@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="deploy.css">
 <link rel="stylesheet" href="watermark.css">
+<link rel="stylesheet" href="segmented.css">
 </head>
 <body>
 <!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印）、右側說明與部署按鈕 -->
@@ -37,9 +38,10 @@
 
   <div class="layout" id="layoutApp">
     <div class="card">
-      <div class="mode-switch">
-        <button type="button" class="mode-btn active" id="modeSingleBtn">單張</button>
-        <button type="button" class="mode-btn" id="modeBatchBtn">批次</button>
+      <!-- 網頁版的「圖片套版」固定用批次（沒有單張／批次切換）；app.js 需要這兩顆按鈕，所以留著但不顯示，載入時由 watermark.js 切到批次 -->
+      <div hidden>
+        <button type="button" id="modeSingleBtn"></button>
+        <button type="button" id="modeBatchBtn"></button>
       </div>
 
       <div id="singleFields">
@@ -84,11 +86,8 @@
         <div id="batchItemsList"></div>
 
         <div class="btn-row">
-          <button id="addBatchItemBtn">＋ 再做一張</button>
-        </div>
-
-        <div class="btn-row">
-          <button id="batchResetBtn">全部清除</button>
+          <button id="batchResetBtn" style="flex:1">全部清除</button>
+          <button id="addBatchItemBtn" style="flex:1">＋ 再做一張</button>
         </div>
       </div>
     </div>
@@ -214,7 +213,7 @@
     <div class="modal-body">
       <h3>切換功能</h3>
       <ul>
-        <li>上排中間可以在「圖片套版」和「浮水印」之間切換，兩邊的內容各自獨立、互不影響。</li>
+        <li>上排中間可以在「圖片套版」和「浮水印」之間切換（點一下，或直接用滑的），兩邊的內容各自獨立、互不影響。圖片套版一律用多組的方式，沒有單張／批次的切換。</li>
       </ul>
       <h3>浮水印</h3>
       <ul>
@@ -223,16 +222,14 @@
         <li>位置只有四個角（左上、右上、左下、右下）。<b>在預覽上直接拖曳 Logo（抓的範圍比 Logo 大）只會改目前這一張</b>，它會吸附到最近的角；<b>按左側的位置鈕則是全部照片一起改</b>，如果有照片已經單獨調整過，會先問你要不要全部改掉。「大小」「透明度」「邊距」套用到所有照片。</li>
         <li>下載的檔案維持原圖尺寸，格式可「沿用原圖」或指定 JPG（品質 95%）／PNG，檔名是「原檔名_浮水印」。「下載本張」維持原檔名；「全部下載」的檔名是「YYMMDDHHMM_第幾張」（例如 2610122312_1，時間是按下按鈕那一刻的，每張間隔 0.5～1 秒），瀏覽器第一次可能會詢問是否允許下載多個檔案。</li>
       </ul>
-      <h3>單張模式</h3>
+      <h3>圖片套版：設定每一張圖</h3>
       <ul>
-        <li>先選擇「類別」：新聞（藍框）或娛樂（粉框），會影響套版右上角的角標樣式。</li>
+        <li>每一組都先選擇「類別」：新聞（藍框）或娛樂（粉框），會影響套版右上角的角標樣式。</li>
         <li>在「標題」欄貼上或輸入文字，按 Enter 換行，會照原樣分行顯示在圖上。</li>
-        <li>「背景」可選擇「上傳圖片」或「純色背景」：上傳圖片支援點擊選取、拖曳檔案，或直接 Ctrl+V 貼上剪貼簿圖片；純色背景則從色票中點選一個顏色。</li>
-        <li>「字級」對照的是 Canva 字級：使用圖片背景（點選、拖曳或貼上）時固定為 50，無法調整；純色背景預設 60，可用左右按鈕、在數字上按住滑鼠上下拖曳（往上變大、往下變小），或滾動滾輪調整（範圍 50～70）。</li>
-        <li>有標題且有背景（圖片或顏色）後，按「下載圖片」即可存成 PNG 檔（1080×1080）。</li>
-        <li>「全部清除」會清空目前單張模式的所有設定，回到初始狀態（會先跳出確認框）。</li>
+        <li>「背景」可選擇「上傳圖片」或「純色背景」：上傳圖片支援點擊選取、拖曳檔案，或直接 Ctrl+V 貼上；純色背景可從色票挑選。</li>
+        <li>「字級」對照的是 Canva 字級：使用圖片背景時固定為 50，無法調整；純色背景預設 60，可以用 − ＋ 調整。</li>
+        <li>預覽上滾輪縮放、拖曳調整位置，點兩下可直接輸入標題。</li>
       </ul>
-
       <h3>範例成品</h3>
       <div class="example-grid">
         <figure class="example-card">
@@ -265,7 +262,7 @@
         </figure>
       </div>
 
-      <h3>批次模式</h3>
+      <h3>圖片套版：多張與下載</h3>
       <ul>
         <li>按「＋ 再做一張」可新增一組新的圖卡設定，每一組都能各自設定類別、標題、字級與背景。</li>
         <li>每組按「完成」可單獨產生該組的圖，完成後該組會自動收合，要再編輯可點預覽下方的縮圖或該列；編輯中想先收起來，點該組標頭（「圖片 #N」那一列）或編輯框外圍即可，不必按完成；或按上方「全部完成」一次產生所有尚未完成的組別，缺標題或背景的組別會被略過並提示原因。</li>
@@ -276,7 +273,7 @@
         <li>預覽區會懸浮跟隨畫面捲動，即使批次組數很多、編輯區拉得很長，也不用捲回最上方才能看到預覽。</li>
         <li>拖曳圖片檔案或直接 Ctrl+V 貼上圖片，可以直接對著「標題」輸入框操作，不必先點進下方的圖片上傳區。</li>
         <li>按「全部下載」時，如果每一組都有標題和背景，會自動全部完成並依序下載；如果有組別還缺標題或背景，會先詢問「有未完成的套圖，要先下載已完成的嗎？」，確認後只下載有標題和背景的組別。</li>
-        <li>「全部清除」會清空批次模式的所有組別（會先跳出確認框）。</li>
+        <li>「全部清除」（在「＋ 再做一張」左邊）會清空所有組別（會先跳出確認框）。</li>
       </ul>
     </div>
   </div>
@@ -396,5 +393,6 @@
 <script src="app.js"></script>
 <script src="deploy.js"></script>
 <script src="watermark.js"></script>
+<script src="segmented.js"></script>
 </body>
 </html>
