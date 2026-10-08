@@ -292,11 +292,37 @@
   //   【標題】
   //   （圖／OOO 攝）
   //   #標籤 #標籤 #標籤
+  // 挑 hashtag（最多 3 個）：
+  //   1) 優先「無重複文字」的：不和其他標籤互相包含（例如有「沈伯洋」又有「沈伯洋辦公室」，兩個都算重複）。
+  //   2) 再優先 2～4 個字的（太短像雜訊、太長放不下）。
+  //   同一級裡維持網頁上的原本順序。選的時候，和已經選好的標籤重複（互相包含）的先跳過；
+  //   不夠 3 個時才用被跳過的補滿。
+  function pickTags(tags, count = 3) {
+    const list = [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
+    const key = t => t.toLowerCase();
+    const overlaps = (a, b) => key(a).includes(key(b)) || key(b).includes(key(a));
+    const ranked = list.map((t, i) => {
+      const len = [...t].length;
+      const unique = !list.some(o => o !== t && overlaps(t, o));
+      return { t, i, rank: (unique ? 0 : 2) + (len >= 2 && len <= 4 ? 0 : 1) };
+    }).sort((a, b) => a.rank - b.rank || a.i - b.i);
+    const picked = [];
+    for (const { t } of ranked) {
+      if (picked.length >= count) break;
+      if (!picked.some(p => overlaps(p, t))) picked.push(t);
+    }
+    for (const { t } of ranked) {
+      if (picked.length >= count) break;
+      if (!picked.includes(t)) picked.push(t);
+    }
+    return picked;
+  }
+
   function formatCopy({ title, caption, tags }) {
     const lines = [];
     if (title) lines.push(`【${title}】`);
     if (caption) lines.push(caption);
-    const tagLine = (tags || []).slice(0, 3).map(t => `#${t}`).join(' ');
+    const tagLine = pickTags(tags).map(t => `#${t}`).join(' ');
     if (tagLine) lines.push(tagLine);
     return lines.join('\n');
   }
@@ -330,7 +356,7 @@
     return isPrivateHost(a.hostname) || !isPrivateHost(u.hostname);
   }
 
-  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickCaption, isPrivateHost, isAllowedImageUrl };
+  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl };
 
   // ---- 側邊欄互動 --------------------------------------------------------------
   const urlInput = document.getElementById('qfUrl');

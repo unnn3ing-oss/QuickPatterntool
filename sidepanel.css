@@ -21,21 +21,28 @@ body.sidepanel {
 /* Required: the preview stays pinned while the sections below scroll — same
    rule as the web version. Don't make this a normal scrolling block. */
 .sidepanel .preview-col {
+  --ppad: calc(8px * var(--sp));   /* 外框內距 */
   position: sticky;
-  top: 0;
+  top: calc(4px * var(--sp));
   z-index: 10;
   max-height: none;
   overflow: visible;
-  margin: calc(-1 * var(--pad)) calc(-1 * var(--pad)) 0;
-  padding: var(--pad) var(--pad) calc(10px * var(--sp));
-  background: rgba(242, 246, 252, 0.94);
+  box-sizing: border-box;
+  /* 外框剛好包住「動作列＋預覽框＋套版切換」，寬度 = 預覽框寬度（--pv 倍）加兩側內距、置中；
+     框外沒包到的地方是透明的，捲動的內容會從旁邊、上方的縫隙露出來。 */
+  width: min(100%, max(calc(248px + 2 * var(--ppad)), calc(min(100% - 2 * var(--ppad), 46vh + 20px) * var(--pv) + 20px * (1 - var(--pv)) + 2 * var(--ppad))));
+  margin: 0 auto;
+  padding: var(--ppad);
+  background: rgba(244, 247, 253, 0.93);
   backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 74, 173, 0.10);
+  border-radius: calc(28px * var(--sp));
+  box-shadow: 0 8px 24px -14px rgba(0, 30, 80, 0.35);
 }
-/* 預覽框的寬度 = 原本（受視窗寬度與 46vh 限制）乘上 --pv，置中（不跟著 --sp 縮放）。
-   後面加的 20px × (1 − --pv) 是框的內距，讓「畫布本身」剛好是原本的 --pv 倍。 */
+/* 外框裡面：預覽框、動作列、套版切換都撐滿外框的內寬 */
 .sidepanel .canvas-wrap {
   padding: 10px; border-radius: 22px;
-  width: calc(min(100%, 46vh + 20px) * var(--pv) + 20px * (1 - var(--pv)));
+  width: 100%;
   min-width: 150px;
   margin: 0 auto;
 }
@@ -87,7 +94,7 @@ body.sidepanel {
 .sidepanel .preview-col { --ab: 0.8; }
 .action-bar {
   display: flex; gap: calc(6px * var(--ab));
-  width: max(calc(100% * var(--pv) + 20px * (1 - var(--pv))), 248px); max-width: 100%;
+  width: 100%;
   margin: 0 auto calc(8px * var(--sp));
 }
 .action-bar button {
@@ -100,7 +107,7 @@ body.sidepanel {
 
 /* 新聞／娛樂切換：放在預覽下方、跟著預覽一起固定，寬度和上面的動作列、預覽框一致 */
 .frame-bar {
-  width: max(calc(100% * var(--pv) + 20px * (1 - var(--pv))), 248px); max-width: 100%;
+  width: 100%;
   margin: calc(8px * var(--sp)) auto 0;
 }
 .frame-bar .bg-toggle { margin: 0; }
