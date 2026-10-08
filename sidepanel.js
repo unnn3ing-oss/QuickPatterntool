@@ -11,6 +11,7 @@
     root: document.getElementById('upOverlay'),
     ver: document.getElementById('upOverlayVer'),
     msg: document.getElementById('upOverlayMsg'),
+    notes: document.getElementById('upOverlayNotes'),
     status: document.getElementById('upOverlayStatus'),
     hint: document.getElementById('upOverlayHint'),
     later: document.getElementById('upOverlayLater'),
@@ -30,7 +31,24 @@
     pop.ver.textContent = info.version
       ? (info.version === info.localVersion ? `v${info.version}（版本號沒變，內容有更新）` : `v${info.localVersion} → v${info.version}`)
       : `${info.changed.length} 個檔案有更新`;
-    pop.msg.textContent = `${info.message}（${info.changed.length} 個檔案不同）`;
+    // 版本說明（changelog.json）：最新版那一筆的「簡述＋條列」；抓不到才退回 commit 說明
+    pop.notes.textContent = '';
+    for (const n of info.notes || []) {
+      const box = document.createElement('div');
+      box.className = 'update-note';
+      const head = document.createElement('div');
+      head.className = 'update-note-head';
+      head.textContent = n.summary || '';
+      box.append(head);
+      if (n.items.length) {
+        const ul = document.createElement('ul');
+        for (const t of n.items) { const li = document.createElement('li'); li.textContent = t; ul.append(li); }
+        box.append(ul);
+      }
+      pop.notes.append(box);
+    }
+    pop.notes.hidden = !pop.notes.childElementCount;
+    pop.msg.textContent = pop.notes.hidden ? `${info.message}（${info.changed.length} 個檔案不同）` : `${info.changed.length} 個檔案有更新`;
     pop.status.textContent = '';
     pop.apply.textContent = applyBtn.textContent === '更新到最新版' ? '立即更新' : '選擇資料夾並更新';
     pop.hint.textContent = pop.apply.textContent === '立即更新' ? '' : '第一次更新要先選擇這個擴充功能所在的資料夾（只需選這一次）。資料夾位置在「來源」那一行：到 chrome://extensions 開啟本擴充功能的「詳細資料」頁。';
@@ -93,7 +111,7 @@
     try {
       latest = await Updater.checkLatest();
       if (latest.hasUpdate) {
-        show(`${updateHeadline(latest)}：${latest.message}｜${fmtDate(latest.date)}`, true);
+        show(`${updateHeadline(latest)}：${(latest.notes && latest.notes[0] && latest.notes[0].summary) || latest.message}｜${fmtDate(latest.date)}`, true);
         applyBtn.hidden = false;
         showFiles(latest.changed);
         await refreshFolderHint();

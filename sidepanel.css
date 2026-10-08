@@ -209,3 +209,10 @@ body.sidepanel {
 @keyframes up-pop { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .update-overlay, .update-pop { animation: none; } }
 html.up-lock, html.up-lock body { overflow: hidden; }
+
+/* 更新彈窗裡的版本說明（只顯示最新版那一筆），太長時在彈窗內捲動 */
+.update-notes { margin-top: 10px; max-height: 38vh; overflow-y: auto; text-align: left; }
+.update-notes[hidden] { display: none; }
+.update-note { padding: 9px 12px; background: var(--accent-soft); border-radius: 14px; }
+.update-note-head { font-size: calc(13px * var(--fs)); font-weight: 700; color: #22324d; line-height: 1.5; }
+.update-note ul { margin: 6px 0 0; padding-left: 18px; font-size: calc(12.5px * var(--fs)); color: #3a4a66; line-height: 1.65; }

@@ -91,13 +91,52 @@
     } catch (e) { return null; }
   }
 
+  // 讀最新版的 changelog.json（每個版本的新增功能／更動簡述），更新彈窗用。
+  // 格式：{ "4.11": { "summary": "一行簡述", "items": ["…", "…"] }, … }。同樣用 git blob SHA 驗證，
+  // 並限制長度、只留字串；抓不到或格式不對就回傳 {}（彈窗改顯示 commit 說明），不影響檢查更新。
+  async function fetchRemoteChangelog(commitSha, files) {
+    const f = files.find(x => x.path === 'changelog.json');
+    if (!f) return {};
+    try {
+      const res = await fetch(`${RAW}/${commitSha}/changelog.json`, { cache: 'no-store' });
+      if (!res.ok) return {};
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if ((await gitBlobSha(bytes)) !== f.sha) return {};
+      const raw = JSON.parse(new TextDecoder().decode(bytes));
+      const out = {};
+      for (const [v, e] of Object.entries(raw || {})) {
+        if (!/^\d+(\.\d+){0,3}$/.test(v) || !e || typeof e !== 'object') continue;
+        const summary = typeof e.summary === 'string' ? e.summary.slice(0, 80) : '';
+        const items = (Array.isArray(e.items) ? e.items : []).filter(s => typeof s === 'string' && s).slice(0, 12).map(s => s.slice(0, 140));
+        if (summary || items.length) out[v] = { summary, items };
+      }
+      return out;
+    } catch (e) { return {}; }
+  }
+
+  const cmpVer = (a, b) => {
+    const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; }
+    return 0;
+  };
+  // 這次更新要顯示的版本說明：只取最新版那一筆（跨好幾個版本更新時，不列出中間的版本）。
+  // 最新版沒有說明時，退回本機版本之後最新的一筆；都沒有就回傳空陣列（彈窗改顯示 commit 說明）。
+  function notesBetween(changelog, localVersion, latestVersion) {
+    const all = Object.keys(changelog || {}).sort((a, b) => cmpVer(b, a));
+    const v = latestVersion && changelog[latestVersion] ? latestVersion
+      : all.find(x => cmpVer(x, localVersion) > 0 && (!latestVersion || cmpVer(x, latestVersion) <= 0));
+    return v ? [{ version: v, ...changelog[v] }] : [];
+  }
+
   // 取得 main 最新的 commit 和（要同步的）檔案清單；盡量用快取
   async function getRemote() {
     const cache = await cacheGet();
     const res = await request(`${API}/commits/${REPO.branch}`, cache && cache.etag ? { 'If-None-Match': cache.etag } : {});
     if (res.status === 304 && cache) {
-      if (cache.version !== undefined) return cache;
-      const upgraded = { ...cache, version: await fetchRemoteVersion(cache.sha, cache.files) };   // 舊版快取沒有版本號
+      if (cache.version !== undefined && cache.changelog !== undefined) return cache;
+      const upgraded = { ...cache,   // 舊版快取沒有版本號／版本說明
+        version: cache.version !== undefined ? cache.version : await fetchRemoteVersion(cache.sha, cache.files),
+        changelog: cache.changelog !== undefined ? cache.changelog : await fetchRemoteChangelog(cache.sha, cache.files) };
       await cacheSet(upgraded);
       return upgraded;
     }
@@ -111,9 +150,10 @@
       if (blobs.some(t => !isSafePath(t.path))) throw new Error('GitHub 上的檔案清單含有不安全的路徑，已停止');
       files = blobs.map(t => ({ path: t.path, sha: t.sha, size: t.size }));
     }
-    const sameCommit = cache && cache.sha === commit.sha && cache.version !== undefined;
+    const sameCommit = cache && cache.sha === commit.sha && cache.version !== undefined && cache.changelog !== undefined;
     const version = sameCommit ? cache.version : await fetchRemoteVersion(commit.sha, files);
-    const out = { ...info, files, version, etag: res.headers.get('etag') || null };
+    const changelog = sameCommit ? cache.changelog : await fetchRemoteChangelog(commit.sha, files);
+    const out = { ...info, files, version, changelog, etag: res.headers.get('etag') || null };
     await cacheSet(out);
     return out;
   }
@@ -126,8 +166,9 @@
       const status = await compareFile(f.path, f.sha);
       if (status !== 'same') changed.push({ ...f, status });
     }
+    const localVersion = chrome.runtime.getManifest().version;
     return { sha: remote.sha, date: remote.date, message: remote.message, version: remote.version || null,
-      localVersion: chrome.runtime.getManifest().version, changed, hasUpdate: changed.length > 0 };
+      localVersion, notes: notesBetween(remote.changelog, localVersion, remote.version), changed, hasUpdate: changed.length > 0 };
   }
 
   // 新版 manifest 比現在的多了哪些「讓擴充功能能做更多事」的設定？回傳中文說明的陣列（空陣列＝沒有增加）
@@ -253,5 +294,5 @@
     }
   }
 
-  root.Updater = { REPO, checkLatest, pickFolder, getFolder, hasSavedFolder, apply, gitBlobSha, diffManifest, isSafePath };
+  root.Updater = { REPO, checkLatest, pickFolder, getFolder, hasSavedFolder, apply, gitBlobSha, diffManifest, isSafePath, notesBetween };
 })(self);
