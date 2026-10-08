@@ -342,10 +342,7 @@
   const titleEl = document.getElementById('title');
   const downloadBtn = document.getElementById('downloadBtn');
   const tipEl = document.getElementById('qfTip');
-  const askTipEl = document.getElementById('qfAskTip');
-  const askBox = document.getElementById('qfAsk');
-  const askDownloadBtn = document.getElementById('qfAskDownload');
-  const askEditBtn = document.getElementById('qfAskEdit');
+  const confirmTipEl = document.getElementById('qfConfirmTip');
   const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
   // 抓取上限：避免一個卡住或超大的網站讓快速產圖一直轉、或吃光記憶體
   const ARTICLE_TIMEOUT = 15000, IMAGE_TIMEOUT = 20000;       // 毫秒（整個下載過程，不只是連線）
@@ -354,13 +351,44 @@
   const MAX_IMAGE_TRIES = 6;      // 最多試前幾張圖
   let runId = 0;
   let runCtrl = null;    // 目前這次快速產圖的 AbortController；重新產圖或全部清除時中止上一次
-  let lastRunUrl = '';   // 最近一次快速產圖用的網址；詢問中在網址欄再按 Enter（網址沒變）就當作「直接下載」
+  let armed = false;     // 產圖完成後按鈕變成「直接下載」；再按一次按鈕或 Enter 就下載
 
   // 功能提示：每次載入（重新載入）插件都會重新出現。
   //   「貼上連結按Enter可以產圖」：載入時顯示，使用者開始輸入、按下快速產圖、或點一下提示就收起來。
-  //   「再按一次Enter即下載」：這次載入的第一張圖才顯示，同一次使用中的第二張起不再跳；重新載入後又從頭計算。
+  //   「確認直接下載？」：快速產圖完成、按鈕變成「直接下載」時，飄在按鈕上方的氣泡。
   const hideTip = () => { if (tipEl) tipEl.hidden = true; };
-  let askTipShown = false;
+
+  // ---- 預覽上改標題 → 同步「複製圖文格式」第一行【標題】 ------------------------------------
+  // 預覽的標題是分行的、複製用的是一行：沒改過的相鄰兩行，接回文章原本的樣子（原本有沒有空格）；
+  // 新的相鄰兩行用一個空格接起來。
+  let origSeps = new Map();
+  function learnSeps(orig, lines) {
+    origSeps = new Map();
+    let pos = 0;
+    for (let i = 0; i + 1 < lines.length; i++) {
+      const a = orig.indexOf(lines[i], pos);
+      if (a < 0) { origSeps = new Map(); return; }
+      const end = a + lines[i].length;
+      const b = orig.indexOf(lines[i + 1], end);
+      if (b < 0) { origSeps = new Map(); return; }
+      origSeps.set(`${lines[i]}\n${lines[i + 1]}`, orig.slice(end, b));
+      pos = b;
+    }
+  }
+  function titleAsOneLine() {
+    const lines = titleEl.value.replace(/\r/g, '').split('\n').map(s => s.trim()).filter(Boolean);
+    return lines.reduce((acc, l, i) => (i ? acc + (origSeps.has(`${lines[i - 1]}\n${l}`) ? origSeps.get(`${lines[i - 1]}\n${l}`) : ' ') + l : l), '');
+  }
+  function syncCopyTitle() {
+    const t = titleAsOneLine();
+    const rows = copyText.value ? copyText.value.split('\n') : [];
+    if (/^【.*】$/.test(rows[0] || '')) { if (t) rows[0] = `【${t}】`; else rows.shift(); }
+    else if (t) rows.unshift(`【${t}】`);
+    const next = rows.join('\n');
+    if (next !== copyText.value) copyText.value = next;
+    copyBtn.disabled = !copyText.value.trim();
+  }
+  titleEl.addEventListener('input', syncCopyTitle);
 
   function setStatus(msg, kind) {
     statusEl.textContent = msg;
@@ -435,13 +463,19 @@
     return false;
   }
 
-  // 完成後詢問：直接下載／還要修改。嵌在卡片裡（不用跳窗），預覽完整露出來讓使用者先看
-  const hideAsk = () => { askBox.hidden = true; };
-  function showAsk() {
-    askBox.hidden = false;
-    askTipEl.hidden = askTipShown;   // 這次載入的第一張圖才顯示提示
-    askTipShown = true;
-    askDownloadBtn.focus({ preventScroll: true });
+  // 完成後：「快速產圖」按鈕變成「直接下載」並跳出「確認直接下載？」氣泡，不用跳窗，預覽完整露出來讓使用者先看
+  const RUN_LABEL = '快速產圖', DOWNLOAD_LABEL = '直接下載';
+  function disarm() {
+    armed = false;
+    runBtn.textContent = RUN_LABEL;
+    runBtn.removeAttribute('aria-describedby');
+    confirmTipEl.hidden = true;
+  }
+  function arm() {
+    armed = true;
+    runBtn.textContent = DOWNLOAD_LABEL;
+    runBtn.setAttribute('aria-describedby', 'qfConfirmTip');
+    confirmTipEl.hidden = false;
   }
 
   async function run() {
@@ -451,10 +485,9 @@
     if (runCtrl) runCtrl.abort();
     runCtrl = new AbortController();
     const signal = runCtrl.signal;
-    lastRunUrl = url;
     runBtn.disabled = true;
     hideTip();
-    hideAsk();
+    disarm();
     setStatus('讀取文章中…');
     try {
       let got0;
@@ -470,7 +503,9 @@
       if (mine !== runId) return;
       if (!article.title) throw new Error('這個網頁抓不到標題');
 
-      titleEl.value = breakTitle(article.title).join('\n');
+      const broken = breakTitle(article.title);
+      learnSeps(article.title, broken);
+      titleEl.value = broken.join('\n');
       titleEl.dispatchEvent(new Event('input'));
 
       const notes = [];
@@ -492,16 +527,19 @@
       copyText.value = formatCopy({ title: article.title, caption, tags: article.tags });
       copyBtn.disabled = !copyText.value;
 
-      // 有圖就問使用者要直接下載還是還要修改；沒抓到圖就沒有東西可下載，不用問
+      // 有圖就讓按鈕變成「直接下載」；沒抓到圖就沒有東西可下載，按鈕維持原樣
       const ready = got ? await waitForNewImage(previousImage) : false;
       if (mine !== runId) return;
       if (got && !ready) notes.push('圖片沒能載入預覽');
-      if (ready) showAsk();
+      if (ready) arm();
       setStatus(notes.length ? `完成，但${notes.join('、')}` : '完成：標題、圖片、圖說、hashtag 都帶入了', notes.length ? 'warn' : 'ok');
     } catch (err) {
       if (mine === runId && !(err && err.reason === 'cancelled')) setStatus(err.message || String(err), 'err');
     } finally {
-      if (mine === runId) runBtn.disabled = false;
+      if (mine === runId) {
+        runBtn.disabled = false;
+        if (armed) runBtn.focus({ preventScroll: true });   // 焦點放在「直接下載」上，Enter 就是再按一次
+      }
     }
   }
 
@@ -514,31 +552,27 @@
   }
 
   function confirmDownload() {
-    hideAsk();
+    disarm();
     if (downloadBtn.disabled) { setStatus('現在還不能下載，請先補上標題和背景', 'warn'); return; }
     downloadBtn.click();
     setStatus('已下載圖片', 'ok');
   }
-  askDownloadBtn.addEventListener('click', confirmDownload);
-  askEditBtn.addEventListener('click', () => {
-    hideAsk();
-    setStatus('好，修改完成後按「下載圖片」就能下載', 'ok');
-  });
-  // 使用者自己按了「下載圖片」，就不用再問了
-  downloadBtn.addEventListener('click', hideAsk);
+  // 使用者自己按了「下載圖片」，就不用再確認了
+  downloadBtn.addEventListener('click', disarm);
 
-  runBtn.addEventListener('click', run);
-  // Enter：沒有詢問時＝快速產圖；詢問還開著、網址沒改過時＝「再按一次 Enter 即下載」；網址改了就是重新產圖
+  // 按鈕：平常＝快速產圖；產圖完成後＝直接下載
+  runBtn.addEventListener('click', () => { if (armed) confirmDownload(); else run(); });
+  // Enter（網址欄）：平常＝快速產圖；按鈕是「直接下載」時＝下載（網址一改，按鈕就變回「快速產圖」，Enter 就是重新產圖）
   urlInput.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    if (!askBox.hidden && normalizeUrl(urlInput.value) === lastRunUrl) confirmDownload(); else run();
+    if (armed) confirmDownload(); else run();
   });
-  // 詢問開著、焦點不在任何輸入元件上（例如點過畫面空白處）時，Enter 一樣是下載
+  // 按鈕是「直接下載」、焦點不在任何輸入元件上（例如點過畫面空白處）時，Enter 一樣是下載
   document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !askBox.hidden && document.activeElement === document.body) { e.preventDefault(); confirmDownload(); }
+    if (e.key === 'Enter' && armed && document.activeElement === document.body) { e.preventDefault(); confirmDownload(); }
   });
-  urlInput.addEventListener('input', hideTip);
+  urlInput.addEventListener('input', () => { hideTip(); disarm(); });
   if (tipEl) tipEl.addEventListener('click', hideTip);
   copyText.addEventListener('input', () => { copyBtn.disabled = !copyText.value.trim(); });
   copyBtn.addEventListener('click', async () => {
@@ -551,9 +585,10 @@
   document.addEventListener('qpt:reset', () => {
     runId++;
     if (runCtrl) runCtrl.abort();
-    hideAsk();
+    disarm();
     urlInput.value = '';
     copyText.value = '';
+    origSeps = new Map();
     copyBtn.disabled = true;
     runBtn.disabled = false;
     setStatus('');

@@ -98,6 +98,19 @@ body.sidepanel {
   padding: 0 calc(8px * var(--ab));
 }
 
+/* 新聞／娛樂切換：放在預覽下方、跟著預覽一起固定，寬度和上面的動作列、預覽框一致 */
+.frame-bar {
+  width: max(calc(100% * var(--pv) + 20px * (1 - var(--pv))), 248px); max-width: 100%;
+  margin: calc(8px * var(--sp)) auto 0;
+}
+.frame-bar .bg-toggle { margin: 0; }
+.sidepanel .frame-bar .bg-toggle button { padding: calc(7px * var(--sp)) calc(6px * var(--sp)); font-size: calc(14px * var(--fs)); }
+
+/* 編輯區：字級不顯示說明文字、背景不顯示拖曳框（圖片可貼上，或直接拖到預覽上） */
+#singleFontHint { display: none; }
+#singleBgPicker .dropzone { padding: 0; border: none; background: none; box-shadow: none; min-height: 0; }
+#singleBgPicker .dropzone > div { display: none !important; }   /* 「點擊選擇圖片…」的拖曳框說明；載入圖片後的縮圖仍會顯示 */
+
 /* 新聞／娛樂切換、背景切換 */
 .sidepanel .bg-toggle { padding: calc(4px * var(--sp)); gap: calc(4px * var(--sp)); }
 .sidepanel .bg-toggle button { font-size: calc(15px * var(--fs)); padding: calc(9px * var(--sp)) calc(6px * var(--sp)); }
@@ -120,20 +133,16 @@ body.sidepanel {
 }
 .up-link:hover:not(:disabled) { background: none; color: var(--accent-dark); }
 
-/* 快速產圖完成後的詢問：直接下載／還要修改（嵌在卡片裡，不蓋住預覽）。
-   兩欄格子：問題文字佔滿一列，兩顆按鈕各佔一欄；「再按一次Enter即下載」的提示固定放在右欄、
-   置中對齊「直接下載」，箭頭正對著它（提示隱藏時這一列就不存在）。 */
-.qf-ask {
-  display: grid; grid-template-columns: 1fr 1fr; column-gap: calc(8px * var(--sp)); align-items: center;
-  margin-top: calc(10px * var(--sp)); padding: calc(10px * var(--sp)) calc(12px * var(--sp));
-  background: var(--accent-soft); border-radius: calc(16px * var(--sp));
+/* 快速產圖完成後：按鈕變成「直接下載」，上方飄出「確認直接下載？」氣泡（箭頭正對按鈕） */
+.qf-btn-wrap { position: relative; flex: 0 0 auto; display: flex; }
+.qf-btn-wrap > button { flex: 1; }
+.tip.qf-confirm {
+  position: absolute; z-index: 5; bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+  animation: qf-pop .16s ease-out;
 }
-.qf-ask[hidden] { display: none; }
-.qf-ask-top, .qf-ask-btns { display: contents; }   /* 讓裡面的元素直接排進上面的格子 */
-.qf-ask-text { grid-column: 1 / -1; margin-bottom: calc(8px * var(--sp)); font-size: calc(13px * var(--fs)); color: #22324d; font-weight: 600; }
-.qf-ask .tip { grid-column: 2; justify-self: center; margin-bottom: calc(10px * var(--sp)); }
-.qf-ask .tip::after { right: auto; left: 50%; transform: translateX(-50%); }   /* 箭頭在氣泡正中間，指向正下方的「直接下載」 */
-.qf-ask-btns button { font-size: calc(14px * var(--fs)); padding: calc(9px * var(--sp)) calc(12px * var(--sp)); }
+.tip.qf-confirm::after { right: auto; left: 50%; transform: translateX(-50%); }
+@keyframes qf-pop { from { opacity: 0; transform: translate(-50%, 4px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .tip.qf-confirm { animation: none; } }
 
 /* 功能提示氣泡（深色小氣泡，下方有箭頭指向下面的輸入框／按鈕）。放在卡片的標題列／詢問列裡，
    空間不夠時會自己換行，不會蓋到別的文字。 */
@@ -164,3 +173,32 @@ body.sidepanel {
 .sidepanel .up-files ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; word-break: break-all; }
 .sidepanel .up-tag { margin-left: 6px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
 #confirmMessage { white-space: pre-line; }
+
+/* 開啟時發現新版：整個側邊欄蓋上一層，中間浮出更新視窗（比預覽欄、說明視窗都高；「增加權限」的確認視窗仍會疊在它上面） */
+.update-overlay {
+  position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(20, 32, 54, 0.55); backdrop-filter: blur(6px);
+  animation: up-fade .2s ease-out;
+}
+.update-overlay[hidden] { display: none; }
+.update-pop {
+  position: relative; width: 100%; max-width: 360px; padding: 26px 20px 18px; text-align: center;
+  background: var(--card-bg); border-radius: 22px; box-shadow: 0 24px 60px -20px rgba(0, 20, 60, 0.6);
+  animation: up-pop .26s cubic-bezier(.2, .9, .3, 1.2);
+}
+.update-badge {
+  position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+  width: 34px; height: 34px; border-radius: 50%; background: #d92d20; color: #fff;
+  font-weight: 700; font-size: 16px; line-height: 34px; box-shadow: 0 6px 14px -6px rgba(217, 45, 32, 0.8);
+}
+.update-pop h2 { margin: 6px 0 6px; font-size: calc(18px * var(--fs)); color: #22324d; }
+.update-ver { font-size: calc(15px * var(--fs)); font-weight: 700; color: var(--accent); }
+.update-msg { margin-top: 8px; font-size: calc(12.5px * var(--fs)); color: var(--muted); line-height: 1.6; word-break: break-word; }
+.update-status { min-height: 1.2em; margin-top: 10px; font-size: calc(12.5px * var(--fs)); color: #22324d; }
+.update-hint { font-size: calc(12px * var(--fs)); color: var(--muted); line-height: 1.6; text-align: left; }
+.update-hint:empty { display: none; }
+.update-pop .btn-row { margin-top: 14px; gap: 8px; }
+@keyframes up-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes up-pop { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .update-overlay, .update-pop { animation: none; } }
+html.up-lock, html.up-lock body { overflow: hidden; }

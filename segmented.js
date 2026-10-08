@@ -1,6 +1,6 @@
 // 切換開關的滑動動畫與「滑動切換」手勢。網頁版與 Chrome 側邊欄共用（樣式在 segmented.css）。
 //
-// 對象：.func-switch（圖片套版／浮水印）、.mode-switch（單張／批次）、.bg-toggle（新聞／娛樂、上傳圖片／純色背景…）。
+// 對象：.func-switch（圖片套版／浮水印）、.mode-switch（單張／批次）、.bg-toggle（新聞／娛樂、圖片背景／純色背景…）。
 // 這些開關原本都是「按鈕上掛 .active」，各自的程式不用改：這裡只負責
 //   1. 放一個白色圓塊在目前選到的按鈕底下，.active 換人時讓圓塊滑過去；
 //   2. 可以拖著（或手指滑過）開關來切換，放開時停在最近的一格；
@@ -176,7 +176,7 @@
   };
 
   document.querySelectorAll(SEL).forEach(enhance);
-  // 之後動態產生的開關（批次模式每一組的「上傳圖片／純色背景」「新聞／娛樂」）也要處理
+  // 之後動態產生的開關（批次模式每一組的「圖片背景／純色背景」「新聞／娛樂」）也要處理
   new MutationObserver(records => {
     for (const r of records) {
       r.addedNodes.forEach(n => each(n, enhance));

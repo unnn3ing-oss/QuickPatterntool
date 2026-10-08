@@ -15,7 +15,7 @@
     <button type="button" id="helpBtn" class="help-btn">使用說明</button>
   </header>
 
-  <!-- 版面順序：預覽（固定）→ 快速產圖 → 複製圖文格式 → 新聞／娛樂 → 單格編輯區 -->
+  <!-- 版面順序：預覽（固定，含下方的新聞／娛樂切換）→ 快速產圖 → 複製圖文格式 → 編輯區 -->
   <div class="layout">
     <div class="preview-col">
       <div class="action-bar" id="actionsCard">
@@ -29,6 +29,12 @@
           <textarea class="title-overlay" id="singlePreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1"></textarea>
         </div>
         <div class="status" id="status">請先上傳圖片並輸入標題</div>
+      </div>
+      <div class="frame-bar" id="frameCard">
+        <div class="bg-toggle" id="singleFrameToggle">
+          <button type="button" class="active" data-frame="news">新聞（藍框）</button>
+          <button type="button" data-frame="entertainment">娛樂（粉框）</button>
+        </div>
       </div>
 
       <!-- 批次模式在側邊欄不使用；保留這些元素是因為共用的 app.js 會找它們 -->
@@ -54,19 +60,12 @@
       </div>
       <div class="qf-row">
         <input type="url" id="qfUrl" placeholder="貼上文章網址" autocomplete="off" spellcheck="false">
-        <button type="button" class="primary" id="qfBtn">快速產圖</button>
+        <div class="qf-btn-wrap">
+          <button type="button" class="primary" id="qfBtn">快速產圖</button>
+          <div class="tip qf-confirm" id="qfConfirmTip" role="status" hidden>確認直接下載？</div>
+        </div>
       </div>
       <div class="qf-status" id="qfStatus" role="status"></div>
-      <div class="qf-ask" id="qfAsk" role="group" aria-label="下載確認" hidden>
-        <div class="qf-ask-top">
-          <span class="qf-ask-text">圖片做好了，要直接下載嗎？</span>
-          <div class="tip" id="qfAskTip" hidden>再按一次Enter即下載</div>
-        </div>
-        <div class="qf-ask-btns">
-          <button type="button" id="qfAskEdit">還要修改</button>
-          <button type="button" class="primary" id="qfAskDownload">直接下載</button>
-        </div>
-      </div>
     </section>
 
     <section class="card sp-card" id="copyFormat">
@@ -75,14 +74,6 @@
         <button type="button" class="success" id="qfCopyBtn" title="複製圖文格式" aria-label="複製圖文格式" disabled>複製內文</button>
       </div>
       <textarea id="qfCopyText" rows="4" placeholder="【標題】&#10;（圖／OOO 攝）&#10;#標籤 #標籤 #標籤" spellcheck="false"></textarea>
-    </section>
-
-    <section class="card sp-card" id="frameCard">
-      <h2>套版</h2>
-      <div class="bg-toggle" id="singleFrameToggle">
-        <button type="button" class="active" data-frame="news">新聞（藍框）</button>
-        <button type="button" data-frame="entertainment">娛樂（粉框）</button>
-      </div>
     </section>
 
     <section class="card sp-card" id="singleFields">
@@ -94,7 +85,7 @@
         </div>
 
         <div class="field">
-          <label>字級（對照 Canva 字級）</label>
+          <label>字級</label>
           <div id="singleFontStepper"></div>
           <div class="hint" id="singleFontHint">圖片背景固定使用字級 50，無法調整</div>
         </div>
@@ -135,6 +126,22 @@
   </div>
 </div>
 
+<!-- 每次打開側邊欄會自動檢查更新；有新版時蓋住整個側邊欄，提示可以立即更新 -->
+<div class="update-overlay" id="upOverlay" role="dialog" aria-modal="true" aria-labelledby="upOverlayTitle" hidden>
+  <div class="update-pop">
+    <div class="update-badge" aria-hidden="true">新</div>
+    <h2 id="upOverlayTitle">有新版本可以更新</h2>
+    <div class="update-ver" id="upOverlayVer"></div>
+    <div class="update-msg" id="upOverlayMsg"></div>
+    <div class="update-status" id="upOverlayStatus" role="status"></div>
+    <div class="update-hint" id="upOverlayHint"></div>
+    <div class="btn-row">
+      <button type="button" id="upOverlayLater" style="flex:1">稍後再說</button>
+      <button type="button" class="primary" id="upOverlayApply" style="flex:1">立即更新</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="helpOverlay">
   <div class="modal">
     <div class="modal-head">
@@ -146,7 +153,8 @@
       <ul>
         <li>貼上文章網址，按「快速產圖」（或在網址欄按 Enter）。</li>
         <li>標題會帶進編輯區，遇到空格、「！」「？」就換行；標題以 3 段為主，「：」只在不足 3 段、或某一行超過 14 個字放不下時才多拆一段；文章的第一張圖會放進背景，抓不到會自動換下一張。</li>
-        <li>完成後會先讓你看預覽，並詢問<b>「直接下載」</b>或<b>「還要修改」</b>：選直接下載就存成 1080×1080 的 PNG；選還要修改就不下載，改好後再按「下載圖片」。沒抓到圖時不會詢問，請手動放圖。</li>
+        <li>完成後「快速產圖」按鈕會變成<b>「直接下載」</b>，上面跳出「確認直接下載？」：再按一次按鈕或按 Enter 就存成 1080×1080 的 PNG；想先修改就直接改，改好後按「下載圖片」。沒抓到圖時按鈕不會變，請手動放圖。</li>
+        <li>在預覽上改標題時，「複製圖文格式」的第一行【標題】會同步更新。</li>
         <li>圖說（照片旁括號裡的文字，如「（圖／王小明攝）」「（組圖／…）」）和 hashtag 會一起抓好，放進「複製圖文格式」。</li>
       </ul>
       <h3>複製圖文格式</h3>
@@ -156,13 +164,13 @@
       </ul>
       <h3>套版與編輯</h3>
       <ul>
-        <li>選新聞（藍框）或娛樂（粉框）；背景可以直接貼上或拖曳圖片換圖。標題直接在預覽上<b>點兩下</b>就能修改。</li>
+        <li>預覽下方可選新聞（藍框）或娛樂（粉框）；背景圖可以直接貼上，或把圖片拖曳到預覽上換圖。標題直接在預覽上<b>點兩下</b>就能修改。</li>
         <li>預覽上滾輪縮放、拖曳調整位置，點兩下可直接輸入標題。</li>
         <li>按「下載圖片」存成 1080×1080 的 PNG；按「複製圖片」會把成品圖直接放進剪貼簿，可以直接貼到其他地方。</li>
       </ul>
       <h3>版本更新</h3>
       <ul>
-        <li>「檢查更新」會和 GitHub 上最新版本比對；有新版時按「更新到最新版」。</li>
+        <li>每次打開側邊欄都會自動檢查更新；有新版時會跳出視窗蓋住畫面，按「立即更新」就會更新（不想現在更新可按「稍後再說」，下次打開還會提醒）。也可以在「版本更新」手動按「檢查更新」。</li>
         <li>第一次更新需要選擇這個擴充功能所在的資料夾（之後會記住）。</li>
         <li>有新版時會列出要更新的檔案；如果新版增加了權限，更新前會再請你確認一次。</li>
       </ul>

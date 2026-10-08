@@ -7,11 +7,37 @@
   const filesBox = document.getElementById('upFiles');
   const filesSummary = document.getElementById('upFilesSummary');
   const fileList = document.getElementById('upFileList');
+  const pop = {
+    root: document.getElementById('upOverlay'),
+    ver: document.getElementById('upOverlayVer'),
+    msg: document.getElementById('upOverlayMsg'),
+    status: document.getElementById('upOverlayStatus'),
+    hint: document.getElementById('upOverlayHint'),
+    later: document.getElementById('upOverlayLater'),
+    apply: document.getElementById('upOverlayApply')
+  };
   let latest = null;
 
   function show(msg, hasUpdate) {
     statusEl.textContent = msg;
     statusEl.classList.toggle('has-update', !!hasUpdate);
+    if (!pop.root.hidden) pop.status.textContent = hasUpdate ? '' : msg;   // 更新進度（下載中、寫入中…）也顯示在彈窗上
+  }
+  // 彈窗開著時鎖住底下的捲動，捲軸也會一起被蓋住（真的蓋住整個側邊欄）
+  function closePop() { pop.root.hidden = true; document.documentElement.classList.remove('up-lock'); }
+  // 打開側邊欄時發現新版：蓋住整個側邊欄提醒；焦點放在「立即更新」，Enter 就能更新
+  function openPop(info) {
+    pop.ver.textContent = info.version
+      ? (info.version === info.localVersion ? `v${info.version}（版本號沒變，內容有更新）` : `v${info.localVersion} → v${info.version}`)
+      : `${info.changed.length} 個檔案有更新`;
+    pop.msg.textContent = `${info.message}（${info.changed.length} 個檔案不同）`;
+    pop.status.textContent = '';
+    pop.apply.textContent = applyBtn.textContent === '更新到最新版' ? '立即更新' : '選擇資料夾並更新';
+    pop.hint.textContent = pop.apply.textContent === '立即更新' ? '' : '第一次更新要先選擇這個擴充功能所在的資料夾（只需選這一次）。資料夾位置在「來源」那一行：到 chrome://extensions 開啟本擴充功能的「詳細資料」頁。';
+    pop.apply.disabled = pop.later.disabled = false;
+    pop.root.hidden = false;
+    document.documentElement.classList.add('up-lock');
+    pop.apply.focus({ preventScroll: true });
   }
   // 版本號顯示：已是最新「 v1.24」；有新版「 v1.25（目前 v1.23，3 個檔案不同）」
   const ver = v => (v ? `v${v}` : '');
@@ -59,7 +85,7 @@
     filesBox.open = false;
   }
 
-  async function check() {
+  async function check(auto) {
     checkBtn.disabled = true;
     show('檢查中…');
     hintEl.textContent = '';
@@ -71,6 +97,7 @@
         applyBtn.hidden = false;
         showFiles(latest.changed);
         await refreshFolderHint();
+        if (auto === true) openPop(latest);
         chrome.action.setBadgeText({ text: '新' }).catch(() => {});
         chrome.action.setBadgeBackgroundColor({ color: '#d92d20' }).catch(() => {});
       } else {
@@ -88,7 +115,7 @@
 
   async function apply() {
     if (!latest || !latest.hasUpdate) return;
-    applyBtn.disabled = checkBtn.disabled = true;
+    applyBtn.disabled = checkBtn.disabled = pop.apply.disabled = pop.later.disabled = true;
     try {
       let dir = await Updater.getFolder();
       if (!dir) dir = await Updater.pickFolder();
@@ -98,17 +125,22 @@
         okText: '仍要更新'
       }));
       show('更新完成，重新載入擴充功能…');
+      pop.status.textContent = '更新完成，重新載入擴充功能…';
       setTimeout(() => chrome.runtime.reload(), 400);
     } catch (err) {
       if (err && err.name === 'AbortError') show('已取消，沒有更新任何檔案');
       else show(`更新失敗：${err.message || err}`);
-      applyBtn.disabled = checkBtn.disabled = false;
+      applyBtn.disabled = checkBtn.disabled = pop.apply.disabled = pop.later.disabled = false;
+      if (!pop.root.hidden) pop.status.textContent = statusEl.textContent;
     }
   }
 
-  checkBtn.addEventListener('click', check);
+  checkBtn.addEventListener('click', () => check());
   applyBtn.addEventListener('click', apply);
-  check();
+  pop.apply.addEventListener('click', apply);
+  pop.later.addEventListener('click', closePop);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.root.hidden && !pop.later.disabled) closePop(); });
+  check(true);   // 每次打開側邊欄都檢查一次，有新版就跳出更新視窗
 })();
 
 // 「複製圖片」：把目前預覽的成品（1080×1080 PNG）放進剪貼簿，可以直接貼到其他地方。

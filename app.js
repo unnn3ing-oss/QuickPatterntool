@@ -257,9 +257,15 @@ function fitFontSize(targetCtx, lines, maxWidth, baseSize) {
   return size;
 }
 
-function parseLines(titleText) {
-  return titleText.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
+// 輸入框怎麼分行，畫面就怎麼分行（所見即所得）：頭尾的空行不畫，中間的空行會留成空隙。
+function titleRows(titleText) {
+  const rows = titleText.replace(/\r/g, '').split('\n').map(l => (l.trim() ? l : ''));
+  let first = 0, last = rows.length - 1;
+  while (first <= last && !rows[first]) first++;
+  while (last >= first && !rows[last]) last--;
+  return { lines: rows.slice(first, last + 1), lead: first, total: rows.length };
 }
+function parseLines(titleText) { return titleRows(titleText).lines; }
 
 // Light solid backgrounds get dark headline text. Threshold is WCAG relative
 // luminance: above it white text drops below ~2.5:1 contrast (yellow, orange,
@@ -335,9 +341,14 @@ function layoutTitleOverlay(overlay, canvasEl, bg, title, canvaSize) {
   const fontSize = fitFontSize(measureCtx, measured.length ? measured : ['點兩下輸入內容'], SIZE - TITLE_PAD_X * 2, canvaToPx(canvaSize));
   measureCtx.restore();
   const lineHeight = fontSize * LINE_HEIGHT_RATIO;
-  const lineCount = Math.max(1, title.replace(/\r/g, '').split('\n').length);
+  // 畫布只畫「第一行有字～最後一行有字」那一段並置中；輸入框要讓有字的那幾行對準畫布上的字，
+  // 所以開頭多出來的空行往上推、結尾多出來的空行往下長，游標才會落在畫面文字的位置。
+  const rows = titleRows(title);
+  const drawn = Math.max(1, rows.lines.length);
+  const lineCount = Math.max(1, rows.total);
+  const lead = rows.lines.length ? rows.lead : 0;
   const centerY = bg && bg.type === 'color' ? SIZE / 2 : BOX_CENTER;
-  const top = centerY - lineCount * lineHeight / 2 - TITLE_BOX_PAD_Y;
+  const top = centerY - drawn * lineHeight / 2 - lead * lineHeight - TITLE_BOX_PAD_Y;
   const border = 2;
   overlay.style.left = `${canvasEl.offsetLeft + TITLE_PAD_X * k}px`;
   overlay.style.top = `${canvasEl.offsetTop + top * k}px`;
@@ -358,8 +369,8 @@ let singleFrame = 'news';
 function render() {
   if (document.activeElement !== singlePreviewTitleInput) singlePreviewTitleInput.value = titleEl.value;
   syncFontStepperLock(singleFontStepper, singleFontHint, singleBg);
-  ctx.clearRect(0, 0, SIZE, SIZE);
   const ready = hasBackground(singleBg);
+  ctx.clearRect(0, 0, SIZE, SIZE);
   if (ready) {
     renderComposite(ctx, singleBg, titleEl.value, getFontSizePx(), singleFrame);
   } else {
@@ -383,14 +394,20 @@ function isImageFile(file) {
 
 // Reusable background picker: "upload image" vs "solid color" toggle, used by
 // single mode and by each batch item block.
+// opts: onImage / onColor / onModeChange(mode, remembered) / getBg() / memory (optional, caller-owned).
+// The picker remembers the last background of each type, so flipping 圖片背景 → 純色背景 → 圖片背景
+// brings the picture (with its pan/zoom) back instead of throwing it away. getBg() returns the
+// caller's current bg object; onModeChange receives the remembered one (or null) for the new type.
 function createBackgroundPicker(opts) {
   const root = document.createElement('div');
+  const memory = opts.memory || {};   // { image: { bg, fileName }, color: { bg } }
+  let lastFileName = '';
 
   const toggle = document.createElement('div');
   toggle.className = 'bg-toggle';
   const btnImage = document.createElement('button');
   btnImage.type = 'button';
-  btnImage.textContent = '上傳圖片';
+  btnImage.textContent = '圖片背景';
   btnImage.className = 'active';
   const btnColor = document.createElement('button');
   btnColor.type = 'button';
@@ -455,11 +472,36 @@ function createBackgroundPicker(opts) {
   function clearColorVisual() {
     if (selectedSwatch) { selectedSwatch.classList.remove('selected'); selectedSwatch = null; }
   }
-  function setMode(mode) {
+  // Remember what the caller currently has under the type we're leaving.
+  function remember() {
+    const bg = opts.getBg && opts.getBg();
+    if (!bg) return;
+    if (bg.type === 'image' && bg.image) memory.image = { bg, fileName: lastFileName };
+    else if (bg.type === 'color' && bg.color) memory.color = { bg };
+  }
+  function selectSwatch(hex) {
+    const sw = Array.from(colorSection.children).find(el => el.title === hex);
+    if (!sw) return;
+    if (selectedSwatch) selectedSwatch.classList.remove('selected');
+    sw.classList.add('selected');
+    selectedSwatch = sw;
+  }
+  function showImage(image, fileName) {
+    thumb.src = image.src;
+    thumb.style.display = 'block';
+    dzText.style.display = 'none';
+    hint.textContent = `已載入：${fileName}`;
+  }
+  // fresh=true (the 全部清除 reset) forgets everything; a toggle click restores the remembered one.
+  function setMode(mode, fresh = false) {
+    if (fresh) { delete memory.image; delete memory.color; } else remember();
     setModeVisual(mode);
     clearImageVisual();
     clearColorVisual();
-    if (opts.onModeChange) opts.onModeChange(mode);
+    const kept = fresh ? null : memory[mode] || null;
+    if (kept && mode === 'image') showImage(kept.bg.image, kept.fileName);
+    if (kept && mode === 'color') selectSwatch(kept.bg.color);
+    if (opts.onModeChange) opts.onModeChange(mode, kept ? kept.bg : null);
   }
   btnImage.addEventListener('click', () => setMode('image'));
   btnColor.addEventListener('click', () => setMode('color'));
@@ -483,10 +525,10 @@ function createBackgroundPicker(opts) {
     image.onload = () => {
       if (currentUrl) URL.revokeObjectURL(currentUrl);
       currentUrl = url;
-      thumb.src = image.src;
-      thumb.style.display = 'block';
-      dzText.style.display = 'none';
-      hint.textContent = `已載入：${file.name}`;
+      remember();                       // loading a picture while on 純色背景 (e.g. 快速產圖) keeps that colour for later
+      lastFileName = file.name;
+      setModeVisual('image');           // the toggle must follow: the picture is now the background
+      showImage(image, file.name);
       opts.onImage(image, file.name);
     };
     image.src = url;
@@ -513,24 +555,17 @@ function createBackgroundPicker(opts) {
   root.appendChild(colorSection);
 
   function restoreImage(image, fileName) {
+    lastFileName = fileName;
     setModeVisual('image');
-    thumb.src = image.src;
-    thumb.style.display = 'block';
-    dzText.style.display = 'none';
-    hint.textContent = `已載入：${fileName}`;
+    showImage(image, fileName);
   }
 
   function restoreColor(hex) {
     setModeVisual('color');
-    const sw = Array.from(colorSection.children).find(el => el.title === hex);
-    if (sw) {
-      if (selectedSwatch) selectedSwatch.classList.remove('selected');
-      sw.classList.add('selected');
-      selectedSwatch = sw;
-    }
+    selectSwatch(hex);
   }
 
-  return { root, handleFile, setMode, restoreImage, restoreColor };
+  return { root, handleFile, setMode, reset: () => setMode('image', true), restoreImage, restoreColor, memory };
 }
 
 let singleFontSizeTouched = false;
@@ -546,7 +581,7 @@ function getFontSizePx() {
   return canvaToPx(effectiveCanvaSize(singleBg, singleFontStepper.getValue()));
 }
 
-// force=true (pressing the 上傳圖片／純色背景 toggle) always resets to that
+// force=true (pressing the 圖片背景／純色背景 toggle) always resets to that
 // type's default, overriding any manual tweak; otherwise a manual tweak
 // sticks until the toggle is pressed again.
 function applyDefaultFontSize(bgType, force = false) {
@@ -556,6 +591,7 @@ function applyDefaultFontSize(bgType, force = false) {
 }
 
 const singleBgPicker = createBackgroundPicker({
+  getBg: () => singleBg,
   onImage: image => {
     singleBg = { type: 'image', image, color: null, view: newView() };
     applyDefaultFontSize('image');
@@ -566,8 +602,9 @@ const singleBgPicker = createBackgroundPicker({
     applyDefaultFontSize('color');
     render();
   },
-  onModeChange: mode => {
-    singleBg = mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null };
+  onModeChange: (mode, remembered) => {
+    // Back to a type we've used before → bring its picture/colour (and pan/zoom) back.
+    singleBg = remembered || (mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null });
     applyDefaultFontSize(mode, true);
     render();
   }
@@ -689,7 +726,7 @@ downloadBtn.addEventListener('click', async () => {
 resetBtn.addEventListener('click', async () => {
   if (!(await askConfirm())) return;
   singleBg = { type: 'image', image: null, color: null };
-  singleBgPicker.setMode('image');
+  singleBgPicker.reset();
   singleFrame = 'news';
   singleFrameToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.frame === 'news'));
   singleFontSizeTouched = false;
@@ -769,7 +806,7 @@ function scrollToBatchItem(id) {
 // The caption under the big preview always mirrors the title as one line
 // (line breaks become a full-width space instead), no extension needed.
 function setBatchPreviewTitle(item) {
-  batchPreviewTitle.textContent = parseLines(item.title).join('　');
+  batchPreviewTitle.textContent = parseLines(item.title).filter(Boolean).join('　');
   if (document.activeElement !== batchPreviewTitleInput) batchPreviewTitleInput.value = item.title;
   batchPreviewTitleInput.hidden = false;
   layoutTitleOverlay(batchPreviewTitleInput, batchCanvas, item.bg, item.title, effectiveCanvaSize(item.bg, item.fontSize));
@@ -1143,18 +1180,21 @@ function buildBatchItemBlock(item, index) {
   syncFontLock();
 
   const picker = createBackgroundPicker({
+    memory: item.bgMemory || (item.bgMemory = {}),   // survives the block being rebuilt (collapse/expand)
+    getBg: () => item.bg,
     onImage: (image, fileName) => { invalidateDone(); item.bg = { type: 'image', image, color: null, view: newView() }; item.fileName = fileName; syncFontLock(); previewBatchItem(item); },
     onColor: color => { invalidateDone(); item.bg = { type: 'color', image: null, color }; previewBatchItem(item); },
-    onModeChange: mode => {
+    onModeChange: (mode, remembered) => {
       invalidateDone();
-      item.bg = mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null };
-      // Pressing the 上傳圖片／純色背景 toggle always resets to that type's
+      item.bg = remembered || (mode === 'color' ? { type: 'color', image: null, color: null } : { type: 'image', image: null, color: null });
+      // Pressing the 圖片背景／純色背景 toggle always resets to that type's
       // default font size, overriding any manual tweak.
       item.fontSizeTouched = false;
       item.fontSize = defaultCanvaSizeFor(mode);
       fontStepper.setValue(item.fontSize);
       syncFontLock();
       setBatchPreviewTitle(item);
+      if (remembered) previewBatchItem(item);   // a remembered picture/colour comes back — show it right away
     }
   });
   item.handleFile = picker.handleFile; // used by global paste routing
