@@ -77,7 +77,7 @@
 | `updater.js` | 從 GitHub 比對並下載最新版檔案 |
 | `segmented.js` / `segmented.css` | 切換開關的滑動動畫與拖曳切換（網頁版與側邊欄共用，會被放進擴充功能） |
 | `watermark.js` / `watermark.css` | 網頁版專用：上排名稱＋「圖片套版／浮水印」切換，以及浮水印功能本身（不會被放進擴充功能） |
-| `deploy.js` / `deploy.css` | 網頁版專用：「部署到 Chrome 插件」彈窗（抓 GitHub 最新版檔案寫入資料夾或打包 ZIP），以及右下角圓形「N」按鈕的「其他工具」彈窗，介紹並連到 [Line 推播套版產生器](https://unnn3ing-oss.github.io/LinePushPatternTool/) 與 [YouTube 批量下載器](https://unnn3ing-oss.github.io/videodownload/)（不會被放進擴充功能） |
+| `deploy.js` / `deploy.css` | 網頁版專用：「部署到 Chrome 插件」彈窗（抓 GitHub 最新版檔案寫入資料夾或打包 ZIP），以及右下角圓形「N」按鈕的「其他工具」彈窗（進入網頁時會自動打開、5 秒後自動收起；5 秒內碰到它就不再自動收），介紹並連到 [Line 推播套版產生器](https://unnn3ing-oss.github.io/LinePushPatternTool/) 與 [YouTube 批量下載器](https://unnn3ing-oss.github.io/videodownload/)（不會被放進擴充功能） |
 | `icons/` | 擴充功能圖示（16／32／48／128） |
 | `whz-heavy.ttf` | 套版標題與網頁大標題使用的字型（WHZ-Heavy），以 `@font-face` 載入；其餘介面文字使用系統內建中文字型（蘋方／微軟正黑體） |
 | `examples/` | 使用說明彈窗與本文件的介面預覽圖 |

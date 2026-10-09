@@ -280,6 +280,8 @@
 
 // ---- 右下角「其他工具」彈窗（網頁版專用）---------------------------------------------
 // 圓形「N」按鈕開關彈窗；按 Esc、點彈窗外面、按 ✕ 都會收起來。
+// 進入網頁時會自動打開，5 秒後自動收起；如果使用者在這 5 秒內碰了它（滑鼠移進去、鍵盤focus、點按鈕或 ✕），
+// 就當作使用者要看，不再自動收起。
 (function () {
   const fab = document.getElementById('toolsFab');
   if (!fab) return;
@@ -289,9 +291,17 @@
     pop.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
   };
-  btn.addEventListener('click', () => set(pop.hidden));
-  document.getElementById('toolsClose').addEventListener('click', () => { set(false); btn.focus(); });
+  const AUTO_CLOSE_MS = 5000;
+  let autoTimer = null;
+  const stopAuto = () => { if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; } };
+  btn.addEventListener('click', () => { stopAuto(); set(pop.hidden); });
+  document.getElementById('toolsClose').addEventListener('click', () => { stopAuto(); set(false); btn.focus(); });
+  pop.addEventListener('pointerenter', stopAuto);
+  pop.addEventListener('focusin', stopAuto);
   // 用 pointerdown（而且在捕捉階段）判斷「點到外面」：停用中的按鈕不會送出 click，只聽 click 的話點到它們就收不起來
-  document.addEventListener('pointerdown', e => { if (!pop.hidden && !fab.contains(e.target)) set(false); }, true);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { set(false); btn.focus(); } });
+  document.addEventListener('pointerdown', e => { if (!pop.hidden && !fab.contains(e.target)) { stopAuto(); set(false); } }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { stopAuto(); set(false); btn.focus(); } });
+  // 進入網頁時自動打開，5 秒後收起（沒有搶走焦點，只是先讓使用者看到有這些工具）
+  set(true);
+  autoTimer = setTimeout(() => { autoTimer = null; set(false); }, AUTO_CLOSE_MS);
 })();
