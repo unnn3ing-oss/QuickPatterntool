@@ -19,13 +19,14 @@
 <link rel="stylesheet" href="segmented.css">
 </head>
 <body>
-<!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印）、右側說明與部署按鈕 -->
+<!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印／拼圖）、右側說明與部署按鈕 -->
 <header class="topbar">
   <div class="topbar-inner">
     <h1 class="topbar-title">圖片套版產生器</h1>
     <div class="func-switch" role="group" aria-label="切換功能">
       <button type="button" class="func-btn active" id="funcLayoutBtn" aria-pressed="true">圖片套版</button>
       <button type="button" class="func-btn" id="funcWatermarkBtn" aria-pressed="false">浮水印</button>
+      <button type="button" class="func-btn" id="funcCollageBtn" aria-pressed="false">拼圖</button>
     </div>
     <div class="topbar-actions">
       <button type="button" id="helpBtn" class="help-btn">📖 使用說明</button>
@@ -202,6 +203,78 @@
       <div class="hint preview-hint">在預覽上拖曳浮水印（抓的範圍比 Logo 大）可以換位置，只會改目前這一張；滑鼠停在浮水印上滾動滾輪可以放大縮小。大小、透明度、邊距，以及左側的位置鈕會套用到所有照片。</div>
     </div>
   </div>
+
+  <!-- 拼圖功能（網頁版專用，邏輯在 watermark.js 後半段）：一張 1080 寬的畫布，把多張照片無縫拼在一起 -->
+  <div class="layout" id="collageApp" hidden>
+    <div class="card">
+      <div class="dropzone wm-photo-drop" id="cgDrop" tabindex="0">
+        <div>點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張，會依序放進空的格子；也能 Ctrl+V 貼上</div>
+        <input type="file" id="cgInput" accept="image/*" multiple>
+      </div>
+      <div class="hint" id="cgHint">輸出 1080×1080、300 DPI 的 JPG</div>
+
+      <div class="btn-row" style="margin-top:16px; margin-bottom:20px">
+        <button id="cgResetBtn" style="flex:1">全部清除</button>
+        <button id="cgCopyBtn" style="flex:1" disabled>複製圖片</button>
+        <button class="primary" id="cgDownloadBtn" style="flex:1" disabled>下載圖片</button>
+      </div>
+
+      <div class="edit-box">
+        <div class="field">
+          <label>版面方式</label>
+          <div class="bg-toggle" id="cgLayout">
+            <button type="button" class="active" data-layout="grid">等分</button>
+            <button type="button" data-layout="free">自由框</button>
+          </div>
+        </div>
+
+        <div id="cgGridCtrl">
+          <div class="field cg-row"><span class="cg-row-label">直向等分</span><div class="bg-toggle" id="cgCols"></div></div>
+          <div class="field cg-row"><span class="cg-row-label">橫向等分</span><div class="bg-toggle" id="cgRows"></div></div>
+          <div class="btn-row" style="margin-top:0"><button type="button" id="cgEvenBtn">平均分配</button></div>
+          <div class="hint">在預覽圖上拖曳格子之間的分隔線，可調整每格比例。</div>
+        </div>
+
+        <div id="cgFreeCtrl" hidden>
+          <div class="field cg-row"><span class="cg-row-label">操作對象</span>
+            <div class="bg-toggle" id="cgEdit">
+              <button type="button" class="active" data-edit="frame">調整框</button>
+              <button type="button" data-edit="photo">調整照片</button>
+            </div>
+          </div>
+          <div class="field cg-row"><span class="cg-row-label">畫布高度</span>
+            <input type="number" id="cgHeight" min="300" max="5000" step="10" style="flex:1; min-width:0">
+            <button type="button" id="cgFitHeightBtn">貼合內容</button>
+          </div>
+          <div class="btn-row"><button type="button" id="cgAddBtn">＋新增框（接在最下方）</button><button type="button" id="cgFitImgBtn">框貼合圖片比例</button></div>
+          <div class="btn-row"><button type="button" id="cgUpBtn">▲ 上下換位（往上）</button><button type="button" id="cgDownBtn">▼ 上下換位（往下）</button></div>
+          <div class="btn-row"><button type="button" id="cgFrontBtn">移到最上層</button><button type="button" id="cgBackBtn">移到最下層</button><button type="button" id="cgDeleteBtn">刪除此框</button></div>
+          <div class="hint">做直式長圖（例如多張橫向圖上下疊）：先調畫布高度，再「＋新增框」貼圖，按「框貼合圖片比例」讓框吻合圖片、不裁切，下方的框會跟著往下推。<br>「調整框」時：在空白處拖曳拉出新框、拖曳框內可移動、拉邊角可改大小，靠近邊緣會自動貼齊；按 Delete 也能刪除選取的框。切到「調整照片」再移動、縮放框內照片。</div>
+        </div>
+
+        <div class="field" style="margin-bottom:0; margin-top:16px">
+          <label>目前選取的格子<output id="cgSelOut"></output></label>
+          <div class="hint" id="cgSelHint">在預覽上點一格來選取</div>
+          <label for="cgScale" style="margin-top:10px">照片縮放<output id="cgScaleOut"></output></label>
+          <input type="range" id="cgScale" min="100" max="500" step="1" value="100" disabled>
+          <div class="btn-row" style="margin-top:10px">
+            <button type="button" id="cgPickBtn" style="flex:1">選擇照片</button>
+            <button type="button" id="cgResetPosBtn" style="flex:1" disabled>重設位置</button>
+            <button type="button" id="cgRemoveImgBtn" style="flex:1" disabled>移除照片</button>
+          </div>
+          <input type="file" id="cgCellInput" accept="image/*" hidden>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-col">
+      <div class="canvas-wrap cg-stage" id="cgStage">
+        <canvas id="cgCanvas" width="1080" height="1080"></canvas>
+      </div>
+      <div class="status" id="cgStatus"></div>
+      <div class="hint preview-hint">點一格選取，拖曳照片調整位置，滑鼠停在格子上滾動滾輪可放大縮小；雙擊格子可以換照片，也能把照片直接拖到格子上。等分時拖曳格子之間的分隔線調整比例；自由框時可以拉出、移動、縮放每一個框。</div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="helpOverlay">
@@ -213,7 +286,7 @@
     <div class="modal-body">
       <h3>切換功能</h3>
       <ul>
-        <li>上排中間可以在「圖片套版」和「浮水印」之間切換（點一下，或直接用滑的），兩邊的內容各自獨立、互不影響。圖片套版一律用多組的方式，沒有單張／批次的切換。</li>
+        <li>上排中間可以在「圖片套版」「浮水印」「拼圖」之間切換（點一下，或直接用滑的），兩邊的內容各自獨立、互不影響。圖片套版一律用多組的方式，沒有單張／批次的切換。</li>
       </ul>
       <h3>浮水印</h3>
       <ul>
@@ -221,6 +294,12 @@
         <li>預設在右上角疊上新版 TVBS NEWS Logo（大小 13%、邊距 3%、不透明）；「浮水印圖」可以切換成舊版「新聞網」Logo，或自己上傳的圖（建議用背景透明的 PNG 或 SVG）。</li>
         <li>位置只有四個角（左上、右上、左下、右下）。<b>在預覽上直接拖曳 Logo（抓的範圍比 Logo 大）只會改目前這一張</b>，它會吸附到最近的角；<b>按左側的位置鈕則是全部照片一起改</b>，如果有照片已經單獨調整過，會先問你要不要全部改掉。「大小」「透明度」「邊距」套用到所有照片。</li>
         <li>下載的檔案維持原圖尺寸，格式可「沿用原圖」或指定 JPG（品質 95%）／PNG，檔名是「原檔名_浮水印」。「下載本張」維持原檔名；「全部下載」的檔名是「YYMMDDHHMM_第幾張」（例如 2610122312_1，時間是按下按鈕那一刻的，每張間隔 0.5～1 秒），瀏覽器第一次可能會詢問是否允許下載多個檔案。</li>
+      </ul>
+      <h3>拼圖</h3>
+      <ul>
+        <li>一張 1080 寬的畫布，把多張照片無縫拼在一起。「等分」可把畫布切成直向、橫向各 1～4 份，在預覽上拖曳格子之間的分隔線可調整每格比例；「自由框」可以自己拖曳拉出矩形框（最多 12 個）、移動、拉邊角改大小，靠近邊緣會自動貼齊，也能調整上下層、刪除，並調整畫布高度做直式長圖。</li>
+        <li>照片用拖曳放進格子、點擊選取、Ctrl+V 貼上（貼到目前選取的格子），一次選多張會依序放進空的格子。拖曳照片調整位置，滑鼠停在格子上用滾輪或左側滑桿縮放。</li>
+        <li>下載是 1080 寬、300 DPI 的 JPG（品質 95%），檔名「yyyymmdd拼圖」；「複製圖片」會把成品放進剪貼簿。</li>
       </ul>
       <h3>圖片套版：設定每一張圖</h3>
       <ul>
