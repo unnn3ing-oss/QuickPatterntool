@@ -77,7 +77,8 @@
 | `quickfill.js` | 快速產圖：抓文章標題／首圖／圖說／hashtag、標題換行規則、複製圖文格式 |
 | `updater.js` | 從 GitHub 比對並下載最新版檔案 |
 | `segmented.js` / `segmented.css` | 切換開關的滑動動畫與拖曳切換（網頁版與側邊欄共用，會被放進擴充功能） |
-| `watermark.js` / `watermark.css` | 網頁版專用：上排名稱＋「圖片套版／浮水印／拼圖」切換，以及浮水印、拼圖功能本身（拼圖放在這兩個檔案的後半段，是為了不增加新檔案：外掛的更新清單會略過 `watermark.*`，網頁版加功能才不會讓外掛跳更新通知；下次外掛本來就要更新時，可以拆成獨立的 `collage.js/css` 並把它加進 `updater.js`／`deploy.js` 的 `SKIP`）（不會被放進擴充功能） |
+| `watermark.js` / `watermark.css` | 網頁版專用：上排名稱＋「圖片套版／浮水印／拼圖」功能切換，以及「浮水印」功能本身（不會被放進擴充功能） |
+| `collage.js` / `collage.css` | 網頁版專用：「拼圖」功能本身（獨立的檔案；不會被放進擴充功能） |
 | `deploy.js` / `deploy.css` | 網頁版專用：「部署到 Chrome 插件」彈窗（抓 GitHub 最新版檔案寫入資料夾或打包 ZIP），以及右下角圓形「N」按鈕的「其他工具」彈窗（進入網頁時會自動打開、5 秒後自動收起；5 秒內碰到它就不再自動收），介紹並連到 [Line 推播套版產生器](https://unnn3ing-oss.github.io/LinePushPatternTool/) 與 [YouTube 批量下載器](https://unnn3ing-oss.github.io/videodownload/)（不會被放進擴充功能） |
 | `icons/` | 擴充功能圖示（16／32／48／128） |
 | `whz-heavy.ttf` | 套版標題與網頁大標題使用的字型（WHZ-Heavy），以 `@font-face` 載入；其餘介面文字使用系統內建中文字型（蘋方／微軟正黑體） |
@@ -110,7 +111,7 @@
 
 **版本說明（`changelog.json`）**：每個版本一筆，格式 `"4.20": { "summary": "一行簡述", "items": ["新增功能或更動的條列", …] }`，用繁體中文寫「新增了什麼／改了什麼」。有新版時，更新彈窗和「版本更新」卡片只顯示**最新版**那一筆（跨好幾個版本更新時，不列出中間的版本）；最新版沒有說明時，退回本機版本之後最新的一筆，都沒有才顯示 GitHub 的提交訊息。簡述最多 80 字、條列最多 12 條、每條最多 140 字；內容只當純文字顯示，並用 git blob SHA 驗證沒被竄改。
 
-- **只改網頁版、沒動到外掛的推送，不升版號、不改 `manifest.json` 和 `changelog.json`**，外掛才不會跳出更新通知。外掛的更新通知只看「外掛會用到的檔案」有沒有差異；網頁版專用的檔案（`index.html`、`deploy.js/css`、`watermark.js/css`、圖示、`README.md` 等，見 `updater.js` 的 `SKIP`）改了不算。推送前用 `git diff --stat origin/main` 檢查：只要有動到 `app.js`、`style.css`、`segmented.*`、`sidepanel.*`、`quickfill.js`、`updater.js`、`background.js`、`manifest.json`、`changelog.json` 其中任何一個，就是外掛也有變動，才依上表升版並補說明。
+- **只改網頁版、沒動到外掛的推送，不升版號、不改 `manifest.json` 和 `changelog.json`**，外掛才不會跳出更新通知。外掛的更新通知只看「外掛會用到的檔案」有沒有差異；網頁版專用的檔案（`index.html`、`deploy.js/css`、`watermark.js/css`、`collage.js/css`、圖示、`README.md` 等，見 `updater.js` 的 `SKIP`，新增網頁版專用檔案時 `updater.js` 和 `deploy.js` 的 `SKIP` 都要加；注意：新檔案對「還沒更新過 `SKIP`」的舊版外掛來說仍是新增的檔案，所以新增網頁版專用檔案的那一次推送，外掛會跳一次通知，要升版並說明）改了不算。推送前用 `git diff --stat origin/main` 檢查：只要有動到 `app.js`、`style.css`、`segmented.*`、`sidepanel.*`、`quickfill.js`、`updater.js`、`background.js`、`manifest.json`、`changelog.json` 其中任何一個，就是外掛也有變動，才依上表升版並補說明。
 - 數字照一般進位（`1.29` 再 +1 是 `1.30`）。
 - 同一次推送混合了不同類型時，取最大的那一種。
 - 備份分支用的是修改前的版本號，例如 `backup/v1.23-…`。

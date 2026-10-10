@@ -12,7 +12,7 @@
   const EXT_NAME = '圖片套版產生器';
   const EXT_FOLDER = 'QuickPatterntool';   // 建議的資料夾名稱（ZIP 裡的最上層資料夾也用這個名稱）
   const SKIP = [/^README\.md$/i, /^examples\//, /^\.gitignore$/, /^\.github\//,
-    /^index\.html$/, /^favicon/, /^apple-touch-icon/, /^(deploy|watermark)\.(js|css)$/];
+    /^index\.html$/, /^favicon/, /^apple-touch-icon/, /^(deploy|watermark|collage)\.(js|css)$/];
   const API = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}`;
   const RAW = `https://raw.githubusercontent.com/${REPO.owner}/${REPO.repo}`;
 

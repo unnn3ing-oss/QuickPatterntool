@@ -1,0 +1,24 @@
+/* 網頁版專用：「拼圖」功能的樣式（外掛不需要，updater.js／deploy.js 的 SKIP 會略過）。 */
+/* ---- 拼圖 ---- */
+#collageApp[hidden] { display: none; }
+#collageApp label { display: flex; justify-content: space-between; align-items: baseline; }
+#collageApp output { font-weight: 600; color: var(--accent); font-size: 14px; }
+#collageApp input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
+#collageApp .dropzone input { display: none; }
+#collageApp [hidden] { display: none; }
+#collageApp #cgFreeCtrl[hidden], #collageApp #cgGridCtrl[hidden] { display: none; }
+.cg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.cg-row-label { flex: 0 0 72px; font-size: 14px; color: var(--muted); }
+.cg-row .bg-toggle { flex: 1; margin-bottom: 0; min-width: 0; }
+.cg-row input[type=number] { padding: 8px 12px; border-radius: 999px; border: none; box-shadow: inset 0 0 0 1px var(--border); background: var(--field-bg); font: inherit; font-size: 14px; }
+.cg-row button { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
+#collageApp .btn-row button { font-size: 13px; padding: 8px 12px; }
+.cg-stage { position: relative; align-items: center; min-height: 260px; }
+.cg-stage.drag { border-color: var(--accent); }
+/* 預覽大小：寬度不超過容器、高度不超過視窗，保持畫布比例（長圖會縮小） */
+#cgCanvas {
+  display: block; width: auto; height: auto; background: none;                 /* 蓋掉 style.css 給正方形預覽圖的設定 */
+  max-width: 100%; max-height: max(260px, calc(100vh - 300px));
+  border-radius: 6px; box-shadow: 0 20px 40px -24px rgba(0, 30, 70, 0.55);
+  touch-action: none; cursor: default;
+}

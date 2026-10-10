@@ -11,7 +11,7 @@
   const REPO = { owner: 'unnn3ing-oss', repo: 'QuickPatterntool', branch: 'main' };
   // 擴充功能用不到的檔案（說明文件、網頁版專用的頁面與圖示），不需要同步
   const SKIP = [/^README\.md$/i, /^examples\//, /^\.gitignore$/, /^\.github\//,
-    /^index\.html$/, /^favicon/, /^apple-touch-icon/, /^(deploy|watermark)\.(js|css)$/];
+    /^index\.html$/, /^favicon/, /^apple-touch-icon/, /^(deploy|watermark|collage)\.(js|css)$/];
   const TEXT_EXT = /\.(js|html|css|json|md|svg|txt)$/i;
   const API = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}`;
   const RAW = `https://raw.githubusercontent.com/${REPO.owner}/${REPO.repo}`;

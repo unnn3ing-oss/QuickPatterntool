@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="deploy.css">
 <link rel="stylesheet" href="watermark.css">
+<link rel="stylesheet" href="collage.css">
 <link rel="stylesheet" href="segmented.css">
 </head>
 <body>
@@ -204,7 +205,7 @@
     </div>
   </div>
 
-  <!-- 拼圖功能（網頁版專用，邏輯在 watermark.js 後半段）：一張 1080 寬的畫布，把多張照片無縫拼在一起 -->
+  <!-- 拼圖功能（網頁版專用，邏輯在 collage.js）：一張 1080 寬的畫布，把多張照片無縫拼在一起 -->
   <div class="layout" id="collageApp" hidden>
     <div class="card">
       <div class="dropzone wm-photo-drop" id="cgDrop" tabindex="0">
@@ -472,6 +473,7 @@
 <script src="app.js"></script>
 <script src="deploy.js"></script>
 <script src="watermark.js"></script>
+<script src="collage.js"></script>
 <script src="segmented.js"></script>
 </body>
 </html>
