@@ -109,6 +109,7 @@
 
 **版本說明（`changelog.json`）**：每個版本一筆，格式 `"4.20": { "summary": "一行簡述", "items": ["新增功能或更動的條列", …] }`，用繁體中文寫「新增了什麼／改了什麼」。有新版時，更新彈窗和「版本更新」卡片只顯示**最新版**那一筆（跨好幾個版本更新時，不列出中間的版本）；最新版沒有說明時，退回本機版本之後最新的一筆，都沒有才顯示 GitHub 的提交訊息。簡述最多 80 字、條列最多 12 條、每條最多 140 字；內容只當純文字顯示，並用 git blob SHA 驗證沒被竄改。
 
+- **只改網頁版、沒動到外掛的推送，不升版號、不改 `manifest.json` 和 `changelog.json`**，外掛才不會跳出更新通知。外掛的更新通知只看「外掛會用到的檔案」有沒有差異；網頁版專用的檔案（`index.html`、`deploy.js/css`、`watermark.js/css`、圖示、`README.md` 等，見 `updater.js` 的 `SKIP`）改了不算。推送前用 `git diff --stat origin/main` 檢查：只要有動到 `app.js`、`style.css`、`segmented.*`、`sidepanel.*`、`quickfill.js`、`updater.js`、`background.js`、`manifest.json`、`changelog.json` 其中任何一個，就是外掛也有變動，才依上表升版並補說明。
 - 數字照一般進位（`1.29` 再 +1 是 `1.30`）。
 - 同一次推送混合了不同類型時，取最大的那一種。
 - 備份分支用的是修改前的版本號，例如 `backup/v1.23-…`。
