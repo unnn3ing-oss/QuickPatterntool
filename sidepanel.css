@@ -12,8 +12,18 @@ body.sidepanel {
 .sidepanel .wrap { max-width: none; }
 
 .sidepanel header { display: flex; align-items: center; justify-content: space-between; text-align: left; margin-bottom: calc(10px * var(--sp)); }
-.sidepanel h1 { font-size: calc(22px * var(--fs)); margin: 0; }
+.sidepanel h1 { font-size: calc(22px * var(--fs)); margin: 0; white-space: nowrap; }
+.sidepanel .head-actions { display: flex; align-items: center; gap: calc(6px * var(--sp)); flex-wrap: nowrap; justify-content: flex-end; flex: none; }
 .sidepanel .help-btn { margin: 0; padding: calc(6px * var(--sp)) calc(14px * var(--sp)); font-size: calc(13px * var(--fs)); }
+/* 「網頁版」：藍底白字，和旁邊的「使用說明」區分開 */
+.sidepanel #webBtn { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sidepanel #webBtn:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+.sidepanel #webBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 350px) {   /* 側邊欄拉到很窄時，標題與按鈕縮小一點，維持同一列 */
+  .sidepanel h1 { font-size: calc(18px * var(--fs)); }
+  .sidepanel .head-actions { gap: 4px; }
+  .sidepanel .help-btn { padding-left: 9px; padding-right: 9px; }
+}
 
 /* 單欄：預覽固定在最上面，其餘區塊在它下面捲動 */
 .sidepanel .layout { display: flex; flex-direction: column; align-items: stretch; gap: calc(12px * var(--sp)); }

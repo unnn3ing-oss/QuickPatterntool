@@ -1,3 +1,8 @@
+// 標題列的「開啟網頁版」：在新分頁開啟網頁版（GitHub Pages）。
+document.getElementById('webBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://unnn3ing-oss.github.io/QuickPatterntool/' });
+});
+
 // 側邊欄的「版本更新」區塊（邏輯在 updater.js）。
 (function () {
   const statusEl = document.getElementById('upStatus');
