@@ -3,7 +3,7 @@
 // 網頁沒辦法直接替瀏覽器安裝擴充功能，所以這裡只負責第 1 步：
 //   A. 寫入資料夾：讓使用者選一個空資料夾，把檔案直接寫進去（File System Access API）
 //   B. 下載 ZIP：不能選資料夾的瀏覽器／資料夾時的備案
-// 第 2 步（到 chrome://extensions 載入未封裝項目）要使用者自己做，彈窗裡有說明。
+// 第 2 步（到 chrome://extensions 載入未封裝項目）要使用者自己做，全螢幕教學裡有動畫和步驟說明。
 //
 // 檔案清單取自 GitHub main 分支最新內容，並排除擴充功能用不到的檔案
 // （和 updater.js 的 SKIP 保持一致，新增網頁版專用檔案時兩邊都要加）。
@@ -171,7 +171,7 @@
 
   window.Deploy = { fetchExtensionFiles, deployToFolder, buildZip, buildZipOfExtension, crc32, REPO, EXT_FOLDER };
 
-  // ---- 彈窗（步驟精靈）------------------------------------------------------------
+  // ---- 全螢幕教學（步驟精靈）------------------------------------------------------------
   const overlay = document.getElementById('deployOverlay');
   if (!overlay) return;
   const openBtn = document.getElementById('deployBtn');
@@ -183,47 +183,107 @@
   const statusEl = document.getElementById('deployStatus');
   const prevBtn = document.getElementById('deployPrevBtn');
   const nextBtn = document.getElementById('deployNextBtn');
-  const panels = [...overlay.querySelectorAll('.deploy-panel')];
-  const dots = [...overlay.querySelectorAll('#deploySteps li')];
+  const countEl = document.getElementById('deployCount');
+  const panes = [...overlay.querySelectorAll('.ds-pane')];
+  const stepEls = [...overlay.querySelectorAll('#deploySteps .ds-step')];
   const loadFolderEl = document.getElementById('deployLoadFolder');
-  const TOTAL = panels.length;
+  const TOTAL = panes.length;
+  const html = document.documentElement;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let step = 1;
   let busy = false;
+  let opener = null;
+  let replayTimer = null;
+
+  // Mac 與 Windows 的按鍵、選單名稱不同：只顯示使用者那一邊
+  const isMac = /Mac|iPhone|iPad/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
+  overlay.dataset.os = isMac ? 'mac' : 'win';
+  overlay.querySelectorAll('.k-mod').forEach(el => { el.textContent = isMac ? '⌘' : 'Ctrl'; });
+  overlay.querySelectorAll('[data-only]').forEach(el => { el.hidden = el.dataset.only !== overlay.dataset.os; });
 
   document.getElementById('deployFolderName').textContent = EXT_FOLDER;
-  overlay.querySelectorAll('.deploy-folder-name').forEach(el => { el.textContent = EXT_FOLDER; });
   loadFolderEl.textContent = EXT_FOLDER;
 
-  const setStatus = (msg, kind) => { statusEl.textContent = msg; statusEl.className = 'deploy-status' + (kind ? ` ${kind}` : ''); };
+  const setStatus = (msg, kind) => { statusEl.textContent = msg; statusEl.className = 'ds-status' + (kind ? ` ${kind}` : ''); };
   const refreshNav = () => {
     prevBtn.disabled = busy || step === 1;
     nextBtn.disabled = busy;
     nextBtn.textContent = step === TOTAL ? '完成' : '下一步';
+    countEl.textContent = `${step} / ${TOTAL}`;
   };
   const setBusy = b => { busy = b; pickBtn.disabled = zipBtn.disabled = b; refreshNav(); };
 
-  function goTo(n, focus = true) {
-    step = Math.min(TOTAL, Math.max(1, n));
-    panels.forEach((p, i) => { p.hidden = i !== step - 1; });
-    dots.forEach((d, i) => {
-      d.classList.toggle('done', i < step - 1);
-      d.classList.toggle('current', i === step - 1);
-      if (i === step - 1) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
-    });
-    refreshNav();
-    if (focus) panels[step - 1].querySelector('h3').focus({ preventScroll: true });
-    overlay.querySelector('.deploy-body').scrollTop = 0;
+  // 示意動畫：換到那一步時從頭播，播完停一下再重播；使用者設定「減少動態效果」就停在做完的畫面
+  function stopReplay() { clearTimeout(replayTimer); replayTimer = null; }
+  function play(pane) {
+    stopReplay();
+    panes.forEach(p => p.querySelector('.ds-art').classList.remove('play'));
+    const art = pane.querySelector('.ds-art');
+    if (reduceMotion.matches) return;
+    const cycle = Number(pane.dataset.cycle) || 7000;
+    art.style.setProperty('--end', `${(cycle - 600) / 1000}s`);
+    void art.offsetWidth;   // 讓瀏覽器先套用「沒有 play」的樣式，再加回去才會重播
+    art.classList.add('play');
+    replayTimer = setTimeout(() => { if (overlay.hidden || panes[step - 1] !== pane) return; play(pane); }, cycle);
   }
 
-  const close = () => overlay.classList.remove('open');
-  const open = () => { setStatus(''); loadFolderEl.textContent = EXT_FOLDER; goTo(1, false); overlay.classList.add('open'); };
+  function goTo(n, focus = true) {
+    step = Math.min(TOTAL, Math.max(1, n));
+    panes.forEach((p, i) => { p.hidden = i !== step - 1; });
+    stepEls.forEach((li, i) => {
+      li.classList.toggle('done', i < step - 1);
+      li.classList.toggle('current', i === step - 1);
+      const b = li.querySelector('.ds-step-btn');
+      if (i === step - 1) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+    });
+    refreshNav();
+    overlay.querySelector('.ds-main').scrollTop = 0;
+    if (focus) panes[step - 1].querySelector('h3').focus({ preventScroll: true });
+    play(panes[step - 1]);
+  }
+
+  const isOpen = () => !overlay.hidden;
+  function close() {
+    if (!isOpen()) return;
+    stopReplay();
+    overlay.hidden = true;
+    html.classList.remove('ds-lock');
+    if (opener && document.contains(opener)) opener.focus();
+  }
+  function open() {
+    opener = document.activeElement;
+    setStatus('');
+    loadFolderEl.textContent = EXT_FOLDER;
+    overlay.hidden = false;
+    html.classList.add('ds-lock');
+    goTo(1, false);
+    nextBtn.focus({ preventScroll: true });
+  }
 
   openBtn.addEventListener('click', open);
   closeBtn.addEventListener('click', close);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('open')) close(); });
   prevBtn.addEventListener('click', () => { if (!busy) goTo(step - 1); });
   nextBtn.addEventListener('click', () => { if (busy) return; if (step === TOTAL) close(); else goTo(step + 1); });
+  stepEls.forEach((li, i) => li.querySelector('.ds-step-btn').addEventListener('click', () => { if (!busy && i + 1 !== step) goTo(i + 1); }));
+  reduceMotion.addEventListener('change', () => { if (isOpen()) play(panes[step - 1]); });
+
+  document.addEventListener('keydown', e => {
+    if (!isOpen()) return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (e.key === 'Tab') {   // 全螢幕蓋住整個網頁：Tab 只在這個畫面裡轉
+      const items = [...overlay.querySelectorAll('button, a[href], summary, [tabindex]:not([tabindex="-1"])')].filter(el => !el.disabled && el.offsetParent !== null);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (!overlay.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      return;
+    }
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
+    if (typing || busy || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowRight' && step < TOTAL) goTo(step + 1);
+    else if (e.key === 'ArrowLeft' && step > 1) goTo(step - 1);
+  });
 
   // 不支援選資料夾的瀏覽器（Firefox、Safari）只留 ZIP
   if (typeof window.showDirectoryPicker !== 'function') {

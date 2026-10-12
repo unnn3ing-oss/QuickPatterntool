@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- 內容安全政策：只允許本站的腳本；網路只連 GitHub（部署功能用）；沒有任何第三方資源。
+<!-- 內容安全政策：只允許本站的腳本；網路只連 GitHub（安裝插件功能用）；沒有任何第三方資源。
      style-src 保留 unsafe-inline 是因為頁面裡有 style="…" 屬性。 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
@@ -20,7 +20,7 @@
 <link rel="stylesheet" href="segmented.css">
 </head>
 <body>
-<!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印／拼圖）、右側說明與部署按鈕 -->
+<!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印／拼圖）、右側說明與安裝插件按鈕 -->
 <header class="topbar">
   <div class="topbar-inner">
     <h1 class="topbar-title">圖片套版產生器</h1>
@@ -30,8 +30,8 @@
       <button type="button" class="func-btn" id="funcCollageBtn" aria-pressed="false">拼圖</button>
     </div>
     <div class="topbar-actions">
-      <button type="button" id="helpBtn" class="help-btn">📖 使用說明</button>
-      <button type="button" id="deployBtn" class="help-btn">🧩 部署到 Chrome 插件</button>
+      <button type="button" id="helpBtn" class="help-btn">使用說明</button>
+      <button type="button" id="deployBtn" class="help-btn">安裝插件</button>
     </div>
   </div>
 </header>
@@ -374,78 +374,390 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="deployOverlay">
-  <div class="modal deploy-modal" role="dialog" aria-modal="true" aria-labelledby="deployTitle">
-    <div class="modal-head">
-      <h2 id="deployTitle">部署到 Chrome 插件</h2>
-      <button type="button" id="deployCloseBtn" class="modal-close" aria-label="關閉">✕</button>
-    </div>
+<!-- 「安裝插件」全螢幕教學（網頁版專用，樣式與腳本放在 deploy.css／deploy.js）：
+     共用的圖示（資料夾、檔案、游標、拼圖、圖釘）定義在這個隱藏的 SVG，各步驟的示意動畫用 <use> 引用 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="ds-folder" viewBox="0 0 22 18"><path d="M1 3a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="ds-file" viewBox="0 0 14 18"><path d="M2 1h6l4 4v11a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z"/><path d="M8 1v4h4" fill="none" stroke="#fff" stroke-width="1.2"/></symbol>
+    <symbol id="ds-cursor" viewBox="0 0 24 24"><path d="M5 3v15.5l4.2-3.6 2.8 6.3 2.6-1.2-2.8-6.2 5.6-.2z" fill="#1f2a3d" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="ds-puzzle" viewBox="0 0 24 24"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></symbol>
+    <symbol id="ds-pin" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 3 3v2h-4.5v6l-.5 2-.5-2v-6H7v-2l3-3z"/></symbol>
+  </defs>
+</svg>
 
-    <!-- 進度列：只用「上一步／下一步」切換，圓點不能點 -->
-    <ol class="deploy-steps" id="deploySteps" aria-label="安裝步驟">
-      <li><span class="dot"></span><span class="lbl">建立資料夾</span></li>
-      <li><span class="dot"></span><span class="lbl">取得檔案</span></li>
-      <li><span class="dot"></span><span class="lbl">開啟擴充頁</span></li>
-      <li><span class="dot"></span><span class="lbl">載入插件</span></li>
-      <li><span class="dot"></span><span class="lbl">完成</span></li>
+<div class="ds" id="deployOverlay" role="dialog" aria-modal="true" aria-labelledby="deployTitle" hidden>
+  <div class="ds-shell">
+    <header class="ds-head">
+      <div class="ds-title">
+        <h2 id="deployTitle">安裝 Chrome 插件</h2>
+        <p>只要做一次，約 3 分鐘。裝好之後，插件會自己提醒你更新。</p>
+      </div>
+      <button type="button" id="deployCloseBtn" class="ds-close" aria-label="關閉安裝教學">✕</button>
+    </header>
+
+    <ol class="ds-steps" id="deploySteps" aria-label="安裝步驟">
+      <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="步驟 1：建立資料夾"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">建立資料夾</span></button></li>
+      <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="步驟 2：下載檔案"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">下載檔案</span></button></li>
+      <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="步驟 3：開啟擴充頁"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">開啟擴充頁</span></button></li>
+      <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="步驟 4：開發人員模式"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">開發人員模式</span></button></li>
+      <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="步驟 5：載入插件"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">載入插件</span></button></li>
+      <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="步驟 6：開始使用"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">開始使用</span></button></li>
     </ol>
 
-    <div class="modal-body deploy-body">
-      <section class="deploy-panel" data-step="1">
-        <h3 tabindex="-1">步驟 1／5　建立放插件的資料夾</h3>
-        <p>網頁沒辦法直接替瀏覽器安裝插件，所以要先在電腦上準備一個資料夾，把檔案放進去，再到 Chrome 載入一次。</p>
-        <p>建議的資料夾名稱：</p>
-        <div class="deploy-name">
-          <code id="deployFolderName">QuickPatterntool</code>
-          <button type="button" id="deployCopyName">複製名稱</button>
+    <main class="ds-main" id="deployMain">
+
+      <!-- 步驟 1：建立資料夾 -->
+      <section class="ds-pane" data-step="1" data-cycle="7000" aria-labelledby="dsh1">
+        <div class="ds-art" aria-hidden="true">
+          <svg class="sv" viewBox="0 0 480 300" focusable="false">
+            <g class="sv-all">
+              <rect class="win" x="50" y="26" width="380" height="248" rx="12"/>
+              <path class="bar" d="M50 58V38a12 12 0 0 1 12-12h356a12 12 0 0 1 12 12v20z"/>
+              <circle class="dot3" cx="68" cy="42" r="4"/><circle class="dot3" cx="82" cy="42" r="4"/><circle class="dot3" cx="96" cy="42" r="4"/>
+              <text class="t b" x="240" y="46" text-anchor="middle">選擇資料夾</text>
+              <rect class="skel" x="66" y="70" width="150" height="24" rx="12"/>
+              <text class="t m" x="80" y="86">文件</text>
+              <g class="x-press" style="--d:1.3s"><rect class="btn-o" x="296" y="70" width="118" height="24" rx="12"/><text class="t a" x="355" y="86" text-anchor="middle">新增資料夾</text></g>
+              <use class="fold" href="#ds-folder" x="74" y="112" width="22" height="18"/><rect class="skel" x="108" y="117" width="90" height="8" rx="4"/>
+              <use class="fold" href="#ds-folder" x="74" y="144" width="22" height="18"/><rect class="skel" x="108" y="149" width="64" height="8" rx="4"/>
+              <g class="x-pop" style="--d:1.6s">
+                <rect class="sel" x="62" y="174" width="356" height="30" rx="8"/>
+                <use class="fold" href="#ds-folder" x="74" y="180" width="22" height="18"/>
+                <text class="t" x="108" y="194">QuickPatterntool</text>
+                <rect class="cover x-type" x="106" y="178" width="112" height="22"/>
+                <rect class="caret x-caret" x="107" y="180" width="1.6" height="18"/>
+              </g>
+              <rect class="skel" x="262" y="240" width="60" height="24" rx="12"/><text class="t m" x="292" y="256" text-anchor="middle">取消</text>
+              <g class="x-press" style="--d:4.2s"><rect class="btn-f" x="330" y="240" width="84" height="24" rx="12"/><text class="t w" x="372" y="256" text-anchor="middle">選擇資料夾</text></g>
+              <g class="cur c1"><circle class="rip" style="--d:1.3s" r="12"/><circle class="rip" style="--d:4.2s" r="12"/><use href="#ds-cursor" x="-4.6" y="-2.8" width="22" height="22"/></g>
+            </g>
+          </svg>
         </div>
-        <div class="hint">在下一步的選取視窗按「新增資料夾」，貼上這個名稱就好。瀏覽器不能替你預先填好名稱，所以才做了複製按鈕。</div>
-        <div class="hint">也可以直接選一個已經有東西的資料夾：我會在裡面自動建立同名的資料夾，不會動到其他檔案。Chrome 可能不允許直接選「下載」「文件」「桌面」本身，請選它們裡面的資料夾。</div>
-      </section>
-
-      <section class="deploy-panel" data-step="2" hidden>
-        <h3 tabindex="-1">步驟 2／5　取得最新版檔案</h3>
-        <p>從 GitHub 下載最新版，並寫進資料夾。</p>
-        <div class="deploy-actions">
-          <button type="button" class="primary" id="deployPickBtn">選擇資料夾並寫入</button>
-          <button type="button" id="deployZipBtn">改下載 ZIP</button>
+        <div class="ds-text">
+          <p class="ds-kicker">步驟 1／6</p>
+          <h3 id="dsh1" tabindex="-1">建立放插件的資料夾</h3>
+          <p class="ds-lead">網頁沒辦法直接替瀏覽器安裝插件，所以要先在電腦上準備一個資料夾放插件檔案，再到 Chrome 載入一次。</p>
+          <p class="ds-label">建議的資料夾名稱（按一下複製，不用自己打）</p>
+          <div class="ds-copy">
+            <code id="deployFolderName">QuickPatterntool</code>
+            <button type="button" class="ds-btn" id="deployCopyName">複製名稱</button>
+          </div>
+          <ol class="ds-do">
+            <li>先按下面的「下一步」，到步驟 2 按「選擇資料夾並寫入」，會跳出選擇資料夾的視窗。</li>
+            <li>在視窗裡按「<b>新增資料夾</b>」<span data-only="mac">（Mac 叫「新增檔案夾」）</span>，貼上剛剛複製的名稱（<kbd class="k-mod">Ctrl</kbd> + <kbd>V</kbd>）後按 Enter。</li>
+            <li>選取那個新資料夾，按「選擇資料夾」。</li>
+          </ol>
+          <p class="ds-tip"><b>小提醒</b>　Chrome 不允許直接選「下載」「文件」「桌面」這幾個資料夾本身，請在它們裡面新增或選一個資料夾。選到已經有東西的資料夾時，我會在裡面自動建立同名資料夾，不會動到你原本的檔案。</p>
         </div>
-        <div class="hint">選「空的資料夾」就直接寫在裡面；選到有東西的資料夾，會在裡面建立「<span class="deploy-folder-name">QuickPatterntool</span>」。選已經是這個插件的資料夾則會更新成最新版。用 ZIP 的話，下載後請先解壓縮。</div>
-        <div class="deploy-status" id="deployStatus" role="status"></div>
       </section>
 
-      <section class="deploy-panel" data-step="3" hidden>
-        <h3 tabindex="-1">步驟 3／5　開啟 Chrome 的擴充功能頁</h3>
-        <ol>
-          <li>在 Chrome 網址列輸入 <code>chrome://extensions</code> 後按 Enter。<button type="button" class="deploy-link" id="deployCopyUrl">複製網址</button></li>
-          <li>打開頁面右上角的「<b>開發人員模式</b>」開關。</li>
-        </ol>
-        <div class="hint">網頁不能直接開啟這個頁面，所以請自己貼到網址列。</div>
+      <!-- 步驟 2：下載檔案 -->
+      <section class="ds-pane" data-step="2" data-cycle="7000" aria-labelledby="dsh2" hidden>
+        <div class="ds-art" aria-hidden="true">
+          <svg class="sv" viewBox="0 0 480 300" focusable="false">
+            <g class="sv-all">
+              <rect class="card" x="36" y="64" width="136" height="156" rx="16"/>
+              <path class="cloud" d="M84 130h44a14 14 0 0 0 1.6-27.9A21 21 0 0 0 89 97a16 16 0 0 0-5 33z"/>
+              <text class="t b" x="104" y="158" text-anchor="middle">GitHub</text>
+              <text class="t m s" x="104" y="176" text-anchor="middle">最新版插件檔案</text>
+              <path class="route" d="M180 142H306" />
+              <use class="fl x-fly" style="--d:.6s;--dy:-34px" href="#ds-file" x="186" y="96" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:1.0s;--dy:-12px" href="#ds-file" x="186" y="118" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:1.4s;--dy:8px" href="#ds-file" x="186" y="140" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:1.8s;--dy:-24px" href="#ds-file" x="186" y="108" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:2.2s;--dy:-2px" href="#ds-file" x="186" y="130" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:2.6s;--dy:-30px" href="#ds-file" x="186" y="100" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:3.0s;--dy:-8px" href="#ds-file" x="186" y="124" width="16" height="20"/>
+              <use class="fl x-fly" style="--d:3.4s;--dy:-18px" href="#ds-file" x="186" y="114" width="16" height="20"/>
+              <use class="fold big" href="#ds-folder" x="314" y="96" width="120" height="98"/>
+              <text class="t b" x="374" y="222" text-anchor="middle">QuickPatterntool</text>
+              <g class="x-pop" style="--d:4.6s"><circle class="okc" cx="426" cy="104" r="14"/><path class="okt" d="M419 104l5 5 9-10"/></g>
+              <rect class="track" x="60" y="252" width="360" height="9" rx="4.5"/>
+              <rect class="prog x-prog" x="60" y="252" width="360" height="9" rx="4.5"/>
+              <text class="t m s x-out" style="--o:4.5s" x="60" y="244">正在寫入檔案…</text>
+              <text class="t g s x-pop" style="--d:4.6s" x="60" y="244">✓ 已寫入完成</text>
+            </g>
+          </svg>
+        </div>
+        <div class="ds-text">
+          <p class="ds-kicker">步驟 2／6</p>
+          <h3 id="dsh2" tabindex="-1">下載最新版插件檔案</h3>
+          <p class="ds-lead">從 GitHub 下載最新版，直接寫進步驟 1 建好的資料夾。</p>
+          <div class="ds-actions">
+            <button type="button" class="ds-btn primary" id="deployPickBtn">選擇資料夾並寫入</button>
+            <button type="button" class="ds-btn" id="deployZipBtn">改下載 ZIP</button>
+          </div>
+          <div class="ds-status" id="deployStatus" role="status"></div>
+          <ol class="ds-do">
+            <li>按「選擇資料夾並寫入」，選步驟 1 建好的資料夾，再按「選擇資料夾」。</li>
+            <li>Chrome 會問「要讓這個網站編輯資料夾裡的檔案嗎？」，請按「<b>編輯檔案</b>」（只會寫入插件檔案）。</li>
+            <li>等到出現「已把 N 個檔案寫入」就完成了，按「下一步」。</li>
+          </ol>
+          <details class="ds-more">
+            <summary>瀏覽器不能選資料夾，或想自己解壓縮？改用 ZIP</summary>
+            <p>按「改下載 ZIP」，下載後先<b>解壓縮</b>（Windows：在 ZIP 上按右鍵 →「全部解壓縮」；Mac：連點兩下）。步驟 5 要選的是<b>解壓縮後、打開就看得到 <code>manifest.json</code> 的那一層資料夾</b>。Windows 解壓縮後常會多包一層，要再點進去一層。</p>
+          </details>
+        </div>
       </section>
 
-      <section class="deploy-panel" data-step="4" hidden>
-        <h3 tabindex="-1">步驟 4／5　載入插件</h3>
-        <ol>
-          <li>按左上角的「<b>載入未封裝項目</b>」。</li>
-          <li>選擇資料夾「<code id="deployLoadFolder">QuickPatterntool</code>」（步驟 2 寫入的那個；用 ZIP 的話，選解壓縮後的資料夾）。</li>
-          <li>載入成功後，清單裡會出現「圖片套版產生器」。</li>
-        </ol>
+      <!-- 步驟 3：開啟擴充頁 -->
+      <section class="ds-pane" data-step="3" data-cycle="8000" aria-labelledby="dsh3" hidden>
+        <div class="ds-art" aria-hidden="true">
+          <svg class="sv" viewBox="0 0 480 300" focusable="false">
+            <g class="sv-all">
+              <rect class="win" x="30" y="20" width="420" height="262" rx="12"/>
+              <path class="bar" d="M30 54V32a12 12 0 0 1 12-12h396a12 12 0 0 1 12 12v22z"/>
+              <path class="tab" d="M44 54v-6a8 8 0 0 1 8-8h104a8 8 0 0 1 8 8v6z"/>
+              <text class="t s x-out" style="--o:4.5s" x="60" y="52">新分頁</text>
+              <text class="t s x-pop" style="--d:4.7s" x="60" y="52">擴充功能</text>
+              <rect class="toolrow" x="30" y="54" width="420" height="36"/>
+              <circle class="ic" cx="54" cy="72" r="7"/><circle class="ic" cx="76" cy="72" r="7"/><circle class="ic" cx="98" cy="72" r="7"/>
+              <rect class="addr" x="118" y="62" width="250" height="20" rx="10"/>
+              <text class="t s mono" x="132" y="76">chrome://extensions</text>
+              <rect class="cover2 x-type2" x="130" y="64" width="160" height="16"/>
+              <use class="puz" href="#ds-puzzle" x="384" y="63" width="18" height="18"/>
+              <circle class="ic" cx="426" cy="72" r="9"/>
+              <!-- 新分頁：三個按鍵 -->
+              <g class="x-out" style="--o:4.5s">
+                <g transform="translate(58 156)">
+                  <rect class="key" x="0" y="0" width="82" height="40" rx="9"/>
+                  <text class="t kt" x="41" y="25" text-anchor="middle"><tspan class="k-mod">Ctrl</tspan> T</text>
+                  <g class="x-pop" style="--d:.9s"><rect class="keyon" x="0" y="0" width="82" height="40" rx="9"/><text class="t kt w" x="41" y="25" text-anchor="middle"><tspan class="k-mod">Ctrl</tspan> T</text></g>
+                  <text class="t m s" x="41" y="62" text-anchor="middle">開新分頁</text>
+                </g>
+                <path class="arr" d="M150 176h24m-7-6l7 6-7 6"/>
+                <g transform="translate(184 156)">
+                  <rect class="key" x="0" y="0" width="82" height="40" rx="9"/>
+                  <text class="t kt" x="41" y="25" text-anchor="middle"><tspan class="k-mod">Ctrl</tspan> V</text>
+                  <g class="x-pop" style="--d:2.1s"><rect class="keyon" x="0" y="0" width="82" height="40" rx="9"/><text class="t kt w" x="41" y="25" text-anchor="middle"><tspan class="k-mod">Ctrl</tspan> V</text></g>
+                  <text class="t m s" x="41" y="62" text-anchor="middle">貼上網址</text>
+                </g>
+                <path class="arr" d="M276 176h24m-7-6l7 6-7 6"/>
+                <g transform="translate(310 156)">
+                  <rect class="key" x="0" y="0" width="112" height="40" rx="9"/>
+                  <text class="t kt" x="56" y="25" text-anchor="middle">Enter</text>
+                  <g class="x-pop" style="--d:3.7s"><rect class="keyon" x="0" y="0" width="112" height="40" rx="9"/><text class="t kt w" x="56" y="25" text-anchor="middle">Enter</text></g>
+                  <text class="t m s" x="56" y="62" text-anchor="middle">前往</text>
+                </g>
+              </g>
+              <!-- 擴充功能頁 -->
+              <g class="x-pop" style="--d:4.7s">
+                <rect class="hdr" x="30" y="90" width="420" height="34"/>
+                <path class="ham" d="M46 102h14M46 107h14M46 112h14"/>
+                <text class="t b" x="72" y="112">擴充功能</text>
+                <rect class="skel" x="170" y="99" width="120" height="16" rx="8"/>
+                <rect class="skel" x="46" y="140" width="388" height="56" rx="10"/>
+                <rect class="skel" x="46" y="206" width="388" height="56" rx="10"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="ds-text">
+          <p class="ds-kicker">步驟 3／6</p>
+          <h3 id="dsh3" tabindex="-1">開啟 Chrome 的擴充功能頁</h3>
+          <p class="ds-lead">網頁不能替你開啟這個頁面，請複製網址，自己貼到 Chrome 的網址列。</p>
+          <div class="ds-copy">
+            <code>chrome://extensions</code>
+            <button type="button" class="ds-btn" id="deployCopyUrl">複製網址</button>
+          </div>
+          <ol class="ds-do">
+            <li>在 Chrome 按 <kbd class="k-mod">Ctrl</kbd> + <kbd>T</kbd> 開一個新分頁（也可以點分頁列最右邊的「＋」）。</li>
+            <li>按 <kbd class="k-mod">Ctrl</kbd> + <kbd>V</kbd> 把剛複製的網址貼到網址列，再按 <kbd>Enter</kbd>。</li>
+            <li>看到標題寫著「<b>擴充功能</b>」的頁面就對了，保持開著，接著做步驟 4。</li>
+          </ol>
+          <p class="ds-tip"><b>另一個方法</b>　點 Chrome 右上角的「⋮」→「擴充功能」→「管理擴充功能」，也會到同一個頁面。</p>
+        </div>
       </section>
 
-      <section class="deploy-panel" data-step="5" hidden>
-        <h3 tabindex="-1">步驟 5／5　完成，開始使用</h3>
-        <ol>
-          <li>點 Chrome 右上角的拼圖圖示，把「圖片套版產生器」釘選到工具列。</li>
-          <li>點一下它的圖示，就會開啟側邊欄，貼上文章網址即可快速產圖。</li>
-        </ol>
-        <div class="hint">之後要更新，在側邊欄最下面按「檢查更新」就好，不用再回到這裡。</div>
+      <!-- 步驟 4：開發人員模式 -->
+      <section class="ds-pane" data-step="4" data-cycle="6500" aria-labelledby="dsh4" hidden>
+        <div class="ds-art" aria-hidden="true">
+          <svg class="sv" viewBox="0 0 480 300" focusable="false">
+            <g class="sv-all">
+              <rect class="win" x="30" y="20" width="420" height="262" rx="12"/>
+              <path class="bar" d="M30 54V32a12 12 0 0 1 12-12h396a12 12 0 0 1 12 12v22z"/>
+              <path class="tab" d="M44 54v-6a8 8 0 0 1 8-8h104a8 8 0 0 1 8 8v6z"/>
+              <text class="t s" x="60" y="52">擴充功能</text>
+              <rect class="toolrow" x="30" y="54" width="420" height="36"/>
+              <circle class="ic" cx="54" cy="72" r="7"/><circle class="ic" cx="76" cy="72" r="7"/><circle class="ic" cx="98" cy="72" r="7"/>
+              <rect class="addr" x="118" y="62" width="250" height="20" rx="10"/>
+              <text class="t s mono" x="132" y="76">chrome://extensions</text>
+              <use class="puz" href="#ds-puzzle" x="384" y="63" width="18" height="18"/>
+              <circle class="ic" cx="426" cy="72" r="9"/>
+              <rect class="hdr" x="30" y="90" width="420" height="34"/>
+              <path class="ham" d="M46 102h14M46 107h14M46 112h14"/>
+              <text class="t b" x="72" y="112">擴充功能</text>
+              <rect class="skel" x="150" y="99" width="100" height="16" rx="8"/>
+              <text class="t s m" x="381" y="112" text-anchor="end">開發人員模式</text>
+              <rect class="ring x-ring" x="388" y="96" width="42" height="26" rx="13"/>
+              <rect class="tr" x="392" y="100" width="34" height="18" rx="9"/>
+              <rect class="tr-on x-fade" style="--d:2.4s" x="392" y="100" width="34" height="18" rx="9"/>
+              <circle class="knob x-knob" style="--d:2.4s" cx="417" cy="109" r="6.5"/>
+              <g class="x-drop" style="--d:2.9s">
+                <rect class="dev" x="30" y="124" width="420" height="38"/>
+                <rect class="pill" x="46" y="132" width="104" height="22" rx="11"/><text class="t s a" x="98" y="147" text-anchor="middle">載入未封裝項目</text>
+                <rect class="pill" x="158" y="132" width="92" height="22" rx="11"/><text class="t s a" x="204" y="147" text-anchor="middle">封裝擴充功能</text>
+                <rect class="pill" x="258" y="132" width="48" height="22" rx="11"/><text class="t s a" x="282" y="147" text-anchor="middle">更新</text>
+              </g>
+              <rect class="skel" x="46" y="176" width="388" height="40" rx="10"/>
+              <rect class="skel" x="46" y="226" width="388" height="40" rx="10"/>
+              <g class="cur c4"><circle class="rip" style="--d:2.2s" r="12"/><use href="#ds-cursor" x="-4.6" y="-2.8" width="22" height="22"/></g>
+            </g>
+          </svg>
+        </div>
+        <div class="ds-text">
+          <p class="ds-kicker">步驟 4／6</p>
+          <h3 id="dsh4" tabindex="-1">打開「開發人員模式」</h3>
+          <p class="ds-lead">這個插件不是從 Chrome 線上應用程式商店安裝的，所以要先打開「開發人員模式」，Chrome 才允許載入自己的資料夾。</p>
+          <ol class="ds-do">
+            <li>在擴充功能頁的<b>右上角</b>，找到「<b>開發人員模式</b>」開關。</li>
+            <li>點一下開關，變成<b>藍色</b>就是打開了。</li>
+            <li>打開後，左上方會多出「<b>載入未封裝項目</b>」「封裝擴充功能」「更新」三個按鈕，下一步會用到第一個。</li>
+          </ol>
+          <p class="ds-tip"><b>小提醒</b>　偶爾重開 Chrome 時，會跳出關於「開發人員模式擴充功能」的提醒，直接關掉就好，不要按「停用」。</p>
+        </div>
       </section>
-    </div>
 
-    <div class="deploy-foot">
-      <button type="button" id="deployPrevBtn">上一步</button>
-      <button type="button" class="primary" id="deployNextBtn">下一步</button>
-    </div>
+      <!-- 步驟 5：載入插件 -->
+      <section class="ds-pane" data-step="5" data-cycle="9000" aria-labelledby="dsh5" hidden>
+        <div class="ds-art" aria-hidden="true">
+          <svg class="sv" viewBox="0 0 480 300" focusable="false">
+            <g class="sv-all">
+              <rect class="win" x="30" y="20" width="420" height="262" rx="12"/>
+              <path class="bar" d="M30 54V32a12 12 0 0 1 12-12h396a12 12 0 0 1 12 12v22z"/>
+              <path class="tab" d="M44 54v-6a8 8 0 0 1 8-8h104a8 8 0 0 1 8 8v6z"/>
+              <text class="t s" x="60" y="52">擴充功能</text>
+              <rect class="toolrow" x="30" y="54" width="420" height="36"/>
+              <circle class="ic" cx="54" cy="72" r="7"/><circle class="ic" cx="76" cy="72" r="7"/><circle class="ic" cx="98" cy="72" r="7"/>
+              <rect class="addr" x="118" y="62" width="250" height="20" rx="10"/>
+              <text class="t s mono" x="132" y="76">chrome://extensions</text>
+              <use class="puz" href="#ds-puzzle" x="384" y="63" width="18" height="18"/>
+              <circle class="ic" cx="426" cy="72" r="9"/>
+              <rect class="hdr" x="30" y="90" width="420" height="34"/>
+              <path class="ham" d="M46 102h14M46 107h14M46 112h14"/>
+              <text class="t b" x="72" y="112">擴充功能</text>
+              <rect class="skel" x="150" y="99" width="100" height="16" rx="8"/>
+              <text class="t s m" x="381" y="112" text-anchor="end">開發人員模式</text>
+              <rect class="tr-on" x="392" y="100" width="34" height="18" rx="9"/><circle class="knob" cx="417" cy="109" r="6.5"/>
+              <rect class="dev" x="30" y="124" width="420" height="38"/>
+              <g class="x-press" style="--d:1.6s"><rect class="pill hot" x="46" y="132" width="104" height="22" rx="11"/><text class="t s a" x="98" y="147" text-anchor="middle">載入未封裝項目</text></g>
+              <rect class="pill" x="158" y="132" width="92" height="22" rx="11"/><text class="t s a" x="204" y="147" text-anchor="middle">封裝擴充功能</text>
+              <rect class="pill" x="258" y="132" width="48" height="22" rx="11"/><text class="t s a" x="282" y="147" text-anchor="middle">更新</text>
+              <!-- 空位：載入後這裡會出現插件 -->
+              <g class="x-out" style="--o:5.1s"><rect class="slot" x="46" y="178" width="388" height="84" rx="10"/><text class="t s m" x="240" y="224" text-anchor="middle">載入後，插件會出現在這裡</text></g>
+              <!-- 載入成功的插件卡片 -->
+              <g class="x-pop" style="--d:5.2s">
+                <rect class="card" x="46" y="178" width="388" height="84" rx="10"/>
+                <image href="icons/icon-48.png" x="60" y="194" width="40" height="40"/>
+                <text class="t b" x="112" y="206">圖片套版產生器</text>
+                <text class="t s m" x="112" y="223">TVBS 新聞／娛樂圖卡套版：貼上文章網址…</text>
+                <rect class="pill" x="112" y="234" width="50" height="18" rx="9"/><text class="t s a" x="137" y="246.5" text-anchor="middle">詳細資料</text>
+                <rect class="pill" x="170" y="234" width="38" height="18" rx="9"/><text class="t s a" x="189" y="246.5" text-anchor="middle">移除</text>
+                <rect class="tr-on" x="392" y="198" width="34" height="18" rx="9"/><circle class="knob" cx="417" cy="207" r="6.5"/>
+              </g>
+              <g class="x-pop" style="--d:5.7s"><rect class="okpill" x="340" y="166" width="94" height="22" rx="11"/><text class="t s w" x="387" y="181" text-anchor="middle">✓ 載入成功</text></g>
+              <!-- 選資料夾的視窗 -->
+              <g class="x-pop x-out" style="--d:1.9s;--o:4.8s">
+                <rect class="scrim" x="30" y="90" width="420" height="192"/>
+                <rect class="card" x="100" y="98" width="280" height="172" rx="12"/>
+                <text class="t b" x="116" y="120">選擇資料夾</text>
+                <use class="fold" href="#ds-folder" x="116" y="132" width="22" height="18"/><rect class="skel" x="150" y="137" width="80" height="8" rx="4"/>
+                <rect class="sel x-fade" style="--d:3.4s" x="108" y="156" width="264" height="28" rx="8"/>
+                <use class="fold" href="#ds-folder" x="116" y="161" width="22" height="18"/><text class="t" x="150" y="175">QuickPatterntool</text>
+                <use class="fold" href="#ds-folder" x="116" y="190" width="22" height="18"/><rect class="skel" x="150" y="195" width="60" height="8" rx="4"/>
+                <rect class="skel" x="236" y="234" width="58" height="24" rx="12"/><text class="t s m" x="265" y="250" text-anchor="middle">取消</text>
+                <g class="x-press" style="--d:4.4s"><rect class="btn-f" x="302" y="234" width="68" height="24" rx="12"/><text class="t s w" x="336" y="250" text-anchor="middle">選擇資料夾</text></g>
+              </g>
+              <g class="cur c5"><circle class="rip" style="--d:1.6s" r="12"/><circle class="rip" style="--d:3.4s" r="12"/><circle class="rip" style="--d:4.4s" r="12"/><use href="#ds-cursor" x="-4.6" y="-2.8" width="22" height="22"/></g>
+            </g>
+          </svg>
+        </div>
+        <div class="ds-text">
+          <p class="ds-kicker">步驟 5／6</p>
+          <h3 id="dsh5" tabindex="-1">載入插件</h3>
+          <p class="ds-lead">接下來告訴 Chrome：插件檔案放在哪個資料夾。</p>
+          <p class="ds-label">要選的資料夾</p>
+          <div class="ds-copy"><code id="deployLoadFolder">QuickPatterntool</code></div>
+          <ol class="ds-do">
+            <li>按擴充功能頁左上角的「<b>載入未封裝項目</b>」。</li>
+            <li>在跳出的視窗，找到上面這個資料夾，點一下選取它。</li>
+            <li>按右下角的「<b>選擇資料夾</b>」（Mac 上可能顯示「選取」或「開啟」）。</li>
+            <li>清單裡出現「<b>圖片套版產生器</b>」，就載入成功了。</li>
+          </ol>
+          <details class="ds-more">
+            <summary>出現「無法載入擴充功能」或「找不到 manifest」？</summary>
+            <p>代表選到上一層了。請再往裡面點一層，直到<b>打開資料夾就能直接看到 <code>manifest.json</code>、<code>app.js</code> 等檔案</b>，再選那一層。用 ZIP 解壓縮的話，最常多包一層。</p>
+          </details>
+        </div>
+      </section>
+
+      <!-- 步驟 6：釘選並開始使用 -->
+      <section class="ds-pane" data-step="6" data-cycle="8500" aria-labelledby="dsh6" hidden>
+        <div class="ds-art" aria-hidden="true">
+          <svg class="sv" viewBox="0 0 480 300" focusable="false">
+            <g class="sv-all">
+              <rect class="win" x="30" y="20" width="420" height="262" rx="12"/>
+              <path class="bar" d="M30 54V32a12 12 0 0 1 12-12h396a12 12 0 0 1 12 12v22z"/>
+              <path class="tab" d="M44 54v-6a8 8 0 0 1 8-8h104a8 8 0 0 1 8 8v6z"/>
+              <text class="t s" x="60" y="52">新聞文章</text>
+              <rect class="toolrow" x="30" y="54" width="420" height="36"/>
+              <circle class="ic" cx="54" cy="72" r="7"/><circle class="ic" cx="76" cy="72" r="7"/><circle class="ic" cx="98" cy="72" r="7"/>
+              <rect class="addr" x="118" y="62" width="220" height="20" rx="10"/>
+              <text class="t s m" x="132" y="76">news.example.com/…</text>
+              <!-- 文章內容（示意） -->
+              <rect class="skel" x="48" y="106" width="200" height="14" rx="7"/>
+              <rect class="skel" x="48" y="130" width="150" height="14" rx="7"/>
+              <rect class="img" x="48" y="156" width="200" height="86" rx="10"/>
+              <rect class="skel" x="48" y="252" width="200" height="8" rx="4"/>
+              <!-- 工具列：釘選後出現的插件圖示 -->
+              <g class="x-pop" style="--d:3.1s"><rect class="hl" x="345" y="62" width="22" height="22" rx="6"/><image href="icons/icon-32.png" x="348" y="65" width="16" height="16"/></g>
+              <g><rect class="hl x-fade x-out" style="--d:1.4s;--o:4.8s" x="381" y="61" width="24" height="24" rx="12"/><use class="puz" href="#ds-puzzle" x="384" y="63" width="18" height="18"/></g>
+              <circle class="ic" cx="426" cy="72" r="9"/>
+              <!-- 擴充功能選單 -->
+              <g class="x-pop x-out" style="--d:1.6s;--o:4.8s">
+                <rect class="menu" x="238" y="90" width="206" height="96" rx="12"/>
+                <text class="t b s" x="254" y="112">擴充功能</text>
+                <rect class="rowh" x="246" y="122" width="190" height="52" rx="8"/>
+                <image href="icons/icon-32.png" x="256" y="136" width="24" height="24"/>
+                <text class="t s" x="288" y="152">圖片套版產生器</text>
+                <use class="pinx" href="#ds-pin" x="408" y="137" width="22" height="22"/>
+                <use class="pinon x-fade" style="--d:2.9s" href="#ds-pin" x="408" y="137" width="22" height="22"/>
+              </g>
+              <!-- 側邊欄 -->
+              <g class="x-slide" style="--d:5.2s">
+                <path class="panel" d="M296 90H450V270a12 12 0 0 1-12 12H296z"/>
+                <text class="t b s" x="310" y="112">圖片套版產生器</text>
+                <rect class="img2" x="310" y="122" width="126" height="72" rx="8"/>
+                <text class="t w s" x="373" y="162" text-anchor="middle">圖卡預覽</text>
+                <rect class="field" x="310" y="204" width="126" height="22" rx="11"/><text class="t s m" x="322" y="219">貼上文章網址…</text>
+                <rect class="btn-f" x="310" y="236" width="126" height="26" rx="13"/><text class="t s w" x="373" y="253" text-anchor="middle">快速產圖</text>
+              </g>
+              <g class="cur c6"><circle class="rip" style="--d:1.4s" r="12"/><circle class="rip" style="--d:2.9s" r="12"/><circle class="rip" style="--d:4.4s" r="12"/><use href="#ds-cursor" x="-4.6" y="-2.8" width="22" height="22"/></g>
+            </g>
+          </svg>
+        </div>
+        <div class="ds-text">
+          <p class="ds-kicker">步驟 6／6</p>
+          <h3 id="dsh6" tabindex="-1">釘選到工具列，開始使用</h3>
+          <p class="ds-lead">裝好了！最後把插件釘選在 Chrome 工具列，以後一鍵就能打開。</p>
+          <ol class="ds-do">
+            <li>點網址列右邊的<b>拼圖圖示</b>（擴充功能）。</li>
+            <li>在「圖片套版產生器」右邊按<b>圖釘</b>，變成藍色就是釘選好了，圖示會出現在工具列。</li>
+            <li>點工具列上的「圖片套版產生器」圖示，畫面右側就會打開<b>側邊欄</b>。</li>
+            <li>貼上文章網址、按 Enter，就能快速產圖。</li>
+          </ol>
+          <p class="ds-tip"><b>之後要更新</b>　不用回到這裡。側邊欄最下面按「版本更新」→「檢查更新」→「更新到最新版」；每次打開側邊欄也會自動檢查，有新版會跳出提醒。</p>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="ds-foot">
+      <button type="button" class="ds-btn" id="deployPrevBtn">上一步</button>
+      <span class="ds-count" id="deployCount" aria-live="polite">1 / 6</span>
+      <button type="button" class="ds-btn primary" id="deployNextBtn">下一步</button>
+    </footer>
   </div>
 </div>
 
