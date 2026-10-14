@@ -43,6 +43,31 @@
     return !!pending && typeof pending.at === 'number' && now - pending.at < PENDING_TTL_MS;
   }
 
+  // ---- 內容腳本接線（只在熱門新聞庫頁面、且擴充功能有效時註冊）-----------------
+  function ack(nonce, ok, opened, error) {
+    const m = { source: 'quickpattern', type: 'ack', nonce, ok, opened };
+    if (error) m.error = error;
+    window.postMessage(m, location.origin);
+  }
+
+  if (typeof document !== 'undefined' && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+    window.addEventListener('message', event => {
+      const d = event.data;
+      if (event.source !== window || event.origin !== location.origin) return;
+      if (!d || d.source !== 'hottopic' || d.type !== 'send-to-quickpattern' || d.v !== 1) return;
+      if (typeof d.nonce !== 'string' || d.nonce.length > 64) return;
+      const v = validateSend(d);
+      if (!v.ok) { ack(d.nonce, false, false, v.error); return; }
+      let p;
+      try { p = chrome.runtime.sendMessage({ type: 'hottopic:send', url: v.url, title: v.title }); }
+      catch (e) { ack(d.nonce, false, false, 'extension_unavailable'); return; }
+      Promise.resolve(p).then(
+        r => ack(d.nonce, !!(r && r.ok), !!(r && r.opened), r && r.error),
+        () => ack(d.nonce, false, false, 'extension_unavailable')
+      );
+    });
+  }
+
   root.QptBridge = { validateSend, senderAllowed, isFresh, PENDING_TTL_MS, PAGE_ORIGIN, PAGE_PATH_PREFIX };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.QptBridge;
 })(typeof self !== 'undefined' ? self : this);
