@@ -189,3 +189,21 @@ document.getElementById('webBtn').addEventListener('click', () => {
     }
   });
 })();
+
+// 從熱門新聞庫送來的請求：background 把網址與改標暫存在 storage.session（key: pending）。
+// 側邊欄打開時、或開著的時候收到新的，就取出來自動快速產圖；超過 2 分鐘的丟棄，避免很久以前的請求突然被執行。
+(function () {
+  async function consumePending() {
+    const { pending } = await chrome.storage.session.get('pending');
+    if (!pending) return;
+    await chrome.storage.session.remove('pending');
+    if (!QptBridge.isFresh(pending, Date.now())) return;
+    // 圖示上的藍色「1」是這個請求留的；紅色「新」（更新提示）不能清
+    if ((await chrome.action.getBadgeText({})) === '1') await chrome.action.setBadgeText({ text: '' });
+    QuickFill.applyPending(pending);
+  }
+  consumePending().catch(() => {});
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes.pending && changes.pending.newValue) consumePending().catch(() => {});
+  });
+})();
