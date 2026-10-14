@@ -31,7 +31,7 @@ test('validateSend 檢查 title', () => {
   const url = 'https://news.tvbs.com.tw/x';
   assert.strictEqual(validateSend({ url, title: 123 }).ok, false);
   assert.strictEqual(validateSend({ url, title: ['a'] }).ok, false);
-  assert.strictEqual(validateSend({ url, title: 'a'.repeat(201) }).ok, false);
+  assert.strictEqual(validateSend({ url, title: 'a'.repeat(501) }).ok, false);
   assert.strictEqual(validateSend({ url, title: '\u0000\u0007' }).ok, false);
   const t = '平均爽領315萬！勞退　結清潮';
   const r = validateSend({ url, title: t });
@@ -62,11 +62,20 @@ test('isFresh', () => {
   assert.strictEqual(isFresh({}, now), false);
 });
 
-test('validateSend：改標的換行轉成空格，不會把兩行黏在一起', () => {
+test('validateSend：改標的換行原樣保留（小編排好的分行），行首尾空白與空行去掉', () => {
   const url = 'https://news.tvbs.com.tw/x';
-  const r = validateSend({ url, title: '定期保養的 5 個重點\n第 3 項最多人漏掉' });
-  assert.strictEqual(r.ok, true);
-  assert.strictEqual(r.title, '定期保養的 5 個重點 第 3 項最多人漏掉');
-  assert.strictEqual(validateSend({ url, title: 'A\r\nB' }).title, 'A B');
+  assert.strictEqual(validateSend({ url, title: '定期保養的 5 個重點\n第 3 項最多人漏掉' }).title, '定期保養的 5 個重點\n第 3 項最多人漏掉');
+  assert.strictEqual(validateSend({ url, title: 'A\r\nB' }).title, 'A\nB');
+  assert.strictEqual(validateSend({ url, title: ' A \n\n  B\n' }).title, 'A\nB');
   assert.strictEqual(validateSend({ url, title: '\n\n' }).ok, false);
+});
+
+test('validateSend：Tab 換成空格而不是直接刪掉', () => {
+  assert.strictEqual(validateSend({ url: 'https://news.tvbs.com.tw/x', title: '第一行\t第二' }).title, '第一行 第二');
+});
+
+test('validateSend：標題上限 500 字（與熱門新聞庫的改標上限一致）', () => {
+  const url = 'https://news.tvbs.com.tw/x';
+  assert.strictEqual(validateSend({ url, title: 'a'.repeat(500) }).ok, true);
+  assert.strictEqual(validateSend({ url, title: 'a'.repeat(501) }).ok, false);
 });

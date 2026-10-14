@@ -44,12 +44,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     const v = QptBridge.validateSend(msg);
     if (!v.ok) return { ok: false, opened: false, error: v.error };
+    // sidePanel.open 要在「使用者操作」仍有效時呼叫：驗證完立刻、同步送出，不能先 await 別的。
+    // 暫存和開側邊欄並行；側邊欄啟動時讀一次、之後靠 storage.onChanged，晚一點寫入也會被讀到。
+    let opening;
+    try { opening = Promise.resolve(chrome.sidePanel.open({ windowId: sender.tab.windowId })); }
+    catch (e) { opening = Promise.reject(e); }
+    opening.catch(() => {});   // 失敗在下面處理，避免 unhandled rejection
     await chrome.storage.session.set({ pending: { url: v.url, title: v.title, at: Date.now() } });
     let opened = false;
-    try {
-      await chrome.sidePanel.open({ windowId: sender.tab.windowId });
-      opened = true;
-    } catch (e) { opened = false; }
+    try { await opening; opened = true; } catch (e) { opened = false; }
     if (!opened) {
       await chrome.action.setBadgeText({ text: '1' });
       await chrome.action.setBadgeBackgroundColor({ color: '#1a73e8' });

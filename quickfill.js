@@ -362,7 +362,17 @@
     return articleTitle || '';
   }
 
-  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl, resolveTitle };
+  // 改標有換行 = 小編排好的分行，圖上照這個分；單行改標才交給 breakTitle
+  function overrideLines(override) {
+    if (/\n/.test(override)) return override.split('\n').map(l => l.trim()).filter(Boolean);
+    return breakTitle(override);
+  }
+  // 複製圖文格式的標題是單行：換行接成空格
+  function overrideOneLine(override) {
+    return /\n/.test(override) ? override.split('\n').map(l => l.trim()).filter(Boolean).join(' ') : override;
+  }
+
+  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl, resolveTitle, overrideLines, overrideOneLine };
 
   // ---- 側邊欄互動 --------------------------------------------------------------
   const urlInput = document.getElementById('qfUrl');
@@ -523,11 +533,14 @@
     disarm();
     setStatus('讀取文章中…');
     const override = resolveTitle(opts.titleOverride, '') || null;
+    const overrideOne = override ? overrideOneLine(override) : null;
     if (override) {
-      // 先把標題帶進去：就算之後文章抓失敗，圖上也已經有標題
-      const brokenOverride = breakTitle(override);
-      learnSeps(override, brokenOverride);
-      titleEl.value = brokenOverride.join('\n');
+      // 先把標題帶進去：就算之後文章抓失敗，圖上也已經有標題。
+      // 複製框先清空：否則文章抓失敗時會是「新標題＋上一篇的圖說和 hashtag」
+      const lines = overrideLines(override);
+      learnSeps(overrideOne, lines);
+      copyText.value = '';
+      titleEl.value = lines.join('\n');
       titleEl.dispatchEvent(new Event('input'));
     }
     try {
@@ -542,7 +555,7 @@
       const articleUrl = got0.res.url || url;
       const article = parseArticle(await got0.blob.text(), articleUrl);
       if (mine !== runId) return;
-      const title = resolveTitle(override, article.title);
+      const title = resolveTitle(overrideOne, article.title);
       if (!title) throw new Error('這個網頁抓不到標題');
 
       if (!override) {

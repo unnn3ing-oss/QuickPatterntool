@@ -34,3 +34,18 @@ test('resolveTitle：不改動內容', () => {
 test('breakTitle 對改標的換行維持原本行為（回歸）', () => {
   assert.strictEqual(QF.breakTitle('蔡英文現身！12萬洋流挺沈伯洋　賴清德：對手認知作戰已開始').length, 3);
 });
+
+test('overrideLines：改標有換行就照小編排好的分行，不再重新斷行', () => {
+  assert.deepStrictEqual(Array.from(QF.overrideLines('定期保養的 5 個重點\n第 3 項最多人漏掉')), ['定期保養的 5 個重點', '第 3 項最多人漏掉']);
+  assert.deepStrictEqual(Array.from(QF.overrideLines('iPhone 17 Pro開賣\n果粉：價格還能接受')), ['iPhone 17 Pro開賣', '果粉：價格還能接受']);
+});
+
+test('overrideLines：單行改標交給 breakTitle', () => {
+  const t = '蔡英文現身！12萬洋流挺沈伯洋　賴清德：對手認知作戰已開始';
+  assert.deepStrictEqual(Array.from(QF.overrideLines(t)), Array.from(QF.breakTitle(t)));
+});
+
+test('overrideOneLine：複製用的標題是單行（換行接成空格），單行原樣', () => {
+  assert.strictEqual(QF.overrideOneLine('A B\nC'), 'A B C');
+  assert.strictEqual(QF.overrideOneLine('平均爽領315萬！勞退　結清潮'), '平均爽領315萬！勞退　結清潮');
+});

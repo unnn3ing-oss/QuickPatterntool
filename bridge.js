@@ -9,7 +9,7 @@
   const PAGE_ORIGIN = 'https://unnn3ing-oss.github.io';
   const PAGE_PATH_PREFIX = '/hottopic/';
   const MAX_URL = 2000;
-  const MAX_TITLE = 200;
+  const MAX_TITLE = 500;   // 與熱門新聞庫的改標上限一致
 
   // → { ok:true, url, title|null } 或 { ok:false, error }
   function validateSend(msg) {
@@ -25,8 +25,10 @@
     let title = null;
     if (msg.title !== undefined && msg.title !== null) {
       if (typeof msg.title !== 'string' || msg.title.length > MAX_TITLE) return { ok: false, error: 'bad_title' };
-      title = msg.title.replace(/[\r\n]+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');   // 改標用換行分行，換成空格（breakTitle 把空格當斷點），不能直接刪掉
-      if (!title.trim()) return { ok: false, error: 'bad_title' };
+      // 改標用換行分行（小編排好的版型）：換行保留，Tab 換成空格，其他控制字元去掉；行首尾空白與空行去掉
+      title = msg.title.replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '')
+        .split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+      if (!title) return { ok: false, error: 'bad_title' };
     }
     return { ok: true, url: u.href, title };
   }
