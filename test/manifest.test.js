@@ -39,3 +39,12 @@ test('updater SKIP 會略過 test/ 但不略過 bridge.js', () => {
   assert.strictEqual(skipped('test/bridge.test.js'), true);
   assert.strictEqual(skipped('bridge.js'), false);
 });
+
+test('deploy.js 的 SKIP 與 updater.js 一致（都略過 test/）', () => {
+  const get = f => {
+    const m = read(f).match(/const SKIP = \[([\s\S]*?)\];/);
+    assert.ok(m, f + ' 找不到 SKIP 陣列');
+    return new Function('return [' + m[1] + ']')().map(String);
+  };
+  assert.deepStrictEqual(get('deploy.js'), get('updater.js'));
+});

@@ -356,7 +356,13 @@
     return isPrivateHost(a.hostname) || !isPrivateHost(u.hostname);
   }
 
-  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl };
+  // 圖上標題：從熱門新聞庫送來的改標（override）優先，沒有才用文章自己的標題。內容原樣，不在這裡改動。
+  function resolveTitle(override, articleTitle) {
+    if (typeof override === 'string' && override.trim()) return override;
+    return articleTitle || '';
+  }
+
+  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl, resolveTitle };
 
   // ---- 側邊欄互動 --------------------------------------------------------------
   const urlInput = document.getElementById('qfUrl');
@@ -504,7 +510,8 @@
     confirmTipEl.hidden = false;
   }
 
-  async function run() {
+  // opts.titleOverride：圖上標題用這個（例如熱門新聞庫卡片目前的改標），不用文章自己的標題。
+  async function run(opts = {}) {
     const url = normalizeUrl(urlInput.value);
     if (!url) { setStatus('請先貼上文章網址', 'err'); return; }
     const mine = ++runId;
@@ -515,6 +522,14 @@
     hideTip();
     disarm();
     setStatus('讀取文章中…');
+    const override = resolveTitle(opts.titleOverride, '') || null;
+    if (override) {
+      // 先把標題帶進去：就算之後文章抓失敗，圖上也已經有標題
+      const brokenOverride = breakTitle(override);
+      learnSeps(override, brokenOverride);
+      titleEl.value = brokenOverride.join('\n');
+      titleEl.dispatchEvent(new Event('input'));
+    }
     try {
       let got0;
       try { got0 = await fetchLimited(url, { timeoutMs: ARTICLE_TIMEOUT, maxBytes: MAX_ARTICLE_BYTES, signal }); }
@@ -527,12 +542,15 @@
       const articleUrl = got0.res.url || url;
       const article = parseArticle(await got0.blob.text(), articleUrl);
       if (mine !== runId) return;
-      if (!article.title) throw new Error('這個網頁抓不到標題');
+      const title = resolveTitle(override, article.title);
+      if (!title) throw new Error('這個網頁抓不到標題');
 
-      const broken = breakTitle(article.title);
-      learnSeps(article.title, broken);
-      titleEl.value = broken.join('\n');
-      titleEl.dispatchEvent(new Event('input'));
+      if (!override) {
+        const broken = breakTitle(title);
+        learnSeps(title, broken);
+        titleEl.value = broken.join('\n');
+        titleEl.dispatchEvent(new Event('input'));
+      }
 
       const notes = [];
       const previousImage = singleBg.image;
@@ -550,7 +568,7 @@
       if (!caption) notes.push('沒抓到圖說');
       if (!article.tags.length) notes.push('沒抓到 hashtag');
 
-      copyText.value = formatCopy({ title: article.title, caption, tags: article.tags });
+      copyText.value = formatCopy({ title, caption, tags: article.tags });
       copyBtn.disabled = !copyText.value;
 
       // 有圖就讓按鈕變成「直接下載」；沒抓到圖就沒有東西可下載，按鈕維持原樣
@@ -568,6 +586,15 @@
       }
     }
   }
+
+  // 熱門新聞庫送來的請求：網址填進去、圖上標題用卡片的改標，然後照常快速產圖
+  function applyPending(p) {
+    urlInput.value = p.url;
+    hideTip();
+    disarm();
+    return run({ titleOverride: p.title || undefined });
+  }
+  root.QuickFill.applyPending = applyPending;
 
   async function copyToClipboard(text) {
     try { await navigator.clipboard.writeText(text); return true; }
