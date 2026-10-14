@@ -25,7 +25,7 @@
     let title = null;
     if (msg.title !== undefined && msg.title !== null) {
       if (typeof msg.title !== 'string' || msg.title.length > MAX_TITLE) return { ok: false, error: 'bad_title' };
-      title = msg.title.replace(/[\u0000-\u001f\u007f]/g, '');
+      title = msg.title.replace(/[\r\n]+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');   // 改標用換行分行，換成空格（breakTitle 把空格當斷點），不能直接刪掉
       if (!title.trim()) return { ok: false, error: 'bad_title' };
     }
     return { ok: true, url: u.href, title };

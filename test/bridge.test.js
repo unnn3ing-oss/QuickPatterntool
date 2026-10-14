@@ -61,3 +61,12 @@ test('isFresh', () => {
   assert.strictEqual(isFresh(null, now), false);
   assert.strictEqual(isFresh({}, now), false);
 });
+
+test('validateSend：改標的換行轉成空格，不會把兩行黏在一起', () => {
+  const url = 'https://news.tvbs.com.tw/x';
+  const r = validateSend({ url, title: '定期保養的 5 個重點\n第 3 項最多人漏掉' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.title, '定期保養的 5 個重點 第 3 項最多人漏掉');
+  assert.strictEqual(validateSend({ url, title: 'A\r\nB' }).title, 'A B');
+  assert.strictEqual(validateSend({ url, title: '\n\n' }).ok, false);
+});
