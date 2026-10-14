@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "圖片套版產生器",
-  "version": "4.41",
+  "version": "4.51",
   "description": "TVBS 新聞／娛樂圖卡套版：貼上文章網址，自動帶入標題與首圖，並複製圖文格式。",
   "icons": {
     "16": "icons/icon-16.png",
@@ -22,6 +22,13 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://unnn3ing-oss.github.io/hottopic/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "permissions": ["sidePanel", "clipboardWrite", "storage", "alarms"],
   "host_permissions": ["<all_urls>"]
 }
