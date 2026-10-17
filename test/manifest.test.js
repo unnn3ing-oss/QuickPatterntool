@@ -7,8 +7,8 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const changelog = JSON.parse(read('changelog.json'));
 
-test('manifest 版本是 4.51', () => {
-  assert.strictEqual(manifest.version, '4.51');
+test('manifest 版本是 4.52', () => {
+  assert.strictEqual(manifest.version, '4.52');
 });
 
 test('content_scripts 只注入熱門新聞庫', () => {

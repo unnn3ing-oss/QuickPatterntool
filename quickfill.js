@@ -293,19 +293,17 @@
   //   （圖／OOO 攝）
   //   #標籤 #標籤 #標籤
   // 挑 hashtag（最多 3 個）：
+  //   0) 只留 2～3 個字的（太短像雜訊、太長放不下）；其他字數的直接不要，不夠 3 個就少於 3 個，不補。
   //   1) 優先「無重複文字」的：不和其他標籤互相包含（例如有「沈伯洋」又有「沈伯洋辦公室」，兩個都算重複）。
-  //   2) 再優先 2～4 個字的（太短像雜訊、太長放不下）。
   //   同一級裡維持網頁上的原本順序。選的時候，和已經選好的標籤重複（互相包含）的先跳過；
   //   不夠 3 個時才用被跳過的補滿。
   function pickTags(tags, count = 3) {
-    const list = [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
+    const list = [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))]
+      .filter(t => { const n = [...t].length; return n >= 2 && n <= 3; });
     const key = t => t.toLowerCase();
     const overlaps = (a, b) => key(a).includes(key(b)) || key(b).includes(key(a));
-    const ranked = list.map((t, i) => {
-      const len = [...t].length;
-      const unique = !list.some(o => o !== t && overlaps(t, o));
-      return { t, i, rank: (unique ? 0 : 2) + (len >= 2 && len <= 4 ? 0 : 1) };
-    }).sort((a, b) => a.rank - b.rank || a.i - b.i);
+    const ranked = list.map((t, i) => ({ t, i, rank: list.some(o => o !== t && overlaps(t, o)) ? 1 : 0 }))
+      .sort((a, b) => a.rank - b.rank || a.i - b.i);
     const picked = [];
     for (const { t } of ranked) {
       if (picked.length >= count) break;
@@ -579,7 +577,7 @@
         notes.push(article.images.length ? '圖片都抓不到，請手動放圖' : '網頁裡沒找到圖片，請手動放圖');
       }
       if (!caption) notes.push('沒抓到圖說');
-      if (!article.tags.length) notes.push('沒抓到 hashtag');
+      if (!pickTags(article.tags).length) notes.push('沒抓到 2～3 字的 hashtag');
 
       copyText.value = formatCopy({ title, caption, tags: article.tags });
       copyBtn.disabled = !copyText.value;

@@ -49,3 +49,24 @@ test('overrideOneLine：複製用的標題是單行（換行接成空格），�
   assert.strictEqual(QF.overrideOneLine('A B\nC'), 'A B C');
   assert.strictEqual(QF.overrideOneLine('平均爽領315萬！勞退　結清潮'), '平均爽領315萬！勞退　結清潮');
 });
+
+// vm 內建立的陣列跟測試檔不同 realm，轉一次才能 deepStrictEqual
+const pick = (...a) => Array.from(QF.pickTags(...a));
+
+test('pickTags：只留 2～3 字，最多 3 個', () => {
+  assert.deepStrictEqual(pick(['沈伯洋', '政治', '民進黨主席', '柯', '國民黨', '立法院']), ['沈伯洋', '政治', '國民黨']);
+});
+
+test('pickTags：不夠 3 個就少於 3 個，不補長短標籤', () => {
+  assert.deepStrictEqual(pick(['柯', '沈伯洋辦公室', '政治']), ['政治']);
+  assert.deepStrictEqual(pick(['台灣大哥大', 'A']), []);
+});
+
+test('pickTags：無重複文字的優先，重複的最後才補', () => {
+  assert.deepStrictEqual(pick(['沈伯洋', '伯洋', '政治', '立委']), ['政治', '立委', '沈伯洋']);
+  assert.deepStrictEqual(pick(['沈伯洋', '伯洋']), ['沈伯洋', '伯洋']);
+});
+
+test('formatCopy：沒有 2～3 字標籤就略過 hashtag 那一行', () => {
+  assert.strictEqual(QF.formatCopy({ title: '標題', caption: '', tags: ['台灣大哥大'] }), '【標題】');
+});
