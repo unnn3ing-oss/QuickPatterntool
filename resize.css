@@ -1,0 +1,21 @@
+/* 改尺寸（網頁版專用；上傳區、縮圖展示窗沿用 watermark.css 的 .wm-photo-drop／.wm-thumb／.wm-stage／.wm-empty） */
+#resizeApp label { display: flex; justify-content: space-between; align-items: baseline; }
+#resizeApp .dropzone input { display: none; }
+.rs-size { display: flex; align-items: center; gap: 8px; }
+.rs-size input[type=number] {
+  flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px; border: none; text-align: center;
+  box-shadow: inset 0 0 0 1px var(--border); background: var(--field-bg); font: inherit; font-size: 15px;
+  -moz-appearance: textfield;
+}
+.rs-size input[type=number]::-webkit-outer-spin-button, .rs-size input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rs-size input[type=number]:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.rs-swap { flex: 0 0 auto; width: 38px; height: 38px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; }
+#rsCanvas {
+  display: block; width: auto; height: auto; aspect-ratio: auto; background: none;     /* 蓋掉 style.css 給正方形預覽圖的設定 */
+  max-width: 100%; max-height: max(260px, calc(100vh - 300px));
+  border-radius: 12px; box-shadow: 0 20px 40px -24px rgba(0, 30, 70, 0.55);
+  touch-action: none; cursor: default;
+}
+#rsCanvas[hidden] { display: none; }
+#rsCanvas.can-drag { cursor: grab; }
+#rsCanvas.dragging { cursor: grabbing; }
