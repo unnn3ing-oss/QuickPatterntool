@@ -1988,9 +1988,10 @@
     }
     return { type: upper ? 'slip' : 'slide' };
   }
-  const ACTION_NAME = { move: '移動', trim: '一般修剪', blade: '刀片', ripple: '波紋修剪', roll: '滾動修剪', slip: '滑移', slide: '滑動' };
+  const ACTION_NAME = { move: '移動', trim: '一般修剪', trimMulti: '一般修剪（所有選取的片段）', rippleMulti: '波紋修剪（所有選取的片段）', blade: '刀片', ripple: '波紋修剪', roll: '滾動修剪', slip: '滑移', slide: '滑動' };
   const ACTION_TIP = {
-    move: '拖曳移動片段（可拖到別軌；目的地的內容會被蓋掉）', trim: '拖曳邊緣修剪，不會推動其他片段', blade: '點一下在游標位置切開（Shift＝所有軌道）',
+    move: '拖曳移動片段（可拖到別軌；目的地的內容會被蓋掉）', trim: '拖曳邊緣修剪，不會推動其他片段',
+    trimMulti: '拖曳邊緣，所有選取的片段一起加長或縮短同樣的格數，不會推動其他片段（碰到旁邊就停）', rippleMulti: '拖曳邊緣，所有選取的片段一起加長或縮短同樣的格數，後面的片段跟著推拉、不留空隙', blade: '點一下在游標位置切開（Shift＝所有軌道）',
     ripple: '拖曳邊緣修剪，後面的片段跟著推拉', roll: '拖曳剪接點，兩邊一邊變長一邊變短，總長不變', slip: '拖曳換用來源的另一段畫面，片段位置與長度不變', slide: '拖曳整個片段，前後鄰居一個變長一個變短',
   };
   function defaultAction() { return state.tool === 'select' ? '選取：拖曳移動，拖邊緣修剪' : state.tool === 'blade' ? '刀片：點片段切開' : '修剪：游標移到片段上自動判斷'; }
@@ -2006,7 +2007,8 @@
     const z = clipZone(e, h.el), c = clipOf(h.clipId);
     if (!c) return null;
     if (state.tool === 'blade') return { name: 'blade', cursor: 'cut' };
-    if (state.tool === 'select') return z.zone === 'body' ? { name: 'move', cursor: 'move' } : { name: 'trim', cursor: 'ew' };
+    if (state.tool === 'select') return z.zone === 'body' ? { name: 'move', cursor: 'move' } : { name: multiTrimIds(c.id) ? 'trimMulti' : 'trim', cursor: 'ew' };
+    if (z.zone !== 'body' && multiTrimIds(c.id)) return { name: 'rippleMulti', cursor: 'ew' };
     const plan = trimPlan(c, z.zone, z.upper);
     return { name: plan.type, cursor: plan.type === 'roll' ? 'roll' : plan.type === 'ripple' ? 'ew' : plan.type, plan };
   }
@@ -2056,12 +2058,19 @@
     const z = clipZone(e, h.el), toggle = e.shiftKey || e.ctrlKey || e.metaKey;
     if (state.tool === 'blade') { bladeClick(e, c); return; }
     if (state.tool === 'select') {
-      if (z.zone !== 'body') { clickSelect(c.id, false); startEdgeDrag(e, c.id, z.zone, 'trim'); return; }
+      if (z.zone !== 'body') {
+        const multi = multiTrimIds(c.id);
+        if (!multi) clickSelect(c.id, false);
+        startEdgeDrag(e, c.id, z.zone, 'trim', multi);
+        return;
+      }
       clickSelect(c.id, toggle);
       if (toggle && !state.selection.has(c.id)) return;
       startMoveDrag(e, c.id);
       return;
     }
+    const multi = z.zone !== 'body' && multiTrimIds(c.id);
+    if (multi) { startEdgeDrag(e, c.id, z.zone, 'ripple', multi); return; }
     clickSelect(c.id, false);
     const plan = trimPlan(c, z.zone, z.upper);
     if (plan.type === 'ripple') startEdgeDrag(e, c.id, plan.edge, 'ripple');
@@ -2078,6 +2087,12 @@
   }
 
   function groupOf(ids) { return C.expandLinked(state.project, ids, state.linkedSelection); }
+  // 這個片段在多選裡：拖邊緣時所有選取的片段一起修剪（回傳選取的 id；不是多選回 null）
+  function multiTrimIds(clipId) {
+    if (!state.selection.has(clipId)) return null;
+    const ids = selIds();
+    return groupOf(ids).length > groupOf([clipId]).length ? ids : null;
+  }
 
   function startMoveDrag(e, clipId) {
     const p = state.project, ids = selIds(), group = groupOf(ids);
@@ -2101,16 +2116,17 @@
     });
   }
 
-  function startEdgeDrag(e, clipId, edge, kind) {
-    const p = state.project, c0 = p.clips[clipId], group = groupOf([clipId]);
+  // ids：多選時所有選取的片段（每個都改同樣格數）；省略＝只修剪 clipId
+  function startEdgeDrag(e, clipId, edge, kind, ids) {
+    const p = state.project, c0 = p.clips[clipId], target = ids || clipId, group = groupOf(ids || [clipId]);
     const f0 = edge === 'start' ? c0.start : C.clipEnd(c0);
     const targets = C.snapTargets(p, { playhead: state.playhead, exclude: group });
-    const label = kind === 'ripple' ? '波紋修剪' : '修剪邊緣';
+    const label = (kind === 'ripple' ? '波紋修剪' : '修剪邊緣') + (ids ? `（${ids.length} 個片段）` : '');
     beginDrag(e, {
       autoscroll: true,
       move(ev, dx) {
         const d = snapDelta(Math.round(dx / tl.k), [f0], targets, ev.altKey);
-        const r = live.run(label, q => (kind === 'ripple' ? C.rippleTrim(q, clipId, edge, d, { linked: state.linkedSelection }) : C.trimEdge(q, clipId, edge, d, { linked: state.linkedSelection })));
+        const r = live.run(label, q => (kind === 'ripple' ? C.rippleTrim(q, target, edge, d, { linked: state.linkedSelection }) : C.trimEdge(q, target, edge, d, { linked: state.linkedSelection })));
         if (!r.ok) say(r.reason, 'error');
         else if (r.applied != null && r.applied !== d) say('已經到極限了（來源沒有更多畫面，或碰到旁邊的片段）');
       },

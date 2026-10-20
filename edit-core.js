@@ -842,7 +842,8 @@
     });
   });
 
-  // 一般修剪：edge 往右移 dFrames 格（負數往左）。不推後方，受鄰居與媒體把手限制
+  // 一般修剪：edge 往右移 dFrames 格（負數往左）。不推後方，受鄰居與媒體把手限制。
+  // id 可以是陣列（多選一起修剪）：全部改同樣格數，夾到每個片段都做得到的量
   const trimEdge = guard((p, id, edge, dFrames, opts = {}) => {
     if (edge !== 'start' && edge !== 'end') return fail('要指定修剪片段的開頭或結尾');
     const group = expandLinked(p, needClips(p, id).map(c => c.id), opts.linked !== false);
@@ -867,28 +868,41 @@
     return tx(p, q => ({ ids: splitGroup(q, ids.map(i => q.clips[i]), frame).map(r => r.id) }));
   });
 
-  // 波紋修剪：改長度，片段起點不動，後面（所有未鎖定軌、在這個片段結尾之後開始的）片段跟著推拉
+  // 波紋修剪：改長度，片段起點不動，後面（所有未鎖定軌、在這個片段結尾之後開始的）片段跟著推拉。
+  // id 可以是陣列（多選一起修剪）：每個片段的同一邊都改 dFrames 格，後面的片段累加推拉（前面有幾個被修剪的就推幾次）
   const rippleTrim = guard((p, id, edge, dFrames, opts = {}) => {
     if (edge !== 'start' && edge !== 'end') return fail('要指定修剪片段的開頭或結尾');
-    const c = needClips(p, id)[0];
-    const group = expandLinked(p, [c.id], opts.linked !== false);
-    needUnlocked(p, group.map(g => p.clips[g]));
-    const thr = new Map();
-    for (const g of group) { const k = p.clips[g]; thr.set(k.trackId, Math.max(thr.get(k.trackId) || 0, clipEnd(k))); }
-    const fixed = new Set(group), primEnd = clipEnd(c);
+    const linked = opts.linked !== false;
+    const groups = [], fixed = new Set();
+    for (const c of needClips(p, id)) {
+      if (fixed.has(c.id)) continue;
+      const ids = expandLinked(p, [c.id], linked).filter(g => !fixed.has(g));
+      ids.forEach(g => fixed.add(g));
+      const thr = new Map();
+      for (const g of ids) { const k = p.clips[g]; thr.set(k.trackId, Math.max(thr.get(k.trackId) || 0, clipEnd(k))); }
+      groups.push({ ids, thr, primEnd: clipEnd(c) });
+    }
+    needUnlocked(p, [...fixed].map(g => p.clips[g]));
+    // 每個片段要推幾次：它（原本的）起點在幾個「別組」修剪片段的結尾之後
+    const count = {};
+    for (const k of Object.values(p.clips)) {
+      let n = 0;
+      for (const g of groups) {
+        if (g.ids.includes(k.id)) continue;
+        if (k.start >= (g.thr.has(k.trackId) ? g.thr.get(k.trackId) : g.primEnd)) n++;
+      }
+      if (n) count[k.id] = n;
+    }
     const r = clamped(p, dFrames, d => q => {
       const delta = edge === 'end' ? d : -d;
-      for (const g of group) {
+      for (const g of fixed) {
         const k = q.clips[g];
         if (edge === 'start') { adjustEdge(q, k, 'start', delta); k.start += delta; } else adjustEdge(q, k, 'end', delta);
       }
       const shifts = {};
-      for (const k of Object.values(q.clips)) {
-        if (fixed.has(k.id)) continue;
-        const th = thr.has(k.trackId) ? thr.get(k.trackId) : primEnd;
-        if (k.start >= th) shifts[k.id] = delta;
-      }
+      for (const [k, n] of Object.entries(count)) shifts[k] = n * delta;
       applyShifts(q, shifts, fixed);
+      for (const g of fixed) if (count[g]) q.clips[g].start += count[g] * delta;
     });
     return rippleReason(r, '無法波紋修剪');
   });

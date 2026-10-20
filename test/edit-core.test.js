@@ -562,6 +562,42 @@ t('rippleTrim 開頭：起點不動、來源往後，後面跟著拉近；媒體
   return synced(p);
 });
 
+t('多選 rippleTrim 結尾：每段都改同樣格數，後面累加推拉、不留空隙', () => {
+  const { p, a, b, c, title } = scene();
+  let r = core.rippleTrim(p, [a[0], b[0], c[0]], 'end', -10);
+  assert.strictEqual(r.applied, -10);
+  assert.deepStrictEqual([a, b, c].map(x => span(C(p, x[0]))), [[0, 20], [20, 40], [40, 60]]);
+  assert.deepStrictEqual([a, b, c].map(x => span(C(p, x[1]))), [[0, 20], [20, 40], [40, 60]], '連結的聲音一起');
+  assert.deepStrictEqual(span(C(p, title)), [70, 100], '三段後面的片段拉近 30 格');
+  r = core.rippleTrim(p, [a[0], c[0]], 'end', 5);            // 只選 a、c：b 推 5 格、c 之後推 10 格
+  assert.strictEqual(r.applied, 5);
+  assert.deepStrictEqual([a, b, c].map(x => span(C(p, x[0]))), [[0, 25], [25, 45], [45, 70]]);
+  assert.deepStrictEqual(span(C(p, title)), [80, 110]);
+  return synced(p);
+});
+
+t('多選 rippleTrim 開頭：起點留在原位，夾到每段都做得到的量', () => {
+  const { p, a, b, c } = scene();
+  const r = core.rippleTrim(p, [b[0], c[0]], 'start', -1000);  // b 前面有 60 格把手、c 有 120 格 → 夾到 60
+  assert.strictEqual(r.applied, -60);
+  assert.deepStrictEqual([a, b, c].map(x => span(C(p, x[0]))), [[0, 30], [30, 120], [120, 210]]);
+  near(C(p, b[0]).srcIn, 0);
+  near(C(p, c[0]).srcIn, 2);
+  return synced(p);
+});
+
+t('多選 trimEdge：同樣格數、夾到每段都做得到；連在一起的延長會被擋住', () => {
+  const { p, a, b, c, title } = scene();
+  let r = core.trimEdge(p, [a[0], b[0], c[0]], 'end', -10);
+  assert.strictEqual(r.applied, -10);
+  assert.deepStrictEqual([a, b, c].map(x => span(C(p, x[0]))), [[0, 20], [30, 50], [60, 80]], '不推動，留下空隙');
+  assert.deepStrictEqual(span(C(p, title)), [100, 130]);
+  r = core.trimEdge(p, [a[0], b[0], c[0]], 'end', 20);
+  assert.strictEqual(r.applied, 10, '碰到下一段就停');
+  unchanged(p, () => core.trimEdge(p, [a[0], b[0]], 'end', 1), /碰到旁邊/);
+  return synced(p);
+});
+
 t('rippleTrim：鎖定軌不動、別的軌擋住時夾住、自己在鎖定軌失敗', () => {
   const p = setup();
   const [x] = put(p, 'mn', 0, 0, 2, { video: V(p) });        // V1 [0,60)
@@ -1520,6 +1556,8 @@ function fuzz(seed, steps, { strict }) {
     ['trim', 4, () => core.trimEdge(p, clipId(), pick(['start', 'end']), delta(), linked())],
     ['blade', 3, () => core.blade(p, frame(), R() < 0.3 ? [track()] : undefined, linked())],
     ['ripple', 4, () => core.rippleTrim(p, clipId(), pick(['start', 'end']), delta(), linked())],
+    ['rippleN', 2, () => core.rippleTrim(p, [clipId(), clipId(), clipId()], pick(['start', 'end']), delta(), linked())],
+    ['trimN', 2, () => core.trimEdge(p, [clipId(), clipId()], pick(['start', 'end']), delta(), linked())],
     ['rdel', 2, () => core.rippleDelete(p, [clipId()], linked())],
     ['lift', 2, () => core.lift(p, [clipId()], linked())],
     ['gap', 2, () => core.deleteGap(p, track(), frame())],

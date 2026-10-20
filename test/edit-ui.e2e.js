@@ -406,6 +406,55 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq(on(cl, 'V1').map(c => [c.s, c.d]), [[0, 90], [90, 90]], '復原回到兩個相鄰的半段');
   await page.keyboard.press('a');
 
+  // ---------------------------------------------------------------- 多選一起修剪
+  console.log('多選一起修剪');
+  await page.keyboard.press('a');
+  vb = await clipBox(page, L0.id);
+  await page.mouse.click(vb.x + vb.w / 2, vb.y + vb.h / 2);
+  vb = await clipBox(page, R0.id);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(vb.x + vb.w / 2, vb.y + vb.h / 2);
+  await page.keyboard.up('Shift');
+  await settle(page);
+  ok((await page.evaluate(() => [...window.QPTEdit.ui.state.selection])).includes(L0.id), 'Shift 點兩段：兩段都選取');
+  await page.keyboard.press('t');
+  vb = await clipBox(page, L0.id);
+  await page.mouse.move(vb.x + vb.w - 2, vb.y + vb.h / 2);
+  await settle(page);
+  ok((await page.textContent('#edAction')).includes('波紋修剪（所有選取的片段）'), '修剪工具＋多選：邊緣顯示「波紋修剪（所有選取的片段）」，不是滾動');
+  await drag(page, { x: vb.x + vb.w - 2, y: vb.y + vb.h / 2 }, { x: vb.x + vb.w - 2 - 40, y: vb.y + vb.h / 2 });
+  cl = await clips(page);
+  eq(on(cl, 'V1').map(c => [c.s, c.d]), [[0, 70], [70, 70]], '多選波紋修剪：拉第一段尾端 -20 格，兩段都縮短 20 格、不留空隙');
+  eq(on(cl, 'A1').map(c => [c.s, c.d]), [[0, 70], [70, 70]], '連結的聲音一起');
+  const selNow = await page.evaluate(() => [...window.QPTEdit.ui.state.selection]);
+  ok(selNow.includes(L0.id) && selNow.includes(R0.id), '拖完後兩段仍然是選取狀態');
+  eq(await invariants(page), [], '不變式 OK');
+  await page.keyboard.press('Control+z'); await settle(page);
+  cl = await clips(page);
+  eq(on(cl, 'V1').map(c => [c.s, c.d]), [[0, 90], [90, 90]], '整個多選拖曳只記一筆復原');
+  await page.keyboard.press('a');
+  vb = await clipBox(page, R0.id);
+  await page.mouse.move(vb.x + vb.w - 2, vb.y + vb.h / 2);
+  await settle(page);
+  ok((await page.textContent('#edAction')).includes('一般修剪（所有選取的片段）'), '選取工具＋多選：邊緣顯示「一般修剪（所有選取的片段）」');
+  await drag(page, { x: vb.x + vb.w - 2, y: vb.y + vb.h / 2 }, { x: vb.x + vb.w - 2 - 40, y: vb.y + vb.h / 2 });
+  cl = await clips(page);
+  eq(on(cl, 'V1').map(c => [c.s, c.d]), [[0, 70], [90, 70]], '多選一般修剪：拉第二段尾端 -20 格，兩段都縮短 20 格、不推動（留空隙）');
+  await shot(page, `${tag}-multi-trim`);
+  await page.keyboard.press('Control+z'); await settle(page);
+  await page.keyboard.press('Escape'); await settle(page);
+  eq((await page.evaluate(() => window.QPTEdit.ui.state.selection.size)), 0, 'Esc 取消選取');
+  vb = await clipBox(page, L0.id);
+  await page.mouse.click(vb.x + vb.w / 2, vb.y + vb.h / 2);
+  await settle(page);
+  vb = await clipBox(page, L0.id);
+  await drag(page, { x: vb.x + vb.w - 2, y: vb.y + vb.h / 2 }, { x: vb.x + vb.w - 2 - 40, y: vb.y + vb.h / 2 });
+  cl = await clips(page);
+  eq(on(cl, 'V1').map(c => [c.s, c.d]), [[0, 70], [90, 90]], '只選一段時照舊只修剪那一段');
+  await page.keyboard.press('Control+z'); await settle(page);
+  cl = await clips(page);
+  eq(on(cl, 'V1').map(c => [c.s, c.d]), [[0, 90], [90, 90]], '復原回到兩個相鄰的半段');
+
   // ---------------------------------------------------------------- 轉場
   console.log('轉場');
   vb = await clipBox(page, L0.id);
