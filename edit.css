@@ -1,24 +1,99 @@
 /* 剪輯（網頁版專用）：媒體庫｜檢視器｜檢查器、工具列、多軌時間軸。邏輯在 edit-ui.js。
    只在 #editApp 內生效；「剪輯」分頁顯示時讓整頁放寬到滿版（用 :has()，其他分頁不受影響）。
-   顏色與按鈕外觀沿用 style.css 的變數（--accent、--border、--card-bg…）。 */
+   顏色與按鈕外觀沿用 style.css 的變數（--accent、--border、--card-bg…）。
+   深色／淺色：html 上的 data-ed-theme（edit-ui.js 設定，預設 dark），只在剪輯分頁顯示時生效（:has），
+   做法是在 html 上覆寫 --bg --card-bg --field-bg --text --muted --border --accent… 與下面的 --ed-*。 */
+
+/* ---- 剪輯用的顏色變數：淺色是預設值，深色在 html[data-ed-theme="dark"]:has(…) 覆寫 ---- */
+:root {
+  --ed-text: var(--text); --ed-muted: var(--muted); --ed-border: var(--border); --ed-field: var(--field-bg); --ed-accent: var(--accent);
+  --ed-line: rgba(0, 74, 173, 0.13); --ed-tick: rgba(0, 43, 102, 0.34);
+  --ed-video: #4a78c4; --ed-audio: #2f9e8a; --ed-title: #7a5cc4; --ed-solid: #6b7890;
+  --ed-sel: #ffb703; --ed-playhead: #e5484d; --ed-danger: #d93636;
+  --ed-panel: #f7faff;                 /* 工具列等不透明的面板底色（邊緣漸層遮罩要和它同色） */
+  --ed-btn-bg: var(--field-bg); --ed-btn-hover: rgba(0, 74, 173, 0.4);
+  --ed-primary: var(--accent); --ed-primary-hover: var(--accent-dark); --ed-on-primary: #fff;
+  --ed-tint: rgba(0, 74, 173, 0.07); --ed-chip: rgba(0, 74, 173, 0.09); --ed-grip: rgba(0, 74, 173, 0.2);
+  --ed-dash: rgba(0, 74, 173, 0.25); --ed-drop-bg: rgba(255, 255, 255, 0.6); --ed-item-bg: rgba(255, 255, 255, 0.75);
+  --ed-err-bg: #fdecec; --ed-err-fg: #a51d24; --ed-warn-bg: #fff5dd; --ed-warn-fg: #8a5a00;
+  --ed-stage: #0b1220; --ed-thumb-bg: #cfd9ea; --ed-ph-video: #6f8fc9; --ed-ph-missing: #8895ad; --ed-title-a: #8b6fd6; --ed-title-b: #5a43a8;
+  --ed-tl-bg: #eaf0fa; --ed-ruler-bg: #e0e9f7; --ed-corner-bg: #d6e1f3; --ed-th-bg: #f6f9ff; --ed-th-audio-bg: #f2f9f6;
+  --ed-lane-video: #e3ecfa; --ed-lane-audio: #e0f1ec; --ed-lane-line: rgba(255, 255, 255, 0.5);
+  --ed-io: rgba(0, 74, 173, 0.25); --ed-region: rgba(0, 74, 173, 0.08); --ed-marq: rgba(0, 74, 173, 0.12);
+  --ed-pop-bg: #fff; --ed-pop-shadow: rgba(0, 43, 102, 0.55); --ed-hover: rgba(0, 0, 0, 0.08);
+  --ed-wave: rgba(255, 255, 255, 0.78); --ed-wave-thumb: rgba(255, 255, 255, 0.9);
+  --ed-grid: rgba(107, 120, 144, 0.25); --ed-grid-strong: rgba(107, 120, 144, 0.55); --ed-grid-weak: rgba(107, 120, 144, 0.22);
+  --ed-scroll: rgba(107, 120, 144, 0.45);
+  --ed-badge-bg: rgba(255, 255, 255, 0.9); --ed-badge-fg: #1f2a3d;
+}
+/* 深色：參考 DaVinci 的深灰色系（不用純黑）。只在剪輯分頁顯示時套用，其他分頁維持原本的淺色 */
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) {
+  color-scheme: dark;
+  --bg: #1c1d20; --card-bg: #26282d; --field-bg: #30333a; --text: #e8eaee; --muted: #a3aab6; --border: rgba(255, 255, 255, 0.13);
+  --accent: #7fb0ff; --accent-dark: #a9c9ff; --accent-soft: rgba(127, 176, 255, 0.16); --success: #4ade80;
+  --shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.75);
+  --ed-line: rgba(255, 255, 255, 0.10); --ed-tick: rgba(255, 255, 255, 0.30);
+  --ed-video: #3f6fb5; --ed-audio: #2a8a77; --ed-title: #7253bd; --ed-solid: #5d6778;
+  --ed-sel: #ffc233; --ed-playhead: #ff5a5f; --ed-danger: #ff6b6b;
+  --ed-panel: #26282d;
+  --ed-btn-bg: #30333a; --ed-btn-hover: rgba(127, 176, 255, 0.55);
+  --ed-primary: #2f6fd6; --ed-primary-hover: #3f80e8; --ed-on-primary: #fff;
+  --ed-tint: rgba(255, 255, 255, 0.07); --ed-chip: rgba(255, 255, 255, 0.10); --ed-grip: rgba(255, 255, 255, 0.22);
+  --ed-dash: rgba(255, 255, 255, 0.24); --ed-drop-bg: rgba(255, 255, 255, 0.04); --ed-item-bg: rgba(255, 255, 255, 0.05);
+  --ed-err-bg: #4a2327; --ed-err-fg: #ffb3b8; --ed-warn-bg: #46381a; --ed-warn-fg: #ffd98a;
+  --ed-stage: #101114; --ed-thumb-bg: #3b4150; --ed-ph-video: #36507c; --ed-ph-missing: #4b5262; --ed-title-a: #7a5fcb; --ed-title-b: #4d3a94;
+  --ed-tl-bg: #1a1b1e; --ed-ruler-bg: #24262b; --ed-corner-bg: #2c2f35; --ed-th-bg: #2a2d33; --ed-th-audio-bg: #272c2b;
+  --ed-lane-video: #22262d; --ed-lane-audio: #1f2725; --ed-lane-line: rgba(255, 255, 255, 0.05);
+  --ed-io: rgba(127, 176, 255, 0.35); --ed-region: rgba(127, 176, 255, 0.12); --ed-marq: rgba(127, 176, 255, 0.16);
+  --ed-pop-bg: #2d3036; --ed-pop-shadow: rgba(0, 0, 0, 0.8); --ed-hover: rgba(255, 255, 255, 0.10);
+  --ed-wave: rgba(255, 255, 255, 0.85); --ed-wave-thumb: rgba(255, 255, 255, 0.9);
+  --ed-grid: rgba(163, 170, 182, 0.22); --ed-grid-strong: rgba(163, 170, 182, 0.55); --ed-grid-weak: rgba(163, 170, 182, 0.16);
+  --ed-scroll: rgba(255, 255, 255, 0.28);
+  --ed-badge-bg: rgba(255, 255, 255, 0.92); --ed-badge-fg: #1f2a3d;
+}
 
 /* ---- 滿版：只在剪輯分頁顯示時放寬頁面寬度 ---- */
 body:has(#editApp:not([hidden])) .wrap { max-width: none; }
 body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 #editApp[hidden] { display: none; }
+/* 剪輯分頁時隱藏右下角「其他工具」（deploy.css 管它的樣式，這裡只在剪輯分頁蓋掉） */
+body:has(#editApp:not([hidden])) .tools-fab,
+body:has(#editApp:not([hidden])) .tools-btn,
+body:has(#editApp:not([hidden])) .tools-pop { display: none !important; }
+
+/* ---- 頁首的深色／淺色開關：只在剪輯分頁顯示 ---- */
+.topbar-actions .ed-theme-btn { display: none; align-items: center; gap: 7px; }
+body:has(#editApp:not([hidden])) .topbar-actions .ed-theme-btn { display: inline-flex; }
+.ed-theme-ic { font-size: 16px; line-height: 1; }
+.ed-theme-btn[aria-pressed="true"] { color: var(--accent); }
+
+/* ---- 深色時的頁面其他部分（頁首、分頁列）；對話框與安裝教學維持淺色，在它們自己的範圍內還原淺色變數 ---- */
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) body { background: var(--bg); }   /* style.css 的柔和藍色光暈是給淺色用的 */
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) header.topbar { background: rgba(28, 29, 32, 0.92); }
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .func-switch,
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .topbar-actions .help-btn { background: var(--ed-tint); }
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .topbar-actions .help-btn:hover { background: var(--field-bg); }
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .func-btn.active,
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .seg-thumb { box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.7); }
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) button.primary { background: var(--ed-primary); border-color: var(--ed-primary); color: var(--ed-on-primary); }
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) button.primary:hover:not(:disabled) { background: var(--ed-primary-hover); border-color: var(--ed-primary-hover); }
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .modal-overlay,
+html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
+  color-scheme: light;
+  --bg: #f2f6fc; --card-bg: rgba(255, 255, 255, 0.78); --field-bg: #ffffff; --text: #1f2a3d; --muted: #6b7890; --border: rgba(0, 74, 173, 0.12);
+  --accent: #004aad; --accent-dark: #003a87; --accent-soft: #e8f0fc; --success: #16a34a; --shadow: 0 24px 60px -30px rgba(0, 43, 102, 0.35);
+}
 
 /* ---- 基本 ---- */
 .ed-app {
-  /* fx 檢查器（edit-fx.js）讀這幾個變數 */
-  --ed-text: var(--text); --ed-muted: var(--muted); --ed-border: var(--border); --ed-field: var(--field-bg); --ed-accent: var(--accent);
-  --ed-line: rgba(0, 74, 173, 0.13); --ed-tick: rgba(0, 43, 102, 0.34);
-  --ed-video: #4a78c4; --ed-audio: #2f9e8a; --ed-title: #7a5cc4; --ed-solid: #6b7890;
-  --ed-sel: #ffb703; --ed-playhead: #e5484d; --ed-danger: #d93636;
+  /* 顏色變數（--ed-*，fx 檢查器 edit-fx.js 也讀）定義在上面的 :root，深色時由 html[data-ed-theme] 覆寫 */
   --ed-tl-h: clamp(236px, 34vh, 340px);
   display: flex; flex-direction: column; gap: 8px;
   width: 100%; height: calc(100vh - 118px); min-height: 640px;
   color: var(--text); font-size: 13px;
+  scrollbar-color: var(--ed-scroll) transparent;
 }
+.ed-app *, .ed-app *::before, .ed-app *::after { scrollbar-color: var(--ed-scroll) transparent; }
 .ed-app *, .ed-app *::before, .ed-app *::after { box-sizing: border-box; }
 .ed-app [hidden] { display: none !important; }
 /* style.css 給預覽圖的 canvas 規則（正方形、圓角、陰影）在這裡一律拿掉 */
@@ -26,6 +101,7 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-app label { display: inline; font-size: inherit; font-weight: inherit; color: inherit; margin: 0; }
 .ed-app button { font-family: inherit; }
 .ed-app .ed-spacer { flex: 1 1 auto; }
+.ed-toolbar .ed-spacer { display: none; }
 .ed-app .ic, .ed-ic { display: inline-flex; width: 1em; height: 1em; }
 .ed-ic svg { width: 100%; height: 100%; fill: currentColor; }
 .ed-fatal { padding: 40px; text-align: center; color: var(--ed-danger); font-size: 15px; }
@@ -33,22 +109,22 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 /* ---- 按鈕 ---- */
 .ed-btn {
   font: inherit; font-size: 12px; font-weight: 600; line-height: 1.3; padding: 5px 11px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--field-bg); color: var(--text); cursor: pointer;
+  border: 1px solid var(--border); background: var(--ed-btn-bg); color: var(--text); cursor: pointer;
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
 }
-.ed-btn:hover:not(:disabled) { border-color: rgba(0, 74, 173, 0.4); color: var(--accent); }
+.ed-btn:hover:not(:disabled) { border-color: var(--ed-btn-hover); color: var(--accent); }
 .ed-btn:focus-visible, .ed-tbtn:focus-visible, .ed-tab:focus-visible, .ed-segbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ed-btn.small { padding: 3px 9px; font-size: 11.5px; }
-.ed-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.ed-btn.primary:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+.ed-btn.primary { background: var(--ed-primary); border-color: var(--ed-primary); color: var(--ed-on-primary); }
+.ed-btn.primary:hover:not(:disabled) { background: var(--ed-primary-hover); border-color: var(--ed-primary-hover); color: var(--ed-on-primary); }
 .ed-btn.danger { color: var(--ed-danger); }
 .ed-btn.danger:hover:not(:disabled) { border-color: var(--ed-danger); color: var(--ed-danger); }
-.ed-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.ed-btn.active:hover:not(:disabled) { background: var(--accent-dark); color: #fff; }
+.ed-btn.active { background: var(--ed-primary); border-color: var(--ed-primary); color: var(--ed-on-primary); }
+.ed-btn.active:hover:not(:disabled) { background: var(--ed-primary-hover); color: var(--ed-on-primary); }
 .ed-btn:disabled { opacity: .45; cursor: not-allowed; }
-.ed-btn.strong { border-color: rgba(0, 74, 173, 0.35); }
+.ed-btn.strong { border-color: var(--ed-btn-hover); }
 .ed-k {
-  font: inherit; font-size: 10px; font-weight: 600; opacity: .62; padding: 0 4px; border-radius: 4px; background: rgba(0, 74, 173, 0.09);
+  font: inherit; font-size: 10px; font-weight: 600; opacity: .75; padding: 0 4px; border-radius: 4px; background: var(--ed-chip);
 }
 .ed-btn.active .ed-k { background: rgba(255, 255, 255, 0.22); opacity: .9; }
 .ed-hint { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
@@ -65,13 +141,13 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 }
 
 /* ---- 媒體庫 ---- */
-.ed-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(0, 74, 173, 0.07); flex: none; }
+.ed-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--ed-tint); flex: none; }
 .ed-tab { flex: 1; border: none; background: transparent; padding: 5px 8px; font-size: 13px; font-weight: 600; color: var(--muted); border-radius: 999px; cursor: pointer; }
 .ed-tab:hover:not(.active) { color: var(--text); }
-.ed-tab.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 14px -6px rgba(0, 74, 173, 0.5); }
+.ed-tab.active { background: var(--ed-btn-bg); color: var(--accent); box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.45); }
 .ed-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .ed-drop {
-  flex: none; border: 2px dashed rgba(0, 74, 173, 0.25); border-radius: 14px; background: rgba(255, 255, 255, 0.6);
+  flex: none; border: 2px dashed var(--ed-dash); border-radius: 14px; background: var(--ed-drop-bg);
   padding: 10px 8px; text-align: center; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: border-color .15s, background .15s;
 }
 .ed-drop strong { font-size: 13px; }
@@ -83,45 +159,45 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-msgs { flex: none; display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; }
 .ed-msgs:empty { display: none; }
 .ed-msg { display: flex; gap: 6px; align-items: flex-start; font-size: 11.5px; line-height: 1.45; padding: 5px 6px 5px 9px; border-radius: 10px; }
-.ed-msg.err { background: #fdecec; color: #a51d24; }
-.ed-msg.warn { background: #fff5dd; color: #8a5a00; }
+.ed-msg.err { background: var(--ed-err-bg); color: var(--ed-err-fg); }
+.ed-msg.warn { background: var(--ed-warn-bg); color: var(--ed-warn-fg); }
 .ed-msg.warn.info { background: var(--accent-soft); color: var(--accent-dark); }
 .ed-msg-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ed-msg-x { flex: none; width: 18px; height: 18px; padding: 0; border: none; background: transparent; color: inherit; cursor: pointer; opacity: .7; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
-.ed-msg-x:hover { opacity: 1; background: rgba(0, 0, 0, 0.08); }
+.ed-msg-x:hover { opacity: 1; background: var(--ed-hover); }
 .ed-msg-x .ed-ic { width: 11px; height: 11px; }
 .ed-msg-x .ed-ic svg { fill: none; }
 .ed-mlist, .ed-glist { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px; }
 .ed-mempty { font-size: 12px; line-height: 1.6; color: var(--muted); text-align: center; padding: 18px 8px; }
 .ed-mitem {
   position: relative; display: flex; gap: 8px; align-items: center; padding: 6px 26px 6px 6px; border-radius: 12px;
-  border: 1.5px solid transparent; background: rgba(255, 255, 255, 0.75); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
+  border: 1.5px solid transparent; background: var(--ed-item-bg); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
 }
-.ed-mitem:hover { border-color: rgba(0, 74, 173, 0.25); }
+.ed-mitem:hover { border-color: var(--ed-dash); }
 .ed-mitem.sel { border-color: var(--accent); background: var(--accent-soft); }
 .ed-mitem.src::after { content: "預覽中"; position: absolute; right: 26px; top: 4px; font-size: 10px; font-weight: 700; color: var(--accent); }
-.ed-app .ed-mthumb { flex: none; width: 64px; height: 36px; border-radius: 6px; background: #cfd9ea; }
+.ed-app .ed-mthumb { flex: none; width: 64px; height: 36px; border-radius: 6px; background: var(--ed-thumb-bg); }
 .ed-minfo { min-width: 0; flex: 1; }
 .ed-mname { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-mmeta { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: 11px; color: var(--muted); }
 .ed-mmeta span { white-space: nowrap; }
 .ed-mmeta span:last-child:not(:first-child) { color: var(--accent-dark); }
-.ed-mwarn { font-size: 11px; color: #8a5a00; line-height: 1.35; margin-top: 2px; }
+.ed-mwarn { font-size: 11px; color: var(--ed-warn-fg); line-height: 1.35; margin-top: 2px; }
 .ed-mdel {
   position: absolute; right: 4px; top: 4px; width: 20px; height: 20px; padding: 0; border: none; border-radius: 50%; background: transparent;
   color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; opacity: 0;
 }
 .ed-mitem:hover .ed-mdel, .ed-mdel:focus-visible { opacity: 1; }
-.ed-mdel:hover { background: #fdecec; color: var(--ed-danger); }
+.ed-mdel:hover { background: var(--ed-err-bg); color: var(--ed-danger); }
 .ed-mdel .ed-ic { width: 11px; height: 11px; }
 .ed-mdel .ed-ic svg { fill: none; }
 .ed-mfoot { flex: none; font-size: 11px; color: var(--muted); line-height: 1.5; }
 .ed-glist { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; align-content: start; }
 .ed-gitem {
   display: flex; flex-direction: column; gap: 4px; padding: 5px; border-radius: 12px; border: 1.5px solid transparent;
-  background: rgba(255, 255, 255, 0.75); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
+  background: var(--ed-item-bg); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
 }
-.ed-gitem:hover { border-color: rgba(0, 74, 173, 0.25); }
+.ed-gitem:hover { border-color: var(--ed-dash); }
 .ed-gitem.sel { border-color: var(--accent); background: var(--accent-soft); }
 .ed-gitem:focus-visible { outline: 2px solid var(--accent); }
 .ed-app .ed-gitem canvas { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 7px; display: block; }
@@ -129,24 +205,24 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-pfoot { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .ed-ghost {
   position: fixed; z-index: 10000; pointer-events: none; padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff;
-  background: var(--accent); box-shadow: 0 10px 24px -10px rgba(0, 43, 102, 0.7); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--ed-primary); box-shadow: 0 10px 24px -10px rgba(0, 43, 102, 0.7); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ed-ghost.transition { background: #7a5cc4; }
 .ed-ghost.title { background: #b4702a; }
 
 /* ---- 檢視器 ---- */
 .ed-vbar { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-.ed-seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: rgba(0, 74, 173, 0.07); }
+.ed-seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--ed-tint); }
 .ed-segbtn { border: none; background: transparent; padding: 4px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
 .ed-segbtn:hover:not(.active) { color: var(--text); }
-.ed-segbtn.active { background: var(--field-bg); color: var(--accent); box-shadow: 0 4px 12px -6px rgba(0, 74, 173, 0.55); }
+.ed-segbtn.active { background: var(--ed-btn-bg); color: var(--accent); box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.45); }
 .ed-vname { font-size: 12px; color: var(--muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-aspect { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .ed-aspect select, .ed-app select {
   font: inherit; font-size: 12px; color: var(--text); background: var(--field-bg); border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px;
 }
 .ed-vdims { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.ed-stage { position: relative; flex: 1 1 0; min-height: 120px; background: #0b1220; border-radius: 12px; overflow: hidden; display: flex; }
+.ed-stage { position: relative; flex: 1 1 0; min-height: 120px; background: var(--ed-stage); border-radius: 12px; overflow: hidden; display: flex; }
 #edCanvas { display: block; width: 100%; height: 100%; object-fit: contain; }
 .ed-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 14px; color: #cfd9ea; pointer-events: none; }
 .ed-empty-box { pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 440px; }
@@ -154,7 +230,7 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-empty-box span { font-size: 12px; line-height: 1.6; }
 .ed-scrubwrap { flex: none; margin-top: 6px; }
 .ed-scrub { position: relative; height: 18px; display: flex; align-items: center; }
-.ed-scrub-io { position: absolute; top: 5px; height: 8px; background: rgba(0, 74, 173, 0.25); border-radius: 4px; display: none; }
+.ed-scrub-io { position: absolute; top: 5px; height: 8px; background: var(--ed-io); border-radius: 4px; display: none; }
 .ed-scrub input[type=range] { position: relative; width: 100%; margin: 0; accent-color: var(--accent); background: transparent; }
 .ed-srcio { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .ed-srcio:empty { display: none; }
@@ -162,12 +238,12 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-transport { flex: none; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
 .ed-tgroup { display: inline-flex; gap: 4px; align-items: center; }
 .ed-tbtn {
-  width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid var(--border); background: var(--field-bg); color: var(--text);
+  width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid var(--border); background: var(--ed-btn-bg); color: var(--text);
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; font-weight: 700;
 }
-.ed-tbtn:hover { border-color: rgba(0, 74, 173, 0.4); color: var(--accent); }
+.ed-tbtn:hover { border-color: var(--ed-btn-hover); color: var(--accent); }
 .ed-tbtn .ed-ic { width: 15px; height: 15px; }
-.ed-tbtn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ed-tbtn.active { background: var(--ed-primary); border-color: var(--ed-primary); color: var(--ed-on-primary); }
 .ed-tgroup.small .ed-tbtn { width: 26px; height: 26px; font-size: 11px; }
 #edPlay { width: 38px; height: 38px; }
 .ed-time { margin-left: auto; display: inline-flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
@@ -176,17 +252,29 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 
 /* ---- 工具列 ---- */
 .ed-split { flex: none; height: 6px; margin: -3px 0; border-radius: 3px; cursor: ns-resize; position: relative; z-index: 2; touch-action: none; }
-.ed-split::after { content: ""; position: absolute; left: 50%; top: 2px; width: 44px; height: 3px; margin-left: -22px; border-radius: 2px; background: rgba(0, 74, 173, 0.2); }
+.ed-split::after { content: ""; position: absolute; left: 50%; top: 2px; width: 44px; height: 3px; margin-left: -22px; border-radius: 2px; background: var(--ed-grip); }
 .ed-split:hover::after, .ed-app.resizing .ed-split::after { background: var(--accent); }
+/* 工具列：只有一排、不換行，放不下時左右捲動（觸控板、拖曳細捲軸、滑鼠滾輪轉橫向由 edit-ui.js 處理）；
+   復原／重做固定在最右側尾端。有更多內容時，左右邊緣用漸層遮罩提示（.fade-l／.fade-r 由 edit-ui.js 依捲動位置加上） */
 .ed-toolbar {
-  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px;
-  background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
+  position: relative; flex: none; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 6px 10px;
+  background: var(--ed-panel); border: 1px solid var(--border); border-radius: 16px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin;
 }
-.ed-tbgroup { display: inline-flex; align-items: center; gap: 4px; padding-right: 8px; border-right: 1px solid var(--ed-line); }
+.ed-toolbar::-webkit-scrollbar { height: 6px; }
+.ed-toolbar::-webkit-scrollbar-thumb { background: var(--ed-scroll); border-radius: 3px; }
+.ed-toolbar::-webkit-scrollbar-track { background: transparent; }
+.ed-toolbar::before, .ed-toolbar::after {
+  content: ""; position: sticky; flex: none; align-self: stretch; width: 30px; z-index: 3; pointer-events: none; opacity: 0; transition: opacity .15s;
+}
+.ed-toolbar::before { left: 0; margin-right: -38px; background: linear-gradient(to right, var(--ed-panel) 25%, transparent); }
+.ed-toolbar::after { right: 0; margin-left: -38px; background: linear-gradient(to left, var(--ed-panel) 25%, transparent); }
+.ed-toolbar.fade-l::before, .ed-toolbar.fade-r::after { opacity: 1; }
+.ed-tbgroup { flex: none; display: inline-flex; align-items: center; gap: 4px; padding-right: 8px; border-right: 1px solid var(--ed-line); }
 .ed-tbgroup:last-of-type { border-right: none; padding-right: 0; }
-.ed-tbgroup.hist { margin-left: auto; border-right: none; }
+.ed-tbgroup.hist { margin-left: auto; border-right: none; padding-left: 4px; }
 .ed-action {
-  display: inline-block; min-width: 15em; margin-left: 4px; padding: 3px 10px; border-radius: 999px; background: rgba(0, 74, 173, 0.07);
+  display: inline-block; flex: none; min-width: 15em; margin-left: 4px; padding: 3px 10px; border-radius: 999px; background: var(--ed-tint);
   font-size: 11.5px; font-weight: 600; color: var(--accent-dark); white-space: nowrap;
 }
 .ed-ulab { font-weight: 400; opacity: .7; font-size: 10.5px; max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
@@ -200,7 +288,7 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-tl-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--ed-line); }
 .ed-zoomlab { font-size: 12px; color: var(--muted); font-weight: 600; }
 .ed-tl-bar input[type=range] { width: 130px; accent-color: var(--accent); margin: 0 2px; }
-.ed-tl-scroll { position: relative; flex: 1 1 0; min-height: 0; overflow: auto; background: #eaf0fa; user-select: none; -webkit-user-select: none; touch-action: none; outline: none; }
+.ed-tl-scroll { position: relative; flex: 1 1 0; min-height: 0; overflow: auto; background: var(--ed-tl-bg); user-select: none; -webkit-user-select: none; touch-action: none; outline: none; }
 .ed-tl-scroll[data-cursor="move"] { cursor: grab; }
 .ed-tl-scroll[data-cursor="ew"], .ed-tl-scroll[data-cursor="slip"] { cursor: ew-resize; }
 .ed-tl-scroll[data-cursor="roll"] { cursor: col-resize; }
@@ -208,9 +296,9 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-tl-scroll[data-cursor="cut"] { cursor: crosshair; }
 .ed-app.dragging, .ed-app.dragging * { cursor: grabbing !important; }
 .ed-tl-inner { position: relative; min-width: 100%; }
-.ed-ruler-row { position: sticky; top: 0; z-index: 8; display: flex; height: 26px; background: #e0e9f7; }
+.ed-ruler-row { position: sticky; top: 0; z-index: 8; display: flex; height: 26px; background: var(--ed-ruler-bg); }
 .ed-corner {
-  position: sticky; left: 0; z-index: 9; flex: none; width: 150px; height: 26px; background: #d6e1f3; border-right: 1px solid var(--ed-line); border-bottom: 1px solid var(--ed-line);
+  position: sticky; left: 0; z-index: 9; flex: none; width: 150px; height: 26px; background: var(--ed-corner-bg); border-right: 1px solid var(--ed-line); border-bottom: 1px solid var(--ed-line);
   font: 600 12px/26px ui-monospace, "SF Mono", Menlo, Consolas, monospace; text-align: center; color: var(--accent); font-variant-numeric: tabular-nums;
 }
 .ed-ruler { position: relative; flex: none; height: 26px; border-bottom: 1px solid var(--ed-line); cursor: pointer; }
@@ -228,9 +316,9 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-track { display: flex; position: relative; border-bottom: 1px solid var(--ed-line); }
 .ed-th {
   position: sticky; left: 0; z-index: 7; flex: none; width: 150px; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 3px 8px 3px 10px;
-  background: #f6f9ff; border-right: 1px solid var(--ed-line); box-shadow: inset 4px 0 0 transparent;
+  background: var(--ed-th-bg); border-right: 1px solid var(--ed-line); box-shadow: inset 4px 0 0 transparent;
 }
-.ed-th.audio { background: #f2f9f6; flex-direction: row; align-items: center; gap: 6px; }
+.ed-th.audio { background: var(--ed-th-audio-bg); flex-direction: row; align-items: center; gap: 6px; }
 .ed-th.audio .ed-th-name { flex: 1; min-width: 0; }
 .ed-th.target { box-shadow: inset 4px 0 0 var(--accent); }
 .ed-th-name {
@@ -238,21 +326,21 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ed-th-name:hover { color: var(--accent); }
-.ed-th-input { font: inherit; font-size: 12px; width: 100%; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--accent); background: #fff; color: var(--text); }
+.ed-th-input { font: inherit; font-size: 12px; width: 100%; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--accent); background: var(--field-bg); color: var(--text); }
 .ed-th-btns { display: flex; gap: 3px; }
 .ed-thb {
-  width: 24px; height: 20px; padding: 0; border-radius: 6px; border: 1px solid var(--border); background: var(--field-bg); color: var(--muted);
+  width: 24px; height: 20px; padding: 0; border-radius: 6px; border: 1px solid var(--border); background: var(--ed-btn-bg); color: var(--muted);
   font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; line-height: 1;
 }
 .ed-thb svg { width: 12px; height: 12px; }
-.ed-thb:hover { color: var(--accent); border-color: rgba(0, 74, 173, 0.4); }
-.ed-thb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.ed-thb.mute.on { background: #d97706; border-color: #d97706; }
-.ed-thb.solo.on { background: #ca8a04; border-color: #ca8a04; }
-.ed-thb.hide.on { background: #6b7890; border-color: #6b7890; }
-.ed-lane { position: relative; flex: none; background: repeating-linear-gradient(to right, rgba(255, 255, 255, 0.5) 0, rgba(255, 255, 255, 0.5) 1px, transparent 1px, transparent 100%); }
-.ed-track.video .ed-lane { background-color: #e3ecfa; }
-.ed-track.audio .ed-lane { background-color: #e0f1ec; }
+.ed-thb:hover { color: var(--accent); border-color: var(--ed-btn-hover); }
+.ed-thb.on { background: var(--ed-primary); border-color: var(--ed-primary); color: var(--ed-on-primary); }
+.ed-thb.mute.on { background: #d97706; border-color: #d97706; color: #fff; }
+.ed-thb.solo.on { background: #a16207; border-color: #a16207; color: #fff; }
+.ed-thb.hide.on { background: #5d6778; border-color: #5d6778; color: #fff; }
+.ed-lane { position: relative; flex: none; background: repeating-linear-gradient(to right, var(--ed-lane-line) 0, var(--ed-lane-line) 1px, transparent 1px, transparent 100%); }
+.ed-track.video .ed-lane { background-color: var(--ed-lane-video); }
+.ed-track.audio .ed-lane { background-color: var(--ed-lane-audio); }
 .ed-track.locked .ed-lane { background-image: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.05) 0 6px, transparent 6px 12px); }
 .ed-track.locked .ed-clip { filter: saturate(.6); }
 .ed-track.muted .ed-clip, .ed-track.hidden .ed-clip { opacity: .45; }
@@ -281,7 +369,7 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-audio .ed-cname { top: 3px; }
 .ed-linkic { flex: none; width: 13px; height: 13px; color: #fff; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
 .ed-linkic svg { fill: none; }
-.ed-badge { flex: none; font-size: 10px; font-weight: 700; padding: 0 6px; line-height: 15px; border-radius: 99px; background: rgba(255, 255, 255, 0.9); color: var(--text); }
+.ed-badge { flex: none; font-size: 10px; font-weight: 700; padding: 0 6px; line-height: 15px; border-radius: 99px; background: var(--ed-badge-bg); color: var(--ed-badge-fg); }
 .ed-badge.bad { background: #d93636; color: #fff; }
 .ed-cmark { position: absolute; bottom: 3px; width: 9px; height: 9px; margin-left: -4px; background: var(--c); border: 1.5px solid #fff; transform: rotate(45deg); z-index: 4; cursor: pointer; }
 .ed-fadesvg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; }
@@ -324,12 +412,12 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-snapline { border-left: 1px dashed #f59e0b; }
 .ed-bladeline { border-left: 1.5px solid var(--ed-playhead); }
 .ed-dropline { border-left: 2px solid var(--accent); }
-.ed-io-tint { position: absolute; bottom: 0; background: rgba(0, 74, 173, 0.08); border-left: 2px solid rgba(0, 74, 173, 0.5); border-right: 2px solid rgba(0, 74, 173, 0.5); }
-.ed-marquee { position: absolute; border: 1px solid var(--accent); background: rgba(0, 74, 173, 0.12); }
+.ed-io-tint { position: absolute; bottom: 0; background: var(--ed-region); border-left: 2px solid var(--ed-io); border-right: 2px solid var(--ed-io); }
+.ed-marquee { position: absolute; border: 1px solid var(--accent); background: var(--ed-marq); }
 .ed-tl-empty { position: absolute; left: 170px; top: 40px; max-width: 420px; font-size: 13px; line-height: 1.6; color: var(--muted); }
 .ed-tl-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--ed-line); font-size: 11.5px; min-height: 26px; }
 .ed-status { color: var(--muted); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ed-status[data-kind="error"] { color: #c0262d; }
+.ed-status[data-kind="error"] { color: var(--ed-err-fg); }
 .ed-status[data-kind="ok"] { color: var(--success); }
 .ed-keys { color: var(--muted); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -351,7 +439,7 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12px; }
 .ed-dl dt { color: var(--muted); font-weight: 600; white-space: nowrap; }
 .ed-dl dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.ed-dl dd.bad { color: #c0262d; font-weight: 700; }
+.ed-dl dd.bad { color: var(--ed-err-fg); font-weight: 700; }
 .ed-info-flags { display: flex; gap: 4px; flex-wrap: wrap; }
 .ed-info-flags:empty { display: none; }
 .ed-flagdot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0, 0, 0, 0.15); }
@@ -368,7 +456,7 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 
 /* ---- 小視窗、右鍵選單 ---- */
 .ed-pop, .ed-menu {
-  position: fixed; z-index: 10001; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 40px -16px rgba(0, 43, 102, 0.55);
+  position: fixed; z-index: 10001; background: var(--ed-pop-bg); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 40px -16px var(--ed-pop-shadow);
   color: var(--text); font-size: 12.5px;
 }
 .ed-pop { padding: 12px; width: 288px; max-width: calc(100vw - 16px); }
@@ -398,6 +486,25 @@ body:has(#editApp:not([hidden])) { padding-bottom: 20px; }
 .ed-swatch { width: 100%; aspect-ratio: 1; padding: 0; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18); cursor: pointer; }
 .ed-swatch.on { box-shadow: 0 0 0 2px var(--accent); }
 .ed-swatch:hover { transform: scale(1.12); }
+
+/* ---- 直式版面：直式專案（高 > 寬）可把檢視器放到整頁左側 ----
+   檢視器從頂端一路延伸到時間軸底部（#edTop 用 display: contents，讓媒體庫／檢視器／檢查器直接成為 #editApp 這個格線的項目），
+   右側由上而下是「媒體庫｜檢查器」、分隔條、工具列、時間軸。左欄寬度 --ed-vw 由 edit-ui.js 依畫面比例算出。 */
+.ed-vertbtn[hidden] { display: none; }
+.ed-app.ed-vert {
+  display: grid; gap: 8px 10px;
+  grid-template-columns: var(--ed-vw, 420px) minmax(220px, 1fr) minmax(260px, 1.15fr);
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  --ed-tl-h: clamp(250px, 42vh, 420px);      /* 左邊已經用整欄放預覽，右邊多分一點高度給時間軸（可以拖分隔條調整） */
+}
+.ed-app.ed-vert > .ed-top { display: contents; }
+.ed-app.ed-vert .ed-viewer { grid-column: 1; grid-row: 1 / 5; }
+.ed-app.ed-vert .ed-media { grid-column: 2; grid-row: 1; }
+.ed-app.ed-vert .ed-inspector { grid-column: 3; grid-row: 1; }
+.ed-app.ed-vert > .ed-split { grid-column: 2 / 4; grid-row: 2; }
+.ed-app.ed-vert > .ed-toolbar { grid-column: 2 / 4; grid-row: 3; min-width: 0; }
+.ed-app.ed-vert > .ed-timeline { grid-column: 2 / 4; grid-row: 4; min-width: 0; }
+.ed-app.ed-vert .ed-vname { display: none; }
 
 /* ---- 窄視窗 ---- */
 @media (max-width: 1280px) {

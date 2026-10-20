@@ -838,7 +838,7 @@
 .ed-ex-progress progress::-moz-progress-bar { background: var(--accent); }
 .ed-ex-stat { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ed-ex-msg { font-size: 13px; min-height: 1.2em; }
-.ed-ex-msg.is-error { color: #c0262d; }
+.ed-ex-msg.is-error { color: var(--ed-err-fg, #c0262d); }
 .ed-ex-msg.is-ok { color: var(--success); }
 .ed-ex-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .ed-ex-actions button { padding: 9px 18px; }

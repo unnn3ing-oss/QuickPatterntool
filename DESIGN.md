@@ -144,7 +144,7 @@
 - **CSP 加 `media-src 'self' blob:`**：`<video src=blob:…>` 會被既有的 `default-src 'none'` 擋下，所以要明確放行。［程式碼］
 - 媒體用 objectURL，不讀成 base64，避免大檔爆記憶體。［程式碼］
 - 滿版寬用 `body:has(#editApp:not([hidden])) .wrap { max-width: none }`，只在剪輯分頁生效，其他分頁不受影響。［程式碼］
-- 剪輯的 CSS 變數（`--ed-text`、`--ed-muted`、`--ed-border`、`--ed-field`、`--ed-accent`）定義在 `#editApp` 上，`fx` 的檢查器也讀這幾個變數。［程式碼］
+- 剪輯的 CSS 變數（`--ed-text`、`--ed-muted`、`--ed-border`、`--ed-field`、`--ed-accent` 與其他 `--ed-*`）定義在 `edit.css` 的 `:root`（深色時由 `html[data-ed-theme]` 覆寫，見下面「深色模式」），`fx` 的檢查器與匯出對話框也讀這些變數。［程式碼］
 
 ### 介面層
 - **來源模式**：來源檢視器用「只含該素材的暫時專案」丟給同一個播放器，和時間軸共用播放器；切換時各自記住播放頭。［程式碼］［推論：不用另寫一套播放器］
@@ -154,6 +154,16 @@
 - **轉場方塊只佔片段下半部**（`top: 20px`），上半部的片段邊緣仍能抓來修剪。雙邊轉場兩側都有把手；單邊只在朝片段內側那一側有把手。從轉場庫拖到「片段結尾」或「前面沒有相鄰片段的片段開頭」都能放；開頭會建立開頭淡入。［程式碼］［推論：轉場蓋住整個邊緣時無法修剪，分開轉場就做不到］
 - **字幕字級**以短邊 1080 為基準，輸出尺寸不同時等比縮放，看起來一致。［程式碼］
 - **錨點**（`anchorX/Y`）以縮放前的輸出像素、相對影像中心表示，語意與 DaVinci 不同，不能直接照 DaVinci 的數值搬過來。［程式碼］
+
+### 深色模式、工具列與直式版面（只動 UI，不動專案資料）
+- **深色只在剪輯分頁生效，預設深色**：`<html data-ed-theme="dark|light">`（`edit-ui.js` 設定，選擇存 `localStorage` 的 `qpt-edit-theme`，讀寫都包 try/catch，讀不到就用深色），`edit.css` 用 `html[data-ed-theme="dark"]:has(#editApp:not([hidden]))` 覆寫 `--bg --card-bg --field-bg --text --muted --border --accent…` 與全部 `--ed-*`，所以切到其他分頁就自動回到原本淺色，不用 JS 來回切。［程式碼］［推論：用 `:has` 而不是在切分頁時加減 class，是為了不改 `watermark.js`（分頁切換的程式）］
+- 顏色變數一律定義在 `:root`（淺色預設值）與上面那個深色選擇器，**不再寫死在 `#editApp` 上**，因為 `fx` 與匯出對話框插入的樣式、右鍵選單、`<dialog>` 也要讀同一組；`--ed-primary` 是「白字按鈕」專用的底色（深色時用較深的藍，因為深色的 `--accent` 是淺藍、白字會看不清楚）。［程式碼］
+- 配色參考 DaVinci 的深灰（頁面 `#1c1d20`、面板 `#26282d`、欄位／按鈕 `#30333a`，不用純黑），主要文字對比 ≥ 4.5:1（e2e 用 `getComputedStyle` 疊合半透明底色後計算）。淺色維持原本配色，不在這次的對比要求內。［程式碼］
+- **canvas 的顏色從 CSS 變數讀**：波形、媒體縮圖底色、EQ 圖的格線與曲線，由 `readColors()` 在顯示剪輯分頁與切換主題時重讀；顏色變了才遞增 `colors.rev`（併進時間軸片段畫布的快取鍵），所以切換只會重畫、不會動專案或中斷播放。時間尺是 DOM，不是 canvas。［程式碼］
+- 「對話框／安裝教學」（`.modal-overlay`、`.ds`）刻意維持淺色：它們有大量寫死的白底與 SVG 插圖，在它們自己的範圍內把變數還原成淺色，比逐一改色省事也不會出錯。［推論］
+- 剪輯分頁隱藏右下角「其他工具」按鈕：用 `body:has(#editApp:not([hidden])) .tools-fab` 在 `edit.css` 蓋掉，不改 `deploy.*`。［程式碼］
+- **工具列單排可捲動**：`#edToolbar` 是 `flex-wrap: nowrap; overflow-x: auto`，每組按鈕 `flex: none`（狀態標籤 `min-width: 15em` 不會被壓窄）；復原／重做那組用 `margin-left: auto`，不夠寬時自然排在捲動區最尾端。滑鼠滾輪（直向）在工具列上轉成橫向捲動（已經捲到底就放行給頁面）；左右邊緣的漸層遮罩用 `::before`／`::after` 的 sticky 偽元素，顏色必須和工具列底色（`--ed-panel`，不透明）相同，開關由 JS 依捲動位置加 `.fade-l`／`.fade-r`。［程式碼］
+- **直式版面**：輸出是直式（`height > width`）時，檢視器上方出現「直式版面」按鈕，開啟時 `#editApp` 加上 `.ed-vert`，改成 CSS Grid，`#edTop` 用 `display: contents`，檢視器佔左欄整個高度（`grid-row: 1 / 5`），右側由上而下是「媒體庫｜檢查器」、分隔條、工具列、時間軸。左欄寬度 `--ed-vw` 由 `fitVertical()` 依畫面比例算（stage 高度 × 寬高比 ＋ 內距，下限 380px、上限 app 寬的 46%，因為欄寬會影響控制列換行、進而影響畫面高度，所以最多迭代 4 次收斂）。直式專案預設開啟，選擇存 `qpt-edit-vert`；切到橫式自動回一般版面、切回直式恢復記住的選擇。切換只改 class 與一個 CSS 變數，畫布是 CSS 縮放，所以不碰專案、不中斷播放（播放中不呼叫 `player.refresh()`，避免重排聲音）。左欄寬度的拖曳微調尚未做。［程式碼］
 
 ### 第二階段（未實作）
 - 關鍵影格曲線、動態縮放、Speed Ramp、影像穩定（`edit-stab.js` 目前是佔位）。參數讀取已統一經過 `fx.getParam`，之後改讀關鍵影格時 render 不用改。［程式碼］

@@ -102,8 +102,32 @@
     rippleSpeed: true,               // 變速對話框的預設：波紋
     dirty: false,                    // 有改動但還沒匯出（beforeunload 用）
     importing: false,
+    theme: 'dark',                   // 'dark' | 'light'：剪輯分頁的外觀（預設深色，選擇記在 localStorage）
+    vertPref: true,                  // 直式專案時是否把檢視器放到整頁左側（預設開，選擇記在 localStorage）
   };
   Q.ui = { state, get player() { return player; }, say: (m, k) => say(m, k) };
+
+  // ---- 偏好（localStorage）：讀寫都可能丟錯（無痕、被封鎖），一律包 try/catch，讀不到就用預設 ----------
+  const THEME_KEY = 'qpt-edit-theme', VERT_KEY = 'qpt-edit-vert';
+  const lsGet = k => { try { return root.localStorage.getItem(k); } catch (_) { return null; } };
+  const lsSet = (k, v) => { try { root.localStorage.setItem(k, v); } catch (_) { /* 存不了就算了，只是下次不記得 */ } };
+  state.theme = lsGet(THEME_KEY) === 'light' ? 'light' : 'dark';
+  state.vertPref = lsGet(VERT_KEY) !== '0';
+  doc.documentElement.setAttribute('data-ed-theme', state.theme);
+
+  // canvas 用的顏色：從 CSS 變數讀（edit.css 的 :root／深色覆寫），主題換了就重讀、重畫
+  const colors = { rev: 0, sig: '', wave: 'rgba(255,255,255,.78)', waveThumb: 'rgba(255,255,255,.9)', audio: '#2f9e8a', thumbBg: '#cfd9ea', phVideo: '#6f8fc9', phMissing: '#8895ad', titleA: '#8b6fd6', titleB: '#5a43a8' };
+  function readColors() {
+    const cs = root.getComputedStyle(app), g = (n, d) => cs.getPropertyValue(n).trim() || d;
+    const next = {
+      wave: g('--ed-wave', colors.wave), waveThumb: g('--ed-wave-thumb', colors.waveThumb), audio: g('--ed-audio', colors.audio), thumbBg: g('--ed-thumb-bg', colors.thumbBg),
+      phVideo: g('--ed-ph-video', colors.phVideo), phMissing: g('--ed-ph-missing', colors.phMissing), titleA: g('--ed-title-a', colors.titleA), titleB: g('--ed-title-b', colors.titleB),
+    };
+    const sig = JSON.stringify(next);
+    if (sig === colors.sig) return false;
+    Object.assign(colors, next); colors.sig = sig; colors.rev++;
+    return true;
+  }
 
   function newProject() {
     state.project = C.createProject({ videoTracks: 2, audioTracks: 2 });
@@ -432,9 +456,9 @@
   }
   function paintMediaThumb(cv, m) {
     const g = cv.getContext('2d'), W = cv.width, H = cv.height;
-    g.fillStyle = m.kind === 'audio' ? '#2f9e8a' : '#cfd9ea'; g.fillRect(0, 0, W, H);
+    g.fillStyle = m.kind === 'audio' ? colors.audio : colors.thumbBg; g.fillRect(0, 0, W, H);
     if (m.kind === 'audio') {
-      g.fillStyle = 'rgba(255,255,255,.9)';
+      g.fillStyle = colors.waveThumb;
       if (m.peaks && m.peaks.length) {
         const n = m.peaks.length;
         for (let x = 0; x < W; x++) {
@@ -552,11 +576,15 @@
       else say(`輸出比例 ${aspectText()}`, 'ok');
     });
     aspLab.appendChild(sel);
+    const vb = el('button', 'ed-btn small ed-vertbtn'); vb.type = 'button'; vb.id = 'edVert'; vb.hidden = true;
+    vb.title = '把預覽放到左側，畫面更大'; vb.setAttribute('aria-pressed', 'true');
+    vb.append(el('span', 'ed-bl', '直式版面'));
+    vb.addEventListener('click', () => { state.vertPref = !state.vertPref; lsSet(VERT_KEY, state.vertPref ? '1' : '0'); applyVertical(true); });
     const dims = el('span', 'ed-vdims'); dims.id = 'edVDims';
     const ex = el('button', 'ed-btn primary'); ex.type = 'button'; ex.id = 'edExportBtn'; ex.textContent = '匯出 MP4';
     ex.title = '匯出成 MP4 影片';
     ex.addEventListener('click', openExport);
-    bar.append(seg, name, sp, aspLab, dims, ex);
+    bar.append(seg, name, sp, aspLab, vb, dims, ex);
 
     // 拖曳條
     const sw = $('edScrubWrap');
@@ -613,6 +641,57 @@
     if (sel) sel.value = p.aspect;
     const d = $('edVDims');
     if (d) d.textContent = `${p.width}×${p.height}　${p.fps} fps`;
+    applyVertical(false);
+  }
+
+  // ---- 直式版面：直式專案（高 > 寬）時，檢視器可以放到整頁左側，從頂端一路延伸到時間軸底部 ----------
+  // 只切 class（.ed-vert，版面在 edit.css）與左欄寬度變數 --ed-vw；不碰專案資料、不停播放（畫布是 CSS 縮放，不用重畫）。
+  let vertSig = '';
+  function fitVertical() {
+    const p = state.project, vw = $('edViewer'), st = $('edStage');
+    if (app.hidden || !vw || !st || !app.classList.contains('ed-vert') || !(p.width > 0 && p.height > 0)) return;
+    const ratio = p.width / p.height, minW = 380, maxW = Math.max(minW, Math.round(app.clientWidth * 0.46));
+    let w = parseFloat(app.style.getPropertyValue('--ed-vw')) || minW;
+    for (let i = 0; i < 4; i++) {                       // 欄寬 ↔ 工具列換行 ↔ 畫面高度會互相影響，收斂幾次
+      app.style.setProperty('--ed-vw', w + 'px');
+      const chrome = vw.offsetWidth - st.clientWidth;   // 檢視器的內距與邊框
+      const nw = clamp(Math.round(st.clientHeight * ratio) + chrome, minW, maxW);
+      if (Math.abs(nw - w) < 2) break;
+      w = nw;
+    }
+  }
+  function applyVertical(force) {
+    const p = state.project, portrait = p.height > p.width, btn = $('edVert');
+    if (btn) { btn.hidden = !portrait; btn.setAttribute('aria-pressed', String(state.vertPref)); btn.classList.toggle('active', state.vertPref); }
+    const want = portrait && state.vertPref, sig = want ? `${p.width}x${p.height}` : '';
+    if (!force && sig === vertSig) return;
+    vertSig = sig;
+    app.classList.toggle('ed-vert', want);
+    if (want) fitVertical(); else app.style.removeProperty('--ed-vw');
+    scheduleRender('tl');
+    if (player && !player.playing) player.refresh();
+  }
+
+  // ---- 深色／淺色（edit.css 用 html[data-ed-theme] 配合 :has(#editApp:not([hidden])) 只在剪輯分頁生效）-------
+  function applyTheme(theme, save) {
+    state.theme = theme === 'light' ? 'light' : 'dark';
+    doc.documentElement.setAttribute('data-ed-theme', state.theme);
+    if (save) lsSet(THEME_KEY, state.theme);
+    syncThemeBtn();
+    if (!app.hidden) themeRepaint();
+  }
+  function syncThemeBtn() {
+    const b = $('edThemeBtn');
+    if (!b) return;
+    const dark = state.theme === 'dark';
+    b.setAttribute('aria-pressed', String(dark));
+    b.title = `切換深色／淺色（目前：${dark ? '深色' : '淺色'}）`;
+    const ic = b.querySelector('.ed-theme-ic');
+    if (ic) ic.textContent = dark ? '☾' : '☀';
+  }
+  // 主題換了：重讀 canvas 顏色，重畫時間軸片段（縮圖／波形）、媒體庫縮圖、EQ 圖；只是重畫，不動專案
+  function themeRepaint() {
+    if (readColors()) { dirty.tl = dirty.media = dirty.insp = true; scheduleRender(); schedulePaint(); }
   }
 
   // ---- 來源模式 --------------------------------------------------------------------
@@ -1179,11 +1258,33 @@
       btn('edSpeed', '變速', MOD + 'R', '變速：速度百分比、倒播、波紋', b => { b.dataset.pop = '1'; openSpeedPop(b); }),
       btn('edFreeze', '定格', '⇧R', '定格：在播放頭插入定格畫面，或把整個片段變成定格', b => { b.dataset.pop = '1'; openFreezePop(b); }));
 
-    const sp = el('span', 'ed-spacer'); tb.appendChild(sp);
     grp('hist',
       btn('edUndo', '復原', MOD + 'Z', '復原', undo),
       btn('edRedo', '重做', MOD + '⇧Z', '重做', redo));
     for (const id of ['edUndo', 'edRedo']) { const s = el('span', 'ed-ulab'); s.id = id + 'Lab'; $(id).appendChild(s); }
+    wireToolbarScroll(tb);
+  }
+  // 工具列只有一排、超出就左右捲動：滑鼠滾輪（直向）在工具列上轉成橫向捲動；觸控板橫向滑動與拖曳細捲軸由瀏覽器處理；
+  // 左右邊緣的漸層遮罩（.fade-l／.fade-r）依捲動位置顯示
+  function updateTbFade() {
+    const tb = $('edToolbar');
+    if (!tb) return;
+    const max = tb.scrollWidth - tb.clientWidth;
+    tb.classList.toggle('fade-l', tb.scrollLeft > 1);
+    tb.classList.toggle('fade-r', max > 1 && tb.scrollLeft < max - 1);
+  }
+  function wireToolbarScroll(tb) {
+    tb.addEventListener('scroll', updateTbFade, { passive: true });
+    tb.addEventListener('wheel', e => {
+      if (e.ctrlKey || tb.scrollWidth <= tb.clientWidth + 1) return;
+      if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;            // 本來就是橫向（觸控板）：照瀏覽器預設
+      const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * tb.clientWidth : e.deltaY;
+      const before = tb.scrollLeft;
+      tb.scrollLeft = before + d;
+      if (tb.scrollLeft !== before) e.preventDefault();                 // 已經捲到底就讓頁面自己處理
+    }, { passive: false });
+    if (typeof root.ResizeObserver === 'function') new root.ResizeObserver(updateTbFade).observe(tb);
+    updateTbFade();
   }
   function updateToolbar() {
     for (const [id, tool] of [['edToolSelect', 'select'], ['edToolBlade', 'blade'], ['edToolTrim', 'trim']]) {
@@ -1200,6 +1301,7 @@
     const hasSel = selIds().length > 0 || !!state.selTransition;
     $('edDelete').disabled = !hasSel; $('edRipple').disabled = !hasSel;
     $('edClearIO').disabled = state.mode === 'source' ? !state.sourceInOut : (state.project.inPoint == null && state.project.outPoint == null);
+    updateTbFade();
   }
 
   // =====================================================================================
@@ -1704,7 +1806,7 @@
   // 畫布內容取決於這些值；都沒變（例如只是移動位置）就沿用上次畫好的
   function paintSig(p, c, e) {
     const m = c.mediaId ? mediaOf(c.mediaId) : null, th = m && m.thumbs;
-    return [e.classList.contains('video') ? 'v' : 'a', c.type, c.solidColor, c.mediaId, c.srcIn, c.speed, c.reverse ? 1 : 0, c.freeze ? 1 : 0, c.duration,
+    return [colors.rev, e.classList.contains('video') ? 'v' : 'a', c.type, c.solidColor, c.mediaId, c.srcIn, c.speed, c.reverse ? 1 : 0, c.freeze ? 1 : 0, c.duration,
       c.audio ? c.audio.gainDb : 0, p.fps, m ? m.kind + '/' + m.duration : '', th ? th.length + (th[0] && th[0].bitmap ? 'b' : '') : 0, m && m.peaks ? m.peaks.length : 0].join('|');
   }
   function paintClipCanvas(p, c, t, cv, a, H) {
@@ -1712,15 +1814,15 @@
     g.clearRect(0, 0, W, H);
     if (c.type === 'solid') { g.fillStyle = c.solidColor || '#000'; g.fillRect(0, 0, W, H); return; }
     if (c.type === 'title') {
-      const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#8b6fd6'); gr.addColorStop(1, '#5a43a8');
+      const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, colors.titleA); gr.addColorStop(1, colors.titleB);
       g.fillStyle = gr; g.fillRect(0, 0, W, H);
       return;
     }
     const m = mediaOf(c.mediaId);
-    if (!m) { g.fillStyle = '#8895ad'; g.fillRect(0, 0, W, H); return; }
+    if (!m) { g.fillStyle = colors.phMissing; g.fillRect(0, 0, W, H); return; }
     if (t.kind === 'video') {
       const th = m.thumbs || [];
-      if (!th.length || !th[0].bitmap) { g.fillStyle = '#6f8fc9'; g.fillRect(0, 0, W, H); return; }
+      if (!th.length || !th[0].bitmap) { g.fillStyle = colors.phVideo; g.fillRect(0, 0, W, H); return; }
       const bw = th[0].bitmap.width, bh = th[0].bitmap.height, tw = Math.max(20, Math.round(bw / bh * H));
       const lastF = c.start + c.duration - 1;
       for (let x = Math.floor(a / tw) * tw; x < a + W; x += tw) {
@@ -1731,7 +1833,7 @@
       return;
     }
     // 音訊：波形
-    g.fillStyle = 'rgba(255,255,255,.78)';
+    g.fillStyle = colors.wave;
     const peaks = m.peaks, rate = m.peaksRate || 100;
     if (!peaks || !peaks.length || c.freeze) return;
     const gain = R.dbToGain(c.audio ? c.audio.gainDb : 0), mid = H / 2, amax = (H - 10) / 2;
@@ -2520,13 +2622,13 @@
     g.fillStyle = col('--ed-field') || '#fff'; g.fillRect(0, 0, W, H);
     const fx0 = 20, fx1 = 20000, L = Math.log(fx1 / fx0);
     const X = f => Math.log(f / fx0) / L * W, Y = db => H / 2 - clamp(db, -dbR, dbR) / dbR * (H / 2 - 6);
-    g.strokeStyle = 'rgba(107,120,144,.25)'; g.lineWidth = 1; g.fillStyle = col('--ed-muted'); g.font = '17px system-ui, sans-serif';
+    g.strokeStyle = col('--ed-grid'); g.lineWidth = 1; g.fillStyle = col('--ed-muted'); g.font = '17px system-ui, sans-serif';
     for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
       const x = Math.round(X(f)) + .5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
       g.fillText(f >= 1000 ? (f / 1000) + 'k' : String(f), x + 2, H - 3);
     }
     for (const db of [-12, -6, 0, 6, 12]) {
-      const y = Math.round(Y(db)) + .5; g.strokeStyle = db === 0 ? 'rgba(107,120,144,.55)' : 'rgba(107,120,144,.22)';
+      const y = Math.round(Y(db)) + .5; g.strokeStyle = db === 0 ? col('--ed-grid-strong') : col('--ed-grid-weak');
       g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
       g.fillText((db > 0 ? '+' : '') + db, 3, y - 2);
     }
@@ -2536,7 +2638,7 @@
     try { resp = R.eqResponse(eq, freqs); } catch (_) { resp = new Float32Array(n); }
     g.beginPath();
     for (let i = 0; i < n; i++) { const x = X(freqs[i]), y = Y(resp[i]); if (i) g.lineTo(x, y); else g.moveTo(x, y); }
-    g.strokeStyle = eq.enabled ? col('--ed-accent') : 'rgba(107,120,144,.6)'; g.lineWidth = 2; g.stroke();
+    g.strokeStyle = eq.enabled ? col('--ed-accent') : col('--ed-grid-strong'); g.lineWidth = 2; g.stroke();
     if (!eq.enabled) { g.fillStyle = col('--ed-muted'); g.textAlign = 'center'; g.fillText('EQ 未啟用', W / 2, H / 2 - 8); g.textAlign = 'left'; }
   }
 
@@ -2622,6 +2724,8 @@
 
   function onShow() {
     createPlayer();
+    themeRepaint();
+    applyVertical(true);
     renderMedia();
     syncAspect();
     dirty.tl = dirty.insp = dirty.chrome = true;
@@ -2664,6 +2768,10 @@
     if (typeof F.ensureStyle === 'function') F.ensureStyle();
     buildMediaPanel(); buildViewer(); buildToolbar(); buildTimeline(); buildInspector();
     wireFileDrop(); wireSplitter();
+    readColors(); syncThemeBtn();
+    const tbtn = $('edThemeBtn');
+    if (tbtn) tbtn.addEventListener('click', () => applyTheme(state.theme === 'dark' ? 'light' : 'dark', true));
+    root.addEventListener('resize', () => { if (!app.hidden && app.classList.contains('ed-vert')) fitVertical(); });
     app.dataset.tool = state.tool;
 
     tl.scroll.addEventListener('pointerdown', onTlDown);
@@ -2690,7 +2798,7 @@
   Object.assign(Q.ui, {
     init, importFiles, doEdit, selectClips, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
     setZoom, zoomFit, renderNow, bladeAtPlayhead, deleteSelection, markIn, markOut, clearInOut, addMarkerHere, toggleLink, toggleSnap, ensureMediaInfo,
-    openSpeedPop, openFreezePop, tl, tc,
+    openSpeedPop, openFreezePop, tl, tc, setTheme: t => applyTheme(t, true),
   });
   Object.defineProperties(Q.ui, {
     zoom: { get: () => state.zoom, enumerable: true },

@@ -681,8 +681,15 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq(await proj(page, (p, Q, id) => p.clips[id].audio.eq.bands[2].gain, a1.id), 6, '第 3 段（500 Hz）增益 +6 dB');
   const resp = await page.evaluate(id => QPTEdit.render.eqResponse(QPTEdit.ui.state.project.clips[id].audio.eq, [500])[0], a1.id);
   ok(resp > 5 && resp < 7, `EQ 頻率響應在 500 Hz 約 +6 dB（${resp.toFixed(2)}）`);
-  const eqPix = await page.evaluate(() => { const c = document.getElementById('edEqGraph'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 40 && d[i + 2] > 120) n++; return n; });
-  ok(eqPix > 200, `頻率響應圖有畫出藍色曲線（${eqPix} 個像素）`);
+  const eqPix = await page.evaluate(() => {
+    // 曲線顏色是 --ed-accent（深色／淺色不同），從 CSS 變數讀出來再數畫布上接近它的像素
+    const probe = document.createElement('span'); probe.style.color = getComputedStyle(document.getElementById('editApp')).getPropertyValue('--ed-accent').trim(); document.body.appendChild(probe);
+    const m = getComputedStyle(probe).color.match(/\d+/g).map(Number); probe.remove();
+    const c = document.getElementById('edEqGraph'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - m[0]) + Math.abs(d[i + 1] - m[1]) + Math.abs(d[i + 2] - m[2]) < 60) n++;
+    return n;
+  });
+  ok(eqPix > 200, `頻率響應圖有畫出強調色曲線（${eqPix} 個像素）`);
   await page.locator('#edEqGraph').scrollIntoViewIfNeeded();
   await shot(page, `${tag}-6-inspector-audio-eq`);
   await page.locator('#edEqReset').click();
@@ -732,6 +739,31 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq(await page.evaluate(() => [document.getElementById('edCanvas').width, document.getElementById('edCanvas').height]), [720, 1280], '檢視器畫布跟著變成直式（預覽縮小到長邊 1280）');
   ok((await page.textContent('#edVDims')).includes('1080×1920'), '檢視器上方顯示輸出尺寸');
   await shot(page, `${tag}-6b-aspect-916`);
+
+  // ---------------------------------------------------------------- 直式版面（有素材、播放中切換）
+  console.log('直式版面：改成 9:16 後預設開啟、播放中切換不中斷');
+  ok(await page.isVisible('#edVert'), '9:16 直式專案：出現「直式版面」按鈕');
+  ok(await page.evaluate(() => document.getElementById('editApp').classList.contains('ed-vert')), '直式專案預設開啟直式版面');
+  await page.evaluate(() => QPTEdit.ui.player.seek(10));
+  await settle(page);
+  await page.evaluate(() => QPTEdit.ui.player.play());
+  await sleep(250);
+  const vJson = await page.evaluate(() => JSON.stringify(QPTEdit.ui.state.project));
+  const vf0 = await page.evaluate(() => QPTEdit.ui.player.frame);
+  await page.click('#edVert');
+  await sleep(300);
+  ok(await page.evaluate(() => QPTEdit.ui.player.playing), '播放中切換直式版面：播放沒有中斷');
+  ok((await page.evaluate(() => QPTEdit.ui.player.frame)) > vf0, '播放中切換直式版面：播放頭仍在前進');
+  await page.click('#edVert');
+  await sleep(200);
+  ok(await page.evaluate(() => QPTEdit.ui.player.playing), '再切回去：播放仍在進行');
+  await page.evaluate(() => QPTEdit.ui.player.pause());
+  eq(await page.evaluate(() => JSON.stringify(QPTEdit.ui.state.project)), vJson, '切換直式版面不會改到專案資料');
+  await settle(page);
+  await shot(page, `${tag}-6b2-vertical-layout`);
+  await page.click('#edVert');       // 關掉：回到一般版面，後面的測試維持原本的版面
+  await settle(page);
+  ok(!(await page.evaluate(() => document.getElementById('editApp').classList.contains('ed-vert'))), '關閉直式版面：回到一般版面');
 
   // ---------------------------------------------------------------- 來源模式與來源 In／Out
   console.log('來源模式');
@@ -1035,6 +1067,9 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq(layoutAfter, layoutBefore, '切回「圖片套版」：版面位置與大小和進剪輯分頁前一模一樣');
   eq(await page.evaluate(() => getComputedStyle(document.querySelector('.wrap')).maxWidth), '1180px', '.wrap 的寬度限制恢復成 1180px');
   ok(!(await page.isVisible('#editApp')), '剪輯分頁隱藏');
+  ok(await page.isVisible('#toolsBtn'), '切回圖片套版：右下角「其他工具」按鈕回來了');
+  ok(!(await page.isVisible('#edThemeBtn')), '切回圖片套版：深色／淺色開關隱藏');
+  ok(await page.evaluate(() => { const c = getComputedStyle(document.body).backgroundColor.match(/\d+/g).map(Number); return c[0] > 200 && c[1] > 200 && c[2] > 200; }), '切回圖片套版：頁面是淺色（剪輯分頁的深色不影響其他分頁）');
   ok(!(await page.isVisible('#resizeApp')), '「尺寸」面板在圖片套版分頁不會露出來');
   await shot(page, `${tag}-8-layout-after`);
   for (const [btn, app] of [['#funcWatermarkBtn', '#watermarkApp'], ['#funcCollageBtn', '#collageApp'], ['#funcResizeBtn', '#resizeApp']]) {
@@ -1154,12 +1189,303 @@ async function runViewport(browser, base, fix, [W, H]) {
   return problems;
 }
 
+
+// =====================================================================================
+// 外觀與版面（不需要素材，每個測試開新的 context，所以 localStorage 互不影響）：
+//   工具列單排可捲動、其他工具按鈕、深色／淺色、直式版面
+// =====================================================================================
+async function runLayoutTests(browser, base, [W, H]) {
+  const tag = `${W}x${H}`;
+  console.log(`\n==== 外觀與版面 ${tag} ====`);
+  const problems = [];
+  const open = async (init) => {
+    const ctx = await browser.newContext({ viewport: { width: W, height: H } });
+    const page = await ctx.newPage();
+    page.on('pageerror', e => problems.push('pageerror: ' + e.message));
+    page.on('console', m => { if (m.type() === 'error') problems.push('console.error: ' + m.text()); });
+    if (init) await page.addInitScript(init);
+    await page.goto(base);
+    return { ctx, page };
+  };
+  const goEdit = async page => { await page.click('#funcEditBtn'); await page.waitForSelector('#editApp:not([hidden])'); await settle(page); };
+  const attr = page => page.evaluate(() => document.documentElement.getAttribute('data-ed-theme'));
+  const lum = (page, sel) => page.evaluate(sel => {
+    const c = getComputedStyle(document.querySelector(sel)).backgroundColor.match(/[\d.]+/g).map(Number);
+    return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+  }, sel);
+  const rect = (page, sel) => page.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom }; }, sel);
+  const isVert = page => page.evaluate(() => document.getElementById('editApp').classList.contains('ed-vert'));
+  // 畫面實際顯示的區域（canvas 是 object-fit: contain）：依專案比例在 #edStage 裡置中縮放
+  const shown = page => page.evaluate(() => {
+    const st = document.getElementById('edStage').getBoundingClientRect(), p = QPTEdit.ui.state.project, a = p.width / p.height;
+    const w = Math.min(st.width, st.height * a);
+    return { w, h: w / a };
+  });
+
+  // ---------------------------------------------------------------- 工具列：單排、可捲動
+  console.log('工具列：單排、左右捲動、復原／重做在最右');
+  {
+    const { ctx, page } = await open();
+    await goEdit(page);
+    const tops = await page.evaluate(() => [...document.querySelectorAll('#edToolbar button')].map(b => Math.round(b.getBoundingClientRect().top)));
+    ok(tops.length >= 15 && new Set(tops).size === 1, `工具列所有按鈕（${tops.length} 個）在同一排（top 都是 ${tops[0]}）`);
+    const sc = await page.evaluate(() => { const t = document.getElementById('edToolbar'); return { sw: t.scrollWidth, cw: t.clientWidth, ov: getComputedStyle(t).overflowX, wrap: getComputedStyle(t).flexWrap, h: t.getBoundingClientRect().height }; });
+    ok(sc.sw > sc.cw, `工具列內容比寬度寬，可以捲動（scrollWidth ${sc.sw} > clientWidth ${sc.cw}）`);
+    ok(sc.ov === 'auto' && sc.wrap === 'nowrap' && sc.h < 70, `工具列 overflow-x:auto、不換行，高度只有一排（${Math.round(sc.h)}px）`);
+    const act = await rect(page, '#edAction');
+    ok(act.w >= 150, `狀態標籤不會被壓窄（${Math.round(act.w)}px）`);
+    // 捲到最左：左邊沒遮罩、右邊有遮罩；滑鼠滾輪在工具列上轉成橫向捲動
+    await page.evaluate(() => { document.getElementById('edToolbar').scrollLeft = 0; });
+    await settle(page);
+    let fade = await page.evaluate(() => { const c = document.getElementById('edToolbar').classList; return [c.contains('fade-l'), c.contains('fade-r')]; });
+    eq(fade, [false, true], '捲到最左：只有右邊顯示漸層遮罩');
+    const tb = await rect(page, '#edToolbar');
+    await page.mouse.move(tb.x + tb.w / 2, tb.y + tb.h / 2);
+    const y0 = await page.evaluate(() => scrollY);
+    await page.mouse.wheel(0, 240);
+    await sleep(120);
+    const x1 = await page.evaluate(() => document.getElementById('edToolbar').scrollLeft);
+    ok(x1 > 100, `滑鼠滾輪（直向）在工具列上：轉成橫向捲動（scrollLeft ${Math.round(x1)}）`);
+    eq(await page.evaluate(() => scrollY), y0, '滾輪轉橫向時頁面不會跟著直向捲動');
+    await page.mouse.wheel(240, 0);
+    await sleep(120);
+    ok((await page.evaluate(() => document.getElementById('edToolbar').scrollLeft)) > x1, '橫向滾動（觸控板）也能捲');
+    await page.mouse.wheel(0, -2000);
+    await sleep(120);
+    eq(await page.evaluate(() => document.getElementById('edToolbar').scrollLeft), 0, '反方向滾輪可以捲回最左');
+    // 捲到最右：復原／重做看得到、而且是這一排最右邊的兩顆
+    await page.evaluate(() => { const t = document.getElementById('edToolbar'); t.scrollLeft = t.scrollWidth; });
+    await settle(page);
+    fade = await page.evaluate(() => { const c = document.getElementById('edToolbar').classList; return [c.contains('fade-l'), c.contains('fade-r')]; });
+    eq(fade, [true, false], '捲到最右：只有左邊顯示漸層遮罩');
+    const pos = await page.evaluate(() => {
+      const t = document.getElementById('edToolbar').getBoundingClientRect(), u = document.getElementById('edUndo').getBoundingClientRect(), r = document.getElementById('edRedo').getBoundingClientRect();
+      const others = [...document.querySelectorAll('#edToolbar button')].filter(b => b.id !== 'edUndo' && b.id !== 'edRedo').map(b => b.getBoundingClientRect().right);
+      return { undoL: u.left, redoR: r.right, tbL: t.left, tbR: t.right, maxOther: Math.max(...others), redoTop: r.top, undoTop: u.top, firstTop: document.getElementById('edToolSelect').getBoundingClientRect().top };
+    });
+    ok(pos.redoR <= pos.tbR + 1 && pos.undoL >= pos.tbL, `捲到最右：復原／重做都在工具列範圍內（重做右緣 ${Math.round(pos.redoR)} ≤ ${Math.round(pos.tbR)}）`);
+    ok(pos.redoR > pos.maxOther && pos.undoL > pos.maxOther - 1 && pos.tbR - pos.redoR < 30, '復原／重做是這一排最右側的兩顆，貼在尾端');
+    eq([Math.round(pos.redoTop), Math.round(pos.undoTop)], [Math.round(pos.firstTop), Math.round(pos.firstTop)], '復原／重做和其他按鈕在同一排');
+    await shot(page, `${tag}-L1-toolbar-scrolled-end`);
+    // 鍵盤移到被捲出去的按鈕：瀏覽器會自動捲進來
+    await page.evaluate(() => { document.getElementById('edToolbar').scrollLeft = 0; const bs = [...document.querySelectorAll('#edToolbar button')].filter(x => !x.disabled); bs[bs.length - 1].focus(); });
+    await settle(page);
+    ok((await page.evaluate(() => document.getElementById('edToolbar').scrollLeft)) > 0, '鍵盤移到最右邊的按鈕：工具列自動捲過去');
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- 其他工具按鈕
+  console.log('右下角「其他工具」按鈕');
+  {
+    const { ctx, page } = await open();
+    ok(await page.isVisible('#toolsBtn'), '圖片套版分頁：右下角 N 按鈕可見');
+    await goEdit(page);
+    ok(!(await page.isVisible('#toolsBtn')), '剪輯分頁：N 按鈕隱藏');
+    ok(!(await page.isVisible('#toolsPop')), '剪輯分頁：彈窗也隱藏');
+    await page.click('#funcWatermarkBtn');
+    await settle(page);
+    ok(await page.isVisible('#toolsBtn'), '切到浮水印：N 按鈕回來');
+    await page.click('#funcEditBtn');
+    await settle(page);
+    ok(!(await page.isVisible('#toolsBtn')), '再切回剪輯：又隱藏');
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- 深色／淺色
+  console.log('深色／淺色');
+  {
+    const { ctx, page } = await open();
+    ok(!(await page.isVisible('#edThemeBtn')), '圖片套版分頁：沒有深色／淺色開關');
+    ok((await lum(page, 'body')) > 0.8, '圖片套版分頁：頁面是淺色');
+    await goEdit(page);
+    ok(await page.isVisible('#edThemeBtn'), '剪輯分頁：頁首出現深色／淺色開關');
+    eq(await attr(page), 'dark', '剪輯分頁預設深色（data-ed-theme=dark）');
+    eq(await page.getAttribute('#edThemeBtn', 'aria-pressed'), 'true', '開關 aria-pressed=true（深色）');
+    ok((await page.getAttribute('#edThemeBtn', 'title')).includes('深色'), '開關有 title');
+    for (const sel of ['body', 'header.topbar', '#editApp .ed-media', '#editApp .ed-inspector', '#edToolbar', '#edTimeline', '.ed-tl-scroll']) { const l = await lum(page, sel); ok(l < 0.25, `深色：${sel} 底色是深灰（亮度 ${l.toFixed(2)}）`); }
+    ok((await lum(page, 'body')) > 0.03, '深色不是純黑（頁面背景亮度 > 0.03）');
+    await shot(page, `${tag}-L2-dark-empty`);
+
+    // 對比：文字與實際底色（往上層疊合半透明底）至少 4.5:1
+    const contrast = (sels) => page.evaluate(sels => {
+      const parse = c => { const m = c.match(/[\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1 }; };
+      const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      const L = c => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+      const bgOf = el => {
+        const layers = [];
+        for (let e = el; e; e = e.parentElement) { const c = parse(getComputedStyle(e).backgroundColor); if (c.a > 0) { layers.push(c); if (c.a >= 1) break; } }
+        let base = { r: 255, g: 255, b: 255 };
+        for (const c of layers.reverse()) base = { r: c.r * c.a + base.r * (1 - c.a), g: c.g * c.a + base.g * (1 - c.a), b: c.b * c.a + base.b * (1 - c.a) };
+        return base;
+      };
+      return sels.map(sel => {
+        const el = document.querySelector(sel);
+        if (!el) return { sel, missing: true };
+        const fg = parse(getComputedStyle(el).color), bg = bgOf(el);
+        const f = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
+        const a = L(f), b = L(bg);
+        return { sel, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+      });
+    }, sels);
+    const SELS = ['h1.topbar-title', '#funcLayoutBtn', '#funcEditBtn', '#helpBtn', '#edThemeBtn', '.ed-tab.active', '.ed-tab:not(.active)', '.ed-mempty', '#edToolBlade', '#edToolSelect', '#edInsert', '.ed-action',
+      '#edTc', '#edTcDur', '#edExportBtn', '.ed-vdims', '.ed-zoomlab', '.ed-th-name', '.ed-tick span', '.ed-ph', '.ed-tl-empty', '.ed-segbtn.active', '.ed-segbtn:not(.active)', '#edAspect'];
+    await sleep(600);        // 頁首分頁鈕的顏色有 0.24 秒的漸變，等它停下來再量
+    for (const r of await contrast(SELS)) {
+      if (r.missing) { console.log('       略過（找不到）', r.sel); continue; }
+      ok(r.ratio >= 4.5, `深色對比 ${r.sel}：${r.ratio.toFixed(2)}:1 ≥ 4.5`);
+    }
+    // 右鍵選單也要是深色
+    await page.click('.ed-th-name >> nth=0', { button: 'right' });
+    await page.waitForSelector('.ed-menu');
+    ok((await lum(page, '.ed-menu')) < 0.25, '深色：右鍵選單底色是深色');
+    for (const r of await contrast(['.ed-menu-item'])) ok(r.missing || r.ratio >= 4.5, `深色對比 ${r.sel}：${r.missing ? '無' : r.ratio.toFixed(2)}`);
+    await shot(page, `${tag}-L2b-dark-menu`);
+    await page.keyboard.press('Escape');
+
+    // 切換：變淺色、aria-pressed 變 false、記住
+    await page.click('#edThemeBtn');
+    await sleep(600);
+    eq(await attr(page), 'light', '按下開關：變淺色');
+    eq(await page.getAttribute('#edThemeBtn', 'aria-pressed'), 'false', '淺色：aria-pressed=false');
+    ok((await lum(page, 'body')) > 0.8 && (await lum(page, '#edTimeline')) > 0.8, '淺色：頁面與時間軸都是淺色');
+    // 淺色是原本的配色（次要文字 #6b7890 等沿用 style.css），不在這次的對比要求內，只確認主要文字
+    for (const r of await contrast(['h1.topbar-title', '#edToolBlade', '.ed-action', '#edTc', '.ed-th-name', '#edExportBtn'])) { if (!r.missing) ok(r.ratio >= 4.5, `淺色對比 ${r.sel}：${r.ratio.toFixed(2)}:1 ≥ 4.5`); }
+    await shot(page, `${tag}-L3-light-empty`);
+    eq(await page.evaluate(() => localStorage.getItem('qpt-edit-theme')), 'light', '選擇記在 localStorage');
+    await page.reload();
+    await goEdit(page);
+    eq(await attr(page), 'light', '重新載入後仍是淺色（記住選擇）');
+    eq(await page.getAttribute('#edThemeBtn', 'aria-pressed'), 'false', '重新載入後開關狀態也對');
+    await page.click('#edThemeBtn');
+    await settle(page);
+    eq(await attr(page), 'dark', '再按一次：回到深色');
+    // 切到其他分頁：維持原本淺色，不受影響；切回來又是深色
+    await page.click('#funcLayoutBtn');
+    await settle(page);
+    ok((await lum(page, 'body')) > 0.8 && (await lum(page, 'header.topbar')) > 0.8, '深色狀態下切到圖片套版：頁面與頁首都是淺色');
+    eq(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), 'light', '其他分頁 color-scheme 維持 light');
+    for (const btn of ['#funcWatermarkBtn', '#funcCollageBtn', '#funcResizeBtn']) {
+      await page.click(btn);
+      await settle(page);
+      ok((await lum(page, 'body')) > 0.8, `${btn}：頁面維持淺色`);
+    }
+    await page.click('#funcLayoutBtn');
+    await shot(page, `${tag}-L4-other-tab-light`);
+    await goEdit(page);
+    ok((await lum(page, 'body')) < 0.25, '切回剪輯：又是深色');
+    await ctx.close();
+  }
+  {
+    // localStorage 丟錯：讀不到就用深色，切換也不能出錯
+    const { ctx, page } = await open(() => {
+      const boom = () => { throw new DOMException('blocked', 'SecurityError'); };
+      Storage.prototype.getItem = boom; Storage.prototype.setItem = boom; Storage.prototype.removeItem = boom;
+    });
+    const before = problems.length;
+    await goEdit(page);
+    eq(await attr(page), 'dark', 'localStorage 讀取丟錯：仍是深色');
+    await page.click('#edThemeBtn');
+    await settle(page);
+    eq(await attr(page), 'light', 'localStorage 寫入丟錯：切換仍然有效（只是不記住）');
+    ok(await page.isVisible('#editApp'), 'localStorage 丟錯時剪輯分頁正常');
+    eq(problems.slice(before), [], 'localStorage 丟錯：沒有 console error／頁面例外');
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- 直式版面
+  console.log('直式版面');
+  {
+    const { ctx, page } = await open();
+    await goEdit(page);
+    ok(!(await page.isVisible('#edVert')), '橫式專案：「直式版面」按鈕不顯示');
+    ok(!(await isVert(page)), '橫式專案：版面是原本的樣子');
+    const normalH = await rect(page, '#edViewer'), app0 = await rect(page, '#editApp');
+    ok(normalH.h < app0.h * 0.8, `橫式：檢視器只佔上排（${Math.round(normalH.h)} < ${Math.round(app0.h)}）`);
+    const lay0 = await page.evaluate(() => { const g = id => document.getElementById(id).getBoundingClientRect(); return { media: g('edMedia').left, viewer: g('edViewer').left, insp: g('edInspector').left }; });
+    ok(lay0.media < lay0.viewer && lay0.viewer < lay0.insp, '橫式：媒體庫｜檢視器｜檢查器 由左到右');
+
+    await page.selectOption('#edAspect', '9:16');
+    await settle(page);
+    ok(await page.isVisible('#edVert'), '改成 9:16：出現「直式版面」按鈕');
+    eq(await page.getAttribute('#edVert', 'aria-pressed'), 'true', '直式專案預設開啟（aria-pressed=true）');
+    ok((await page.getAttribute('#edVert', 'title')).includes('左側'), '按鈕 title 說明放到左側');
+    ok(await isVert(page), '直式版面：#editApp 有 ed-vert');
+    const app1 = await rect(page, '#editApp'), vw = await rect(page, '#edViewer');
+    ok(Math.abs(vw.y - app1.y) <= 2 && Math.abs(vw.b - app1.b) <= 2, `檢視器從頂端延伸到底部（高 ${Math.round(vw.h)}，#editApp 高 ${Math.round(app1.h)}）`);
+    const lay1 = await page.evaluate(() => { const g = id => document.getElementById(id).getBoundingClientRect(); return { viewerR: g('edViewer').right, media: g('edMedia').left, insp: g('edInspector').left, mediaB: g('edMedia').bottom, tlTop: g('edTimeline').top, tlL: g('edTimeline').left, tbL: g('edToolbar').left, tlR: g('edTimeline').right, appR: g('editApp').right }; });
+    ok(vw.x <= app1.x + 1 && lay1.viewerR <= lay1.media + 1, '檢視器在最左欄，媒體庫在它右邊');
+    ok(lay1.media < lay1.insp && lay1.mediaB <= lay1.tlTop, '右側：媒體庫｜檢查器 一排，下面是工具列與時間軸');
+    ok(Math.abs(lay1.tlL - lay1.media) <= 1 && Math.abs(lay1.tbL - lay1.media) <= 1 && Math.abs(lay1.tlR - lay1.appR) <= 1, '工具列與時間軸跨滿右側');
+    const big = await shown(page);
+    // 1280×800 也要可用：右側時間軸看得到 2 條影片軌＋2 條音訊軌；工具列仍是單排
+    const trk = await page.evaluate(() => {
+      const sc = document.querySelector('.ed-tl-scroll').getBoundingClientRect(), tr = [...document.querySelectorAll('.ed-track')].map(e => e.getBoundingClientRect());
+      return { n: tr.length, lastB: Math.max(...tr.map(r => r.bottom)), scB: sc.bottom, scH: sc.height };
+    });
+    ok(trk.n >= 4 && trk.lastB <= trk.scB + 1, `直式版面：時間軸看得到全部 ${trk.n} 條軌道（2 影片＋2 音訊；捲動區高 ${Math.round(trk.scH)}px）`);
+    const tops = await page.evaluate(() => [...document.querySelectorAll('#edToolbar button')].map(b => Math.round(b.getBoundingClientRect().top)));
+    ok(new Set(tops).size === 1, '直式版面：工具列仍是單排');
+    ok((await rect(page, '#edAction')).w >= 150, '直式版面：狀態標籤沒被壓窄');
+    ok(await page.evaluate(() => { const v = document.getElementById('edViewer'); return v.scrollWidth <= v.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1; }), '直式版面：檢視器內容與頁面沒有橫向溢出');
+    await shot(page, `${tag}-L6-vert-on-dark-empty`);
+    // 一般版面（關掉）量畫面顯示尺寸，比較
+    await page.click('#edVert');
+    await settle(page);
+    eq(await page.getAttribute('#edVert', 'aria-pressed'), 'false', '按下按鈕：aria-pressed=false');
+    ok(!(await isVert(page)), '關閉後回到一般版面');
+    const small = await shown(page);
+    ok(big.h > small.h * 1.4 && big.w > small.w * 1.4, `直式版面的畫面比一般版面大（${Math.round(big.w)}×${Math.round(big.h)} vs ${Math.round(small.w)}×${Math.round(small.h)}）`);
+    ok((await rect(page, '#edViewer')).h < app1.h * 0.8, '一般版面：檢視器又只佔上排');
+    eq(await page.evaluate(() => localStorage.getItem('qpt-edit-vert')), '0', '選擇記在 localStorage');
+    await shot(page, `${tag}-L5-vert-off-dark-empty`);
+    // 記住：重新載入、改成 9:16 後仍是關
+    await page.reload();
+    await goEdit(page);
+    await page.selectOption('#edAspect', '9:16');
+    await settle(page);
+    eq(await page.getAttribute('#edVert', 'aria-pressed'), 'false', '重新載入後（9:16）仍記得關閉');
+    ok(!(await isVert(page)), '重新載入後版面是一般版面');
+    // 切 16:9：按鈕消失、一般版面；切回 9:16：仍是記住的選擇（關）
+    await page.selectOption('#edAspect', '16:9');
+    await settle(page);
+    ok(!(await page.isVisible('#edVert')), '切 16:9：按鈕隱藏');
+    ok(!(await isVert(page)), '切 16:9：一般版面');
+    await page.selectOption('#edAspect', '9:16');
+    await settle(page);
+    ok(!(await isVert(page)), '切回 9:16：恢復記住的選擇（關）');
+    await page.click('#edVert');
+    await settle(page);
+    // 開啟狀態下切 16:9 自動回一般版面，再切 9:16 恢復開啟
+    ok(await isVert(page), '重新開啟直式版面');
+    await page.selectOption('#edAspect', '16:9');
+    await settle(page);
+    ok(!(await isVert(page)), '開啟狀態下切 16:9：自動回到一般版面');
+    ok(Math.abs((await rect(page, '#edViewer')).h - normalH.h) < 3, '回到一般版面：檢視器高度與最初相同');
+    await page.selectOption('#edAspect', '4:5');
+    await settle(page);
+    ok(await isVert(page), '切 4:5（也是直式）：恢復直式版面');
+    await page.selectOption('#edAspect', '9:16');
+    await settle(page);
+    await page.click('#edThemeBtn');
+    await settle(page);
+    await shot(page, `${tag}-L7-vert-on-light-empty`);
+    await page.reload();
+    await goEdit(page);
+    await page.selectOption('#edAspect', '9:16');
+    await settle(page);
+    ok((await isVert(page)) && (await attr(page)) === 'light', '重新載入：直式版面（開）與淺色都記住');
+    await ctx.close();
+  }
+  return problems;
+}
+
 (async () => {
   const fix = fixturesDir();
   const { server, base } = await serve();
   const browser = await chromium.launch(EXE ? { executablePath: EXE } : {});
   let all = [];
   try {
+    for (const vp of VIEWPORTS) all = all.concat(await runLayoutTests(browser, base, vp));
     for (const vp of VIEWPORTS) all = all.concat(await runViewport(browser, base, fix, vp));
   } catch (e) { failed++; console.log('  FAIL 測試中斷：', e && e.stack || e); }
   ok(all.length === 0, '整段流程沒有 console error／頁面例外／CSP 違規' + (all.length ? '：' + all.join(' | ') : ''));
