@@ -1,8 +1,8 @@
 // =====================================================================================
 // 剪輯：介面（網頁版專用；updater.js／deploy.js 的 SKIP 會略過 edit-*.js）
 //
-// 把 core（時間軸引擎）、render（播放與合成）、fx（變形／轉場／字幕與檢查器）、exporter（匯出）接成一個畫面：
-//   媒體庫（媒體／轉場／字幕）｜檢視器（來源／時間軸）｜檢查器　→　工具列　→　多軌時間軸。
+// 把 core（時間軸引擎）、render（播放與合成）、fx（變形／轉場／字幕與詳細內容）、exporter（匯出）接成一個畫面：
+//   媒體庫（媒體／轉場／字幕）｜檢視器（來源／時間軸）｜詳細內容　→　工具列　→　多軌時間軸。
 // 這支只管「畫面與操作」：所有剪輯邏輯都在 core，這裡一律透過 history.run／begin…end 呼叫，
 // core 回傳 ok:false 時把 reason 顯示在狀態列。拖曳時用 history.begin 起頭、每次移動「回到起點再套用一次總位移」
 // （cancel＋begin＋操作），放開時 end()，所以整段拖曳只留下一筆復原。
@@ -87,8 +87,8 @@
   const state = {
     project: null, history: null,
     selection: new Set(),            // 選取的片段 id
-    primary: null,                   // 檢查器顯示的片段（最後一次點的那個）
-    selTransition: null,             // 選取的轉場 id（檢查器顯示轉場）
+    primary: null,                   // 詳細內容顯示的片段（最後一次點的那個）
+    selTransition: null,             // 選取的轉場 id（詳細內容顯示轉場）
     selMedia: null,                  // 媒體庫選取的媒體 id
     tool: 'select',                  // 'select' | 'blade' | 'trim'（trim 依游標位置自動變成波紋／滾動／滑移／滑動）
     linkedSelection: true, snapping: true,
@@ -108,11 +108,12 @@
   Q.ui = { state, get player() { return player; }, say: (m, k) => say(m, k) };
 
   // ---- 偏好（localStorage）：讀寫都可能丟錯（無痕、被封鎖），一律包 try/catch，讀不到就用預設 ----------
-  const THEME_KEY = 'qpt-edit-theme', VERT_KEY = 'qpt-edit-vert';
+  const THEME_KEY = 'qpt-edit-theme', VERT_KEY = 'qpt-edit-vert', SAFE_KEY = 'qpt-edit-safe';
   const lsGet = k => { try { return root.localStorage.getItem(k); } catch (_) { return null; } };
   const lsSet = (k, v) => { try { root.localStorage.setItem(k, v); } catch (_) { /* 存不了就算了，只是下次不記得 */ } };
   state.theme = lsGet(THEME_KEY) === 'light' ? 'light' : 'dark';
   state.vertPref = lsGet(VERT_KEY) !== '0';
+  state.safePref = lsGet(SAFE_KEY) === '1';
   doc.documentElement.setAttribute('data-ed-theme', state.theme);
 
   // canvas 用的顏色：從 CSS 變數讀（edit.css 的 :root／深色覆寫），主題換了就重讀、重畫
@@ -272,7 +273,7 @@
     const gb = el('button', 'ed-btn primary'); gb.type = 'button'; gb.id = 'edTitleAdd'; gb.textContent = '在播放頭新增';
     gb.title = '在播放頭的位置新增選取樣式的字幕（放在最上層沒被佔用的影片軌）';
     gb.addEventListener('click', () => addTitle(lib.title));
-    ga.append(gb, el('span', 'ed-hint', '字幕放在影片軌上，新增後在右側檢查器改文字、字型、顏色。也可以把樣式拖到時間軸。'));
+    ga.append(gb, el('span', 'ed-hint', '字幕放在影片軌上，新增後在右側詳細內容改文字、字型、顏色。也可以把樣式拖到時間軸。'));
     pg.append(gl, ga);
 
     host.append(pm, pt, pg);
@@ -580,11 +581,16 @@
     vb.title = '把預覽放到左側，畫面更大'; vb.setAttribute('aria-pressed', 'true');
     vb.append(el('span', 'ed-bl', '直式版面'));
     vb.addEventListener('click', () => { state.vertPref = !state.vertPref; lsSet(VERT_KEY, state.vertPref ? '1' : '0'); applyVertical(true); });
+    const sb = el('button', 'ed-btn small ed-safebtn'); sb.type = 'button'; sb.id = 'edSafe'; sb.hidden = true;
+    sb.title = '顯示 Reels／短影音介面會蓋住的範圍（灰色區域），只在預覽顯示、不會匯出'; sb.setAttribute('aria-pressed', 'false');
+    sb.append(el('span', 'ed-bl', '安全框'));
+    sb.addEventListener('click', () => { state.safePref = !state.safePref; lsSet(SAFE_KEY, state.safePref ? '1' : '0'); scheduleStage(); });
     const dims = el('span', 'ed-vdims'); dims.id = 'edVDims';
     const ex = el('button', 'ed-btn primary'); ex.type = 'button'; ex.id = 'edExportBtn'; ex.textContent = '匯出 MP4';
     ex.title = '匯出成 MP4 影片';
     ex.addEventListener('click', openExport);
-    bar.append(seg, name, sp, aspLab, vb, dims, ex);
+    bar.append(seg, name, sp, aspLab, vb, sb, dims, ex);
+    wireStage();
 
     // 拖曳條
     const sw = $('edScrubWrap');
@@ -642,6 +648,7 @@
     const d = $('edVDims');
     if (d) d.textContent = `${p.width}×${p.height}　${p.fps} fps`;
     applyVertical(false);
+    scheduleStage();
   }
 
   // ---- 直式版面：直式專案（高 > 寬）時，檢視器可以放到整頁左側，從頂端一路延伸到時間軸底部 ----------
@@ -670,6 +677,121 @@
     if (want) fitVertical(); else app.style.removeProperty('--ed-vw');
     scheduleRender('tl');
     if (player && !player.playing) player.refresh();
+  }
+
+  // ---- 預覽框上的疊圖：字幕拖曳框、安全框 ---------------------------------------------------------
+  // 疊圖（#edOverlay）蓋在畫布實際顯示畫面的位置（畫布是 object-fit: contain，四周可能有留黑），只是 DOM，不會被匯出。
+  // 字幕拖曳：時間軸模式下，在預覽上按住播放頭這格的字幕（最上層優先）拖曳，改 title.x／y；整次拖曳只記一筆復原。
+  const SAFE_SVG = (() => {
+    // 1080×1920 座標；灰色＝會被介面蓋住的範圍（右側按鈕欄＋下方說明／導覽列）。帳號、文字、數字都換成灰條。
+    const ic = (y, d) => `<path transform="translate(1005 ${y})" d="${d}"/>`;
+    const heart = 'M0 26 C-40 -4 -40 -40 -16 -40 C-6 -40 0 -32 0 -26 C0 -32 6 -40 16 -40 C40 -40 40 -4 0 26Z';
+    const bubble = 'M-30 0 A30 30 0 1 1 -14 26 L-34 32 Z';
+    const repost = 'M-26 -6 V-20 H22 M10 -32 L22 -20 L10 -8 M26 6 V20 H-22 M-10 32 L-22 20 L-10 8';
+    const send = 'M-30 -28 L32 -28 L-4 32 L-10 -6 Z M-10 -6 L32 -28';
+    const bar = (x, y, w, h, o) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="#fff" fill-opacity="${o || 0.55}"/>`;
+    const nav = [270, 410, 540, 670, 810].map((x, i) => i === 1
+      ? `<rect x="${x - 60}" y="1768" width="120" height="70" rx="35" fill="#fff" fill-opacity=".18"/><rect x="${x - 18}" y="1786" width="36" height="34" rx="9" fill="#fff" fill-opacity=".85"/>`
+      : `<circle cx="${x}" cy="1803" r="20" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="6"/>`).join('');
+    return `<svg class="ed-safe" viewBox="0 0 1080 1920" preserveAspectRatio="none" aria-hidden="true">
+      <path class="ed-safe-shade" d="M930 840 H1080 V1920 H0 V1500 H930 Z"/>
+      <g fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
+        ${ic(910, heart)}${ic(1060, bubble)}${ic(1210, repost)}${ic(1360, send)}
+        <path d="M975 1500 H1035 M985 1524 H1035"/>
+        <rect x="975" y="1580" width="62" height="62" rx="12"/>
+        <circle cx="90" cy="1560" r="46"/>
+        <rect x="445" y="1528" width="110" height="52" rx="14" stroke-opacity=".7"/>
+      </g>
+      ${bar(158, 1532, 230, 24, 0.75)}${bar(158, 1572, 170, 18)}${bar(40, 1640, 470, 26)}
+      <rect x="40" y="1700" width="1000" height="5" rx="2.5" fill="#fff" fill-opacity=".35"/>
+      <rect x="120" y="1750" width="840" height="106" rx="53" fill="#000" fill-opacity=".35"/>
+      ${nav}
+    </svg>`;
+  })();
+  let stageRaf = 0;
+  function scheduleStage() { if (!stageRaf) stageRaf = root.requestAnimationFrame(() => { stageRaf = 0; syncStage(); }); }
+  // 畫布上實際顯示畫面的矩形（相對 #edStage）與縮放比例 s（螢幕像素／輸出像素）
+  function stageRect() {
+    const st = $('edStage'), cv = $('edCanvas'), p = viewProject();
+    if (!st || !cv || !(p.width > 0 && p.height > 0)) return null;
+    const sr = st.getBoundingClientRect(), cr = cv.getBoundingClientRect();
+    if (!cr.width || !cr.height) return null;
+    const s = Math.min(cr.width / p.width, cr.height / p.height), w = p.width * s, h = p.height * s;
+    return { left: cr.left - sr.left + (cr.width - w) / 2, top: cr.top - sr.top + (cr.height - h) / 2, w, h, s, W: p.width, H: p.height };
+  }
+  const safeAvailable = () => { const p = state.project; return p.height / p.width >= 1.7; };
+  // 播放頭這格看得到的字幕，最上層在前：[{ clip, b（輸出像素外框）}]
+  function titlesAtPlayhead() {
+    if (state.mode !== 'timeline' || !R || !F || typeof F.titleBounds !== 'function') return [];
+    const p = state.project, f = state.playhead, out = [];
+    for (const l of R.layersAt(p, f)) {
+      if (l.kind !== 'clip' || l.clip.type !== 'title') continue;
+      const b = F.titleBounds(l.clip, p.width, p.height, Math.max(0, f - l.clip.start));
+      if (b) out.unshift({ clip: l.clip, b });
+    }
+    return out;
+  }
+  function syncStage() {
+    const ov = $('edOverlay'), sb = $('edSafe');
+    if (!ov) return;
+    const avail = safeAvailable();
+    if (sb) { sb.hidden = !avail; sb.classList.toggle('active', state.safePref); sb.setAttribute('aria-pressed', String(state.safePref)); }
+    const r = app.hidden ? null : stageRect();
+    if (!r) { ov.hidden = true; return; }
+    ov.hidden = false;
+    Object.assign(ov.style, { left: r.left + 'px', top: r.top + 'px', width: r.w + 'px', height: r.h + 'px' });
+    const safe = ov.querySelector('.ed-safe');
+    if (safe) safe.style.display = avail && state.safePref && state.mode === 'timeline' ? '' : 'none';
+    const box = $('edTitleBox'), sel = titlesAtPlayhead().find(t => state.selection.has(t.clip.id));
+    box.hidden = !sel;
+    if (sel) Object.assign(box.style, { left: sel.b.x * r.s + 'px', top: sel.b.y * r.s + 'px', width: sel.b.w * r.s + 'px', height: sel.b.h * r.s + 'px' });
+  }
+  function titleHit(e) {
+    const r = stageRect();
+    if (!r) return null;
+    const sr = $('edStage').getBoundingClientRect();
+    const x = (e.clientX - sr.left - r.left) / r.s, y = (e.clientY - sr.top - r.top) / r.s;
+    const pad = 6 / r.s;   // 邊緣多給幾個螢幕像素比較好點
+    const hit = titlesAtPlayhead().find(t => x >= t.b.x - pad && x <= t.b.x + t.b.w + pad && y >= t.b.y - pad && y <= t.b.y + t.b.h + pad);
+    return hit ? { clip: hit.clip, r } : null;
+  }
+  function wireStage() {
+    const st = $('edStage');
+    if (!st || $('edOverlay')) return;
+    const ov = el('div', 'ed-overlay'); ov.id = 'edOverlay'; ov.hidden = true;
+    ov.innerHTML = SAFE_SVG;
+    const box = el('div', 'ed-titlebox'); box.id = 'edTitleBox'; box.hidden = true;
+    ov.appendChild(box);
+    st.appendChild(ov);
+    const cv = $('edCanvas');
+    cv.addEventListener('pointermove', e => { if (!drag) cv.style.cursor = titleHit(e) ? 'move' : ''; });
+    cv.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || drag) return;
+      const h = titleHit(e);
+      if (!h) return;
+      e.preventDefault();
+      if (player) player.pause();
+      const id = h.clip.id, t0 = h.clip.title, x0 = Number(t0.x) || 0, y0 = Number(t0.y) || 0, W = h.r.W, H = h.r.H, s = h.r.s;
+      if (!state.selection.has(id) || state.selection.size > 1) selectClips([id]);
+      // 螢幕位移 → 字幕座標：扣掉片段變形（縮放／旋轉／翻轉）的線性部分
+      const m = F.clipMatrix(h.clip, W, H, W, H, Math.max(0, state.playhead - h.clip.start));
+      const det = m[0] * m[3] - m[2] * m[1] || 1;
+      const snap = (v, px) => (Math.abs(v - 0.5) * px < 8 ? 0.5 : v);
+      beginDrag(e, {
+        move(ev, dx, dy) {
+          const ox = dx / s, oy = dy / s;
+          const ux = (m[3] * ox - m[2] * oy) / det, uy = (-m[1] * ox + m[0] * oy) / det;
+          let x = clamp(x0 + ux / W, 0, 1), y = clamp(y0 + uy / H, 0, 1);
+          if (!ev.altKey) { x = snap(x, W * s); y = snap(y, H * s); }
+          const r = live.run('移動字幕', q => C.setClipProps(q, id, { title: { x, y } }));
+          if (r && !r.ok) say(r.reason, 'error');
+          scheduleStage();
+        },
+        up(ev, moved) { if (moved) { live.end(); say('已移動字幕（Alt＝不吸附到中線）', 'ok'); } },
+        cancel() { live.abort(); scheduleStage(); },
+      });
+    });
+    if (typeof root.ResizeObserver === 'function') new root.ResizeObserver(() => scheduleStage()).observe(st);
   }
 
   // ---- 深色／淺色（edit.css 用 html[data-ed-theme] 配合 :has(#editApp:not([hidden])) 只在剪輯分頁生效）-------
@@ -733,6 +855,7 @@
     renderViewerChrome();
     markMediaSel();
     updatePlayheadPos(false);
+    scheduleStage();
   }
 
   function setSourceIO(which) {
@@ -807,6 +930,7 @@
     if (state.mode === 'timeline') state.playhead = f; else state.srcFrame = f;
     updateTransportTime();
     if (state.mode === 'timeline') updatePlayheadPos(player && player.playing);
+    scheduleStage();
   }
 
   // ---- 播放與移動播放頭 ------------------------------------------------------------
@@ -1178,7 +1302,7 @@
     if (r && r.ok) {
       selectClips([r.id]);
       afterRender(() => revealFrame(r.start, r.end));
-      say('已新增字幕：在右側檢查器改文字與樣式', 'ok');
+      say('已新增字幕：在右側詳細內容改文字與樣式', 'ok');
     }
     return r;
   }
@@ -1315,7 +1439,7 @@
     const mod = e.ctrlKey || e.metaKey, shift = e.shiftKey, alt = e.altKey;
     const done = () => { e.preventDefault(); e.stopPropagation(); };
     const fresh = !e.repeat;
-    // 拖曳中（時間軸或檢查器的數值拖曳，history 在 begin 之後）：只留 Esc（拖曳自己的 capture 監聽會處理）；
+    // 拖曳中（時間軸或詳細內容的數值拖曳，history 在 begin 之後）：只留 Esc（拖曳自己的 capture 監聽會處理）；
     // 其他會改專案的快捷鍵一律擋掉，不然 Delete／刀片／復原會跟拖曳的 cancel＋重套打架，放開後專案或復原堆疊會亂掉
     if (drag || live.started || (state.history && state.history.busy)) { if (key !== 'Escape' && key !== 'Shift' && key !== 'Alt' && key !== 'Control' && key !== 'Meta') done(); return; }
 
@@ -1750,7 +1874,7 @@
     e.style.left = x + 'px'; e.style.width = w + 'px';
     const def = (F.TRANSITIONS || {})[tr.type];
     const nm = def ? def.name : tr.type;
-    e.title = `${nm}（${TRANS_SIDE_TEXT[side]}）　${tr.duration} 格（拖曳${side === 'both' ? '兩側' : side === 'in' ? '右側' : '左側'}調整長度，點一下在檢查器編輯）`;
+    e.title = `${nm}（${TRANS_SIDE_TEXT[side]}）　${tr.duration} 格（拖曳${side === 'both' ? '兩側' : side === 'in' ? '右側' : '左側'}調整長度，點一下在詳細內容編輯）`;
     e.append(el('span', 'ed-trans-t', nm));
     // 單邊轉場只有朝片段內側那一邊可以拖（另一邊貼著片段邊緣）
     for (const hs of side === 'both' ? ['l', 'r'] : side === 'in' ? ['r'] : ['l']) { const hd = el('div', 'ed-trans-h ' + hs); hd.dataset.trans = tr.id; hd.dataset.side = hs; e.appendChild(hd); }
@@ -1869,6 +1993,7 @@
     }
     scheduleInspector();
     if (state.history) updateToolbar();
+    scheduleStage();
   }
 
   // =====================================================================================
@@ -2353,7 +2478,7 @@
   }
 
   // =====================================================================================
-  // 檢查器
+  // 詳細內容
   // =====================================================================================
   const insp = { body: null, secs: {}, fxSecs: [], title: null, audio: null, speed: null, info: null, project: null };
 
@@ -2368,7 +2493,7 @@
     return { el: s, head: h, body: b, id, title };
   }
 
-  // 數值欄位：標籤可左右拖曳（Shift 加速、Alt 微調）、雙擊標籤重設；外觀沿用 fx 檢查器（.ed-fx-*）
+  // 數值欄位：標籤可左右拖曳（Shift 加速、Alt 微調）、雙擊標籤重設；外觀沿用 fx 詳細內容（.ed-fx-*）
   function numRow(parent, label, o) {
     const row = el('div', 'ed-fx-row');
     const lab = el('span', 'ed-fx-lab ed-fx-drag', label); lab.title = `${label}：在標籤上左右拖曳調整（Shift 加速、Alt 微調），雙擊重設`;
@@ -2471,7 +2596,7 @@
   }
 
   const primaryClip = () => clipOf(lastSel());
-  // 檢查器的音訊區：主要片段有聲音就用它，否則用選取裡第一個有聲音的（例如選了連結的影像＋聲音）
+  // 詳細內容的音訊區：主要片段有聲音就用它，否則用選取裡第一個有聲音的（例如選了連結的影像＋聲音）
   const audioClip = () => { const c = primaryClip(); if (c && c.audio) return c; return selIds().map(clipOf).find(x => x && x.audio) || null; };
   const speedClip = () => { const c = primaryClip(); if (c && speedApplies(c)) return c; return selIds().map(clipOf).find(x => speedApplies(x)) || null; };
   const audioIds = () => selIds().filter(id => { const c = clipOf(id); return c && c.audio; });
@@ -2481,7 +2606,7 @@
   function buildInspector() {
     const host = $('edInspector');
     host.textContent = '';
-    const head = el('div', 'ed-ph'); head.id = 'edInspHead'; head.textContent = '檢查器';
+    const head = el('div', 'ed-ph'); head.id = 'edInspHead'; head.textContent = '詳細內容';
     insp.body = el('div', 'ed-insp-body');
     host.append(head, insp.body);
     // 在數值標籤上按下去拖曳時，先讓輸入框失焦：不然焦點還停在輸入框裡，Ctrl+Z 會變成輸入框自己的文字復原
@@ -2565,7 +2690,7 @@
     r.en.textContent = c.enabled === false ? '已停用' : '啟用中';
     insp.infoFlags.textContent = '';
     for (const f of c.flags || []) { const s = el('i', 'ed-flagdot'); s.style.background = MARKER_HEX[f]; s.title = MARKER_NAME[f] || f; insp.infoFlags.appendChild(s); }
-    $('edInspHead').textContent = `檢查器　${clipTitle(c)}`;
+    $('edInspHead').textContent = `詳細內容　${clipTitle(c)}`;
   }
 
   // ---- 音訊 ------------------------------------------------------------------------
@@ -2693,12 +2818,12 @@
     show(insp.project, false); show(insp.info, false); show(insp.audio, false); show(insp.speed, false);
     insp.delTrans.hidden = true;
     for (const f of insp.fxSecs) show(f.ui, false);
-    $('edInspHead').textContent = '檢查器';
+    $('edInspHead').textContent = '詳細內容';
     if (tr) {
       const f = insp.fxSecs.find(x => x.def.appliesTo(tr));
       if (f) { show(f.ui, true); f.def.render(f.ui.body, tr, commitTransition); }
       insp.delTrans.hidden = false;
-      $('edInspHead').textContent = `檢查器　轉場（${TRANS_SIDE_TEXT[C.transitionSide(tr)] || ''}）`;
+      $('edInspHead').textContent = `詳細內容　轉場（${TRANS_SIDE_TEXT[C.transitionSide(tr)] || ''}）`;
       return;
     }
     if (!c) { show(insp.project, true); updateProjectSection(); return; }
@@ -2721,6 +2846,7 @@
   function onCoreChange(e) {
     sanitizeSelection();
     ensureMediaInfo();
+    scheduleStage();
     if (hasContent()) state.dirty = true;
     scheduleRender('all');
     if (state.mode === 'timeline' && player) {
@@ -2780,7 +2906,7 @@
       return;
     }
     newProject();
-    // fx 的檢查器樣式（.ed-fx-*）：音訊／速度區段也用同一套外觀，啟動時就插入
+    // fx 的詳細內容樣式（.ed-fx-*）：音訊／速度區段也用同一套外觀，啟動時就插入
     if (typeof F.ensureStyle === 'function') F.ensureStyle();
     buildMediaPanel(); buildViewer(); buildToolbar(); buildTimeline(); buildInspector();
     wireFileDrop(); wireSplitter();

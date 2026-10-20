@@ -6,9 +6,9 @@
 //   drawClipVisual／drawSolid／drawTitle         把片段畫到 ctx（preview 與 export 共用，ctx 的基底矩陣用「相乘」，不重設）
 //   TRANSITIONS                                  轉場：draw(ctx, drawA, drawB, t, opts, outW, outH)
 //   TITLE_PRESETS／makeTitle／wrapText           字幕
-//   inspector.sections                           檢查器（變形／裁切／字幕／轉場）
+//   inspector.sections                           詳細內容（變形／裁切／字幕／轉場）
 //   ready()                                      等字型載入（Canvas 不會等 @font-face，匯出前請先 await）
-// 這支檔案不讀其他 QPTEdit 模組，載入時也不碰 DOM；檢查器樣式在第一次 render 或呼叫 ensureStyle() 時插入。
+// 這支檔案不讀其他 QPTEdit 模組，載入時也不碰 DOM；詳細內容樣式在第一次 render 或呼叫 ensureStyle() 時插入。
 // =====================================================================================
 (function (root) {
   const Q = root.QPTEdit = root.QPTEdit || {};
@@ -309,7 +309,7 @@
   }
 
   // ---------------------------------------------------------------------------------
-  // 顏色小工具（檢查器的色彩＋透明度欄位用）
+  // 顏色小工具（詳細內容的色彩＋透明度欄位用）
   // ---------------------------------------------------------------------------------
   function parseColor(s) {
     s = String(s == null ? '' : s).trim();
@@ -473,6 +473,36 @@
     },
   };
 
+  // 字幕在輸出畫面上佔的範圍（輸出像素、套用變形後的外接矩形），給預覽拖曳時點選用。
+  // 只算排版位置（x／y 決定的那一塊，含底色內距），不含動畫的位移；捲動＝整欄、跑馬燈＝整列。沒有字幕回 null。
+  function titleBounds(clip, outW, outH, fInClip) {
+    const t = clip && clip.title;
+    if (!t) return null;
+    const tt = { ...BASE_TITLE, ...t };
+    const f = fInClip || 0, k = Math.min(outW, outH) / 1080;
+    const px = Math.max(1, num(tt.size, 80) * k), lh = px * num(tt.lineHeight, 1.25);
+    const pad = num(tt.bg && tt.bg.padding, 0) * k;
+    const ctx = scratch('measure', 1, 1).ctx, font = fontString(tt, px);
+    let box;
+    if (tt.preset === 'lowerThird') {
+      const left = tt.x * outW, L = layoutTitle(ctx, tt, font, Math.max(40, outW - left - outW * 0.06 - pad));
+      const bh = L.lines.length * lh;
+      box = [left - pad, tt.y * outH - bh / 2 - pad, L.w + pad * 2, bh + pad * 2];
+    } else if (tt.preset === 'crawl') {
+      box = [0, tt.y * outH - lh / 2 - pad, outW, lh + pad * 2];
+    } else {
+      const L = layoutTitle(ctx, tt, font, (tt.preset === 'scroll' ? outW * 0.8 : outW * 0.9) - 2 * pad);
+      const bh = L.lines.length * lh;
+      box = tt.preset === 'scroll' ? [tt.x * outW - L.w / 2 - pad, 0, L.w + pad * 2, outH]
+        : [tt.x * outW - L.w / 2 - pad, tt.y * outH - bh / 2 - pad, L.w + pad * 2, bh + pad * 2];
+    }
+    const m = clipMatrix(clip, outW, outH, outW, outH, f);
+    const pts = [[box[0], box[1]], [box[0] + box[2], box[1]], [box[0], box[1] + box[3]], [box[0] + box[2], box[1] + box[3]]].map(([x, y]) => applyMatrix(m, x, y));
+    const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+    const x = Math.min(...xs), y = Math.min(...ys);
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+  }
+
   // 字級 size 是「短邊 1080 時的像素」，輸出尺寸不同時等比放大縮小，看起來一致
   function drawTitle(ctx, clip, outW, outH, fInClip, fps) {
     const t = clip && clip.title;
@@ -613,7 +643,7 @@
     }),
   };
   // ---------------------------------------------------------------------------------
-  // 檢查器
+  // 詳細內容
   //   sections：[{ id, title, appliesTo(subject), render(el, subject, commit) }]
   //   subject：clip 區段（transform／crop／title）收到片段；transition 區段收到 Transition 物件。
   //   commit(patch, { live })：clip 區段的 patch 是 setClipProps 的巢狀補丁（例如 { video: { transform: { zoomX: 1.2 } } }），
@@ -903,11 +933,11 @@
   const api = {
     DEFAULT_TRANSFORM, DEFAULT_CROP, defaultTransform, defaultCrop, defaultVideo,
     fitRect, clipMatrix, applyMatrix, cropRect, getParam,
-    drawClipVisual, drawSolid, drawTitle,
+    drawClipVisual, drawSolid, drawTitle, titleBounds,
     TRANSITIONS, ease, TITLE_PRESETS, makeTitle, wrapText, parseColor, formatColor,
     ready, get fontLoaded() { return fontLoaded; },
     inspector: { sections: SECTIONS },
-    ensureStyle,                 // 插入檢查器樣式（.ed-fx-*）；UI 自己的區段也用這套外觀，啟動時先呼叫一次
+    ensureStyle,                 // 插入詳細內容樣式（.ed-fx-*）；UI 自己的區段也用這套外觀，啟動時先呼叫一次
     _setCanvasFactory(fn) { canvasFactory = fn; Object.keys(pool).forEach(k => delete pool[k]); },
   };
   Q.fx = api;

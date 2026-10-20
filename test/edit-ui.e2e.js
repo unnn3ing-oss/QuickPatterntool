@@ -1243,6 +1243,76 @@ async function runViewport(browser, base, fix, [W, H]) {
 // 外觀與版面（不需要素材，每個測試開新的 context，所以 localStorage 互不影響）：
 //   工具列單排可捲動、其他工具按鈕、深色／淺色、直式版面
 // =====================================================================================
+// 預覽框：拖曳字幕、安全框、「詳細內容」名稱（不需要素材，只放字幕）
+async function runStageTests(browser, base, [W, H]) {
+  const tag = `${W}x${H}`;
+  console.log(`\n==== 預覽框：字幕拖曳與安全框 ${tag} ====`);
+  const problems = [];
+  const ctx = await browser.newContext({ viewport: { width: W, height: H } });
+  const page = await ctx.newPage();
+  page.on('pageerror', e => problems.push('pageerror: ' + e.message));
+  page.on('console', m => { if (m.type() === 'error') problems.push('console.error: ' + m.text()); });
+  await page.goto(base);
+  await page.click('#funcEditBtn');
+  await settle(page);
+  ok((await page.textContent('#edInspHead')).startsWith('詳細內容'), '右側面板標題改為「詳細內容」');
+  eq(await page.getAttribute('#edInspector', 'aria-label'), '詳細內容', '右側面板的 aria-label 也改名');
+  await page.selectOption('#edAspect', '9:16');
+  await page.click('.ed-tab[data-tab="title"]');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(10));
+  await page.click('#edTitleAdd');
+  await settle(page);
+  const tpos = () => proj(page, p => { const c = Object.values(p.clips).find(x => x.type === 'title'); return [Math.round(c.title.x * 1000) / 1000, Math.round(c.title.y * 1000) / 1000]; });
+  eq(await tpos(), [0.5, 0.5], '新增的靜態字幕在畫面正中央');
+  ok(await page.isVisible('#edTitleBox'), '選取的字幕在預覽上有虛線框');
+  const ov = await page.evaluate(() => { const r = document.getElementById('edOverlay').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  ok(Math.abs(ov.w / ov.h - 1080 / 1920) < 0.01, `疊圖對齊 9:16 的畫面（${Math.round(ov.w)}×${Math.round(ov.h)}）`);
+  const tb = await page.evaluate(() => { const r = document.getElementById('edTitleBox').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  ok(Math.abs(tb.x - (ov.x + ov.w / 2)) < 2 && Math.abs(tb.y - (ov.y + ov.h / 2)) < 2, '虛線框在畫面中央');
+  await page.mouse.move(tb.x, tb.y);
+  eq(await page.evaluate(() => document.getElementById('edCanvas').style.cursor), 'move', '游標移到字幕上變成移動');
+  await drag(page, tb, { x: tb.x + ov.w * 0.2, y: tb.y - ov.h * 0.25 }, { steps: 10 });
+  let pos = await tpos();
+  ok(Math.abs(pos[0] - 0.7) < 0.01 && Math.abs(pos[1] - 0.25) < 0.01, `在預覽上拖曳字幕：x／y 改成約 0.7／0.25（${pos}）`);
+  ok((await page.textContent('#edUndoLab')).includes('移動字幕'), '復原標籤是「移動字幕」（整次拖曳一筆）');
+  const tb2 = await page.evaluate(() => { const r = document.getElementById('edTitleBox').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  ok(Math.abs(tb2.x - (ov.x + ov.w * 0.7)) < 3 && Math.abs(tb2.y - (ov.y + ov.h * 0.25)) < 3, '虛線框跟著移動');
+  await drag(page, tb2, { x: ov.x + ov.w * 0.5 + 4, y: tb2.y }, { steps: 6 });
+  pos = await tpos();
+  eq(pos[0], 0.5, '拖到中線附近會吸附到正中');
+  const tb3 = await page.evaluate(() => { const r = document.getElementById('edTitleBox').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await drag(page, tb3, { x: tb3.x + 4, y: tb3.y }, { steps: 6, mods: ['Alt'] });
+  pos = await tpos();
+  ok(pos[0] !== 0.5, `按住 Alt 不吸附（${pos[0]}）`);
+  await page.keyboard.press('Control+z'); await settle(page);
+  await page.keyboard.press('Control+z'); await settle(page);
+  eq(await tpos(), [0.7, 0.25], '復原兩次：回到第一次拖曳後的位置');
+  await page.keyboard.press('Control+z'); await settle(page);
+  eq(await tpos(), [0.5, 0.5], '再復原：回到中央');
+  // 不在字幕上按：不會動到字幕
+  await drag(page, { x: ov.x + 20, y: ov.y + ov.h - 30 }, { x: ov.x + 60, y: ov.y + ov.h - 80 });
+  eq(await tpos(), [0.5, 0.5], '在字幕以外的地方拖：字幕不動');
+  // 安全框
+  ok(await page.isVisible('#edSafe'), '9:16：檢視器上方有「安全框」按鈕');
+  ok(!(await page.isVisible('.ed-safe')), '預設不顯示安全框');
+  await page.click('#edSafe'); await settle(page);
+  ok(await page.isVisible('.ed-safe'), '按下後顯示安全框');
+  eq(await page.getAttribute('#edSafe', 'aria-pressed'), 'true', '按鈕顯示為開啟');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(10));
+  await settle(page);
+  await shot(page, `${tag}-S1-safe-zone`);
+  await page.keyboard.press('Control+z'); await settle(page);   // 新增字幕也復原掉，截一張只有安全框的
+  await page.selectOption('#edAspect', '16:9'); await settle(page);
+  ok(!(await page.isVisible('#edSafe')) && !(await page.isVisible('.ed-safe')), '16:9：安全框按鈕與疊圖都隱藏');
+  await page.selectOption('#edAspect', '9:16'); await settle(page);
+  ok(await page.isVisible('.ed-safe'), '切回 9:16：記得安全框是開的');
+  await page.reload(); await page.click('#funcEditBtn'); await settle(page);
+  await page.selectOption('#edAspect', '9:16'); await settle(page);
+  ok(await page.isVisible('.ed-safe'), '重新載入後仍記得安全框開關');
+  await ctx.close();
+  return problems;
+}
+
 async function runLayoutTests(browser, base, [W, H]) {
   const tag = `${W}x${H}`;
   console.log(`\n==== 外觀與版面 ${tag} ====`);
@@ -1535,6 +1605,7 @@ async function runLayoutTests(browser, base, [W, H]) {
   let all = [];
   try {
     for (const vp of VIEWPORTS) all = all.concat(await runLayoutTests(browser, base, vp));
+    for (const vp of VIEWPORTS) all = all.concat(await runStageTests(browser, base, vp));
     for (const vp of VIEWPORTS) all = all.concat(await runViewport(browser, base, fix, vp));
   } catch (e) { failed++; console.log('  FAIL 測試中斷：', e && e.stack || e); }
   ok(all.length === 0, '整段流程沒有 console error／頁面例外／CSP 違規' + (all.length ? '：' + all.join(' | ') : ''));
