@@ -1,4 +1,5 @@
 /* 改尺寸（網頁版專用；上傳區、縮圖展示窗沿用 watermark.css 的 .wm-photo-drop／.wm-thumb／.wm-stage／.wm-empty） */
+#resizeApp[hidden] { display: none; }     /* .layout 是 display:grid，hidden 要特別寫，不然會露在其他分頁底下 */
 #resizeApp label { display: flex; justify-content: space-between; align-items: baseline; }
 #resizeApp .dropzone input { display: none; }
 .rs-size { display: flex; align-items: center; gap: 8px; }

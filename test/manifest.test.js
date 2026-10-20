@@ -7,8 +7,8 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const changelog = JSON.parse(read('changelog.json'));
 
-test('manifest 版本是 4.54', () => {
-  assert.strictEqual(manifest.version, '4.54');
+test('manifest 版本是 4.55', () => {
+  assert.strictEqual(manifest.version, '4.55');
 });
 
 test('content_scripts 只注入熱門新聞庫', () => {
@@ -47,4 +47,12 @@ test('deploy.js 的 SKIP 與 updater.js 一致（都略過 test/）', () => {
     return new Function('return [' + m[1] + ']')().map(String);
   };
   assert.deepStrictEqual(get('deploy.js'), get('updater.js'));
+});
+
+test('updater SKIP 會略過網頁版剪輯檔案（edit.css、edit-*.js）', () => {
+  const m = read('updater.js').match(/const SKIP = \[([\s\S]*?)\];/);
+  const skip = new Function('return [' + m[1] + ']')();
+  const skipped = p => skip.some(re => re.test(p));
+  for (const f of ['edit.css', 'edit-core.js', 'edit-ui.js', 'edit-export.js']) assert.strictEqual(skipped(f), true, f);
+  assert.strictEqual(skipped('app.js'), false);
 });
