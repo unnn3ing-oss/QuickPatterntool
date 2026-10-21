@@ -6,6 +6,7 @@
 <title>圖片套版產生器</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="sidepanel.css">
+<link rel="stylesheet" href="sched.css">
 <link rel="stylesheet" href="segmented.css">
 </head>
 <body class="sidepanel">
@@ -79,32 +80,8 @@
       <textarea id="qfCopyText" rows="4" placeholder="【標題】&#10;（圖／OOO 攝）&#10;#標籤 #標籤 #標籤" spellcheck="false"></textarea>
     </section>
 
-    <section class="card sp-card" id="schedCard">
-      <div class="sp-card-head">
-        <h2>FB 粉專排程</h2>
-        <button type="button" class="success" id="schFillBtn" title="帶入「複製圖文格式」的文字和目前預覽的圖片">帶入目前圖文</button>
-      </div>
-      <div class="sch-field">
-        <label for="schPage">粉專網址</label>
-        <input type="url" id="schPage" class="sch-input" placeholder="https://www.facebook.com/你的粉專" autocomplete="off" spellcheck="false">
-      </div>
-      <textarea id="schText" rows="4" placeholder="貼文內容（可以空白，但文字和圖片至少要有一樣）" spellcheck="false"></textarea>
-      <div class="sch-thumbs" id="schThumbs" hidden></div>
-      <div class="sch-row">
-        <button type="button" id="schAddImg">加入圖片</button>
-        <input type="file" id="schFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
-      </div>
-      <div class="sch-field">
-        <label for="schAt">發佈時間</label>
-        <div class="sch-row">
-          <input type="datetime-local" id="schAt" class="sch-input">
-          <button type="button" class="primary" id="schAddBtn">加入排程</button>
-        </div>
-      </div>
-      <div class="qf-status" id="schStatus" role="status"></div>
-      <div class="sch-list" id="schList" hidden></div>
-      <div class="hint">到時間瀏覽器要開著、電腦不能休眠；外掛會自動開新分頁發佈，發完關閉。請先在 Facebook 切換成粉專身分。第一次建議先按「試跑」確認內容有正確填好。</div>
-    </section>
+    <!-- FB 粉專排程：介面由 schedui.js 產生（和網頁版的排程抽屜共用），資料存取見 schedpanel.js -->
+    <section class="card sp-card" id="schedCard"></section>
 
     <section class="card sp-card" id="singleFields">
       <h2>編輯</h2>
@@ -195,8 +172,10 @@
       </ul>
       <h3>FB 粉專排程</h3>
       <ul>
-        <li>填好粉專網址（要是粉專頁面，不是 Facebook 首頁），按「帶入目前圖文」會帶入「複製圖文格式」的文字和預覽上的成品圖；也可以自己打字、按「加入圖片」選圖（最多 10 張）。</li>
-        <li>選好發佈時間按「加入排程」。到時間外掛會自動開一個 Facebook 分頁，填好內容、按「發佈」，成功後關掉分頁、回到原本的分頁，並跳出通知。</li>
+        <li>粉專：左邊下拉選單選<b>新聞粉／娛樂粉／少康粉</b>（會自動填入網址），也可以直接在右邊輸入其他粉專的網址。按「帶入目前圖文」會帶入「複製圖文格式」的文字、快速產圖的文章網址和預覽上的成品圖；也可以自己打字、按「加入圖片」選圖（最多 10 張）。</li>
+        <li><b>小編文</b>與<b>文章網址</b>：貼文發佈後，外掛會在剛發的那則貼文下自動留言「小編文＋換行＋文章網址＋追蹤碼」。追蹤碼依粉專與貼文有沒有附圖自動決定（有圖用 pic、只有文字用 comments，下方會顯示留言預覽）；自訂的粉專不加追蹤碼。小編文與網址都留空就不留言。</li>
+        <li>選好發佈時間按「加入排程」。到時間外掛會自動開一個 Facebook 分頁，填好內容、按「發佈」、留言，成功後關掉分頁、回到原本的分頁，並跳出通知。</li>
+        <li>清單上等待中、失敗、錯過的排程可以按「<b>編輯</b>」修改（文字、圖片、時間、小編文都能改，改完按「更新排程」）；已發佈的可以按「試跑留言」「補留言」。網頁版右側的「排程」抽屜也看得到同一份清單。</li>
         <li><b>條件</b>：瀏覽器要開著、電腦不能休眠或關機；Facebook 要已登入，並先切換成粉專身分。錯過時間超過 10 分鐘（例如那時瀏覽器沒開）不會補發，會標成「錯過」。</li>
         <li>「試跑」會做完所有動作但<b>不按發佈</b>，分頁停在填好的畫面讓你檢查；Facebook 改版後如果失敗，會在清單顯示卡在哪一步，貼文不會被亂發。</li>
         <li>狀態是「失敗」且寫著「可能已經發出」時，請先到粉專確認，再決定要不要重新發佈。</li>
@@ -238,6 +217,7 @@
 <script src="quickfill.js"></script>
 <script src="bridge.js"></script>
 <script src="sidepanel.js"></script>
+<script src="schedui.js"></script>
 <script src="schedpanel.js"></script>
 <script src="segmented.js"></script>
 </body>

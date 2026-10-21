@@ -164,7 +164,7 @@ test('清單：依時間排序；各狀態顯示原因；刪除；試跑直接�
   const soon = page.locator('.sch-item', { hasText: '早的' });
   await soon.getByRole('button', { name: '試跑' }).click();
   await page.waitForFunction(() => window.__sent.length === 1);
-  assert.deepEqual(await page.evaluate(() => window.__sent[0]), { type: 'poster:start', id: 'soon', dryRun: true });
+  assert.deepEqual(await page.evaluate(() => window.__sent[0]), { type: 'poster:start', id: 'soon', dryRun: true, mode: 'post' });
 
   await soon.getByRole('button', { name: '立即發佈' }).click();
   assert.equal(await page.locator('#confirmOverlay.open').count(), 1);
@@ -174,7 +174,7 @@ test('清單：依時間排序；各狀態顯示原因；刪除；試跑直接�
   await soon.getByRole('button', { name: '立即發佈' }).click();
   await page.click('#confirmOkBtn');
   await page.waitForFunction(() => window.__sent.length === 2);
-  assert.deepEqual(await page.evaluate(() => window.__sent[1]), { type: 'poster:start', id: 'soon', dryRun: false });
+  assert.deepEqual(await page.evaluate(() => window.__sent[1]), { type: 'poster:start', id: 'soon', dryRun: false, mode: 'post' });
 
   await soon.getByRole('button', { name: '刪除' }).click();
   await page.waitForFunction(() => window.__data.fbQueue.length === 5);
@@ -185,4 +185,165 @@ test('「失敗：可能已經發出」重新發佈前，確認視窗會先警�
   const { page } = await open(t, { queue: [item({ id: 'u', status: 'failed', step: 'publishing', error: '已按下發佈但沒收到結果，貼文可能已經發出', at: Date.now() - 1000 })] });
   await page.getByRole('button', { name: '重新發佈' }).click();
   assert.match(await page.locator('#confirmMessage').textContent(), /可能已經發出去了/);
+});
+
+// ---- 粉專下拉選單、小編文、留言預覽、編輯 ---------------------------------------
+const NEWS = 'https://www.facebook.com/tvbsfb/', TEA = 'https://www.facebook.com/tvbsteatimenews', ROOM = 'https://www.facebook.com/2100room';
+const ART = 'https://news.tvbs.com.tw/politics/4039103';
+const preview = page => page.locator('#schCommentPreview');
+
+test('粉專下拉選單：自訂／新聞粉／娛樂粉／少康粉；選了會填入網址；網址欄仍可自己輸入，選單跟著對應', { skip }, async t => {
+  const { page } = await open(t);
+  assert.deepEqual(await page.locator('#schPreset option').allTextContents(), ['自訂', '新聞粉', '娛樂粉', '少康粉']);
+  // 下拉選單在網址輸入框的左邊
+  assert.ok(await page.evaluate(() => document.getElementById('schPreset').compareDocumentPosition(document.getElementById('schPage')) & Node.DOCUMENT_POSITION_FOLLOWING));
+  for (const [label, url] of [['新聞粉', NEWS], ['娛樂粉', TEA], ['少康粉', ROOM]]) {
+    await page.selectOption('#schPreset', { label });
+    assert.equal(await page.inputValue('#schPage'), url, label);
+  }
+  await page.fill('#schPage', 'https://www.facebook.com/someoneelse');
+  assert.equal(await page.inputValue('#schPreset'), '');
+  await page.fill('#schPage', 'https://facebook.com/tvbsfb');
+  await page.locator('#schPage').blur();   // 輸入完離開輸入框才會記住
+  assert.equal(await page.locator('#schPreset option:checked').textContent(), '新聞粉');
+  assert.equal(await page.evaluate(() => window.__data.fbPageUrl), 'https://www.facebook.com/tvbsfb');   // 記住最後用的粉專
+});
+
+test('小編文欄位在「發佈時間」上面；留言預覽依粉專與有沒有圖片帶不同追蹤碼', { skip }, async t => {
+  const { page } = await open(t);
+  assert.ok(await page.evaluate(() => document.getElementById('schNote').compareDocumentPosition(document.getElementById('schAt')) & Node.DOCUMENT_POSITION_FOLLOWING));
+  assert.equal(await preview(page).isHidden(), true);
+  await page.fill('#schNote', '你也這樣覺得嗎？👀');
+  await page.fill('#schArticle', ART);
+  const want = { 新聞粉: ['fbarticlecomments', 'fbarticlepic'], 娛樂粉: ['tvbsteatimenewscomments', 'tvbsteatimenewspic'], 少康粉: ['2100roomcomments', '2100roompic'] };
+  for (const [label, [textMedium, picMedium]] of Object.entries(want)) {
+    await page.selectOption('#schPreset', { label });
+    assert.equal(await preview(page).textContent(), `發佈後會自動留言：\n你也這樣覺得嗎？👀\n${ART}?&utm_source=facebook&utm_medium=${textMedium}`, label);
+    await page.setInputFiles('#schFile', { name: 'a.png', mimeType: 'image/png', buffer: PNG_BYTES });
+    await page.waitForFunction(() => document.querySelectorAll('.sch-thumb').length === 1);
+    assert.match(await preview(page).textContent(), new RegExp(`utm_medium=${picMedium}$`), label + ' 有圖');
+    await page.locator('.sch-thumb-x').click();
+    assert.match(await preview(page).textContent(), new RegExp(`utm_medium=${textMedium}$`), label + ' 移除圖片後');
+  }
+  await page.fill('#schPage', 'https://www.facebook.com/someoneelse');
+  assert.equal(await preview(page).textContent(), `發佈後會自動留言：\n你也這樣覺得嗎？👀\n${ART}`);   // 自訂粉專不加追蹤碼
+  await page.fill('#schArticle', 'abc');
+  assert.match(await preview(page).textContent(), /文章網址要是 http\(s\) 網址/);
+  await page.fill('#schArticle', '');
+  await page.fill('#schNote', '');
+  assert.equal(await preview(page).isHidden(), true);
+});
+
+test('加入排程：小編文與文章網址一起存；文章網址格式不對會擋下', { skip }, async t => {
+  const { page } = await open(t);
+  await page.selectOption('#schPreset', { label: '娛樂粉' });
+  await page.fill('#schText', '貼文');
+  await page.fill('#schNote', '小編說');
+  await page.fill('#schArticle', 'abc');
+  await page.fill('#schAt', future(45));
+  await page.click('#schAddBtn');
+  assert.match(await page.locator('#schStatus').textContent(), /文章網址要是 http\(s\) 網址/);
+  assert.equal((await queued(page)).length, 0);
+  await page.fill('#schArticle', ART);
+  await page.click('#schAddBtn');
+  await page.waitForFunction(() => window.__data.fbQueue.length === 1);
+  const [q] = await queued(page);
+  assert.deepEqual({ note: q.note, articleUrl: q.articleUrl, pageUrl: q.pageUrl }, { note: '小編說', articleUrl: ART, pageUrl: TEA });
+  assert.equal(await page.inputValue('#schNote'), '');
+  assert.equal(await page.inputValue('#schArticle'), '');
+  assert.match(await page.locator('.sch-note').textContent(), /小編說/);
+});
+
+test('帶入目前圖文：快速產圖欄的文章網址也一起帶入（不是網址就不帶）', { skip }, async t => {
+  const { page } = await open(t);
+  await page.fill('#qfCopyText', '【標題】');
+  await page.fill('#qfUrl', ART);
+  await page.click('#schFillBtn');
+  await page.waitForFunction(() => document.getElementById('schArticle').value !== '');
+  assert.equal(await page.inputValue('#schArticle'), ART);
+  assert.match(await page.locator('#schStatus').textContent(), /文章網址/);
+  await page.fill('#schArticle', '');
+  await page.fill('#qfUrl', '不是網址');
+  await page.click('#schFillBtn');
+  await page.waitForFunction(() => /已帶入/.test(document.getElementById('schStatus').textContent));
+  assert.equal(await page.inputValue('#schArticle'), '');
+});
+
+test('編輯：等待中的排程帶回表單（含圖片）、改完按「更新排程」→ 同一筆更新、仍是等待中；可取消', { skip }, async t => {
+  const at = Date.now() + 7200000;
+  const { page } = await open(t, { queue: [item({ id: 'e1', text: '原本的貼文', note: '原本小編文', articleUrl: ART, pageUrl: TEA, at, images: [{ name: 'a.png', dataUrl: 'data:image/png;base64,' + PNG_BYTES.toString('base64') }] })] });
+  await page.getByRole('button', { name: '編輯' }).click();
+  await page.waitForFunction(() => document.getElementById('schAddBtn').textContent === '更新排程');
+  assert.equal(await page.inputValue('#schText'), '原本的貼文');
+  assert.equal(await page.inputValue('#schNote'), '原本小編文');
+  assert.equal(await page.inputValue('#schArticle'), ART);
+  assert.equal(await page.inputValue('#schPage'), TEA);
+  assert.equal(await page.locator('#schPreset option:checked').textContent(), '娛樂粉');
+  assert.equal(await page.locator('.sch-thumb').count(), 1);
+  assert.equal(await page.locator('#schEditBar').isVisible(), true);
+  assert.equal(new Date(await page.inputValue('#schAt')).getTime(), new Date(at).setSeconds(0, 0));   // 時間還沒過：沿用原本的
+  await page.fill('#schText', '改過的貼文');
+  await page.fill('#schAt', future(180));
+  await page.click('#schAddBtn');
+  await page.waitForFunction(() => window.__data.fbQueue[0].text === '改過的貼文');
+  const q = await queued(page);
+  assert.equal(q.length, 1);
+  assert.deepEqual({ id: q[0].id, status: q[0].status, note: q[0].note, images: q[0].images.length }, { id: 'e1', status: 'pending', note: '原本小編文', images: 1 });
+  assert.equal(await page.locator('#schAddBtn').textContent(), '加入排程');
+  assert.equal(await page.locator('#schEditBar').isHidden(), true);
+  assert.equal(await page.inputValue('#schText'), '');
+
+  await page.getByRole('button', { name: '編輯' }).click();
+  await page.waitForFunction(() => document.getElementById('schAddBtn').textContent === '更新排程');
+  await page.click('#schCancelEdit');
+  assert.equal(await page.locator('#schAddBtn').textContent(), '加入排程');
+  assert.equal(await page.inputValue('#schText'), '');
+  assert.equal((await queued(page)).length, 1);
+});
+
+test('編輯：失敗／錯過的可以編輯，時間已過會提示重新選，改完回到「等待中」；執行中、已發佈的不能編輯', { skip }, async t => {
+  const now = Date.now();
+  const { page } = await open(t, { queue: [
+    item({ id: 'f', text: '失敗的', status: 'failed', error: 'x', at: now - 600000 }),
+    item({ id: 'm', text: '錯過的', status: 'missed', error: 'y', at: now - 7200000 }),
+    item({ id: 'r', text: '跑中', status: 'running', step: 'text', at: now - 1000 }),
+    item({ id: 'd', text: '發好的', status: 'done', finishedAt: now - 1000, at: now - 900000 })
+  ] });
+  assert.equal(await page.getByRole('button', { name: '編輯' }).count(), 2);
+  await page.locator('.sch-item', { hasText: '失敗的' }).getByRole('button', { name: '編輯' }).click();
+  await page.waitForFunction(() => document.getElementById('schAddBtn').textContent === '更新排程');
+  assert.match(await page.locator('#schEditLabel').textContent(), /時間已過，請重新選時間/);
+  assert.ok(new Date(await page.inputValue('#schAt')).getTime() > now + 9 * 60000);   // 預設改成未來的時間
+  await page.click('#schAddBtn');
+  await page.waitForFunction(() => window.__data.fbQueue.find(i => i.id === 'f').status === 'pending');
+  const f = (await queued(page)).find(i => i.id === 'f');
+  assert.equal(f.error, undefined);
+  assert.ok(f.at > now);
+});
+
+test('已發佈的貼文：顯示留言狀態；有留言內容才有「試跑留言」「補留言」，會用 mode:comment 請外掛做', { skip }, async t => {
+  const now = Date.now();
+  const base = { status: 'done', finishedAt: now - 1000, at: now - 900000 };
+  const { page } = await open(t, { queue: [
+    item(Object.assign({ id: 'c1', text: '留言失敗的' }, base, { note: '小編', commentState: 'failed', commentError: '找不到送出按鈕' })),
+    item(Object.assign({ id: 'c2', text: '留言成功的', at: now - 800000 }, base, { articleUrl: ART, commentState: 'done' })),
+    item(Object.assign({ id: 'c3', text: '沒有留言內容的', at: now - 700000 }, base))
+  ] });
+  const failed = page.locator('.sch-item', { hasText: '留言失敗的' });
+  assert.match(await failed.locator('.sch-detail.err').textContent(), /留言失敗：找不到送出按鈕/);
+  assert.match(await page.locator('.sch-item', { hasText: '留言成功的' }).textContent(), /留言：已完成/);
+  assert.equal(await page.locator('.sch-item', { hasText: '沒有留言內容的' }).getByRole('button', { name: /留言/ }).count(), 0);
+  assert.equal(await failed.getByRole('button', { name: '編輯' }).count(), 0);
+
+  await failed.getByRole('button', { name: '試跑留言' }).click();
+  await page.waitForFunction(() => window.__sent.length === 1);
+  assert.deepEqual(await page.evaluate(() => window.__sent[0]), { type: 'poster:start', id: 'c1', dryRun: true, mode: 'comment' });
+  await failed.getByRole('button', { name: '補留言' }).click();
+  assert.equal(await page.locator('#confirmOverlay.open').count(), 1);
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => window.__sent.length === 2);
+  assert.deepEqual(await page.evaluate(() => window.__sent[1]), { type: 'poster:start', id: 'c1', dryRun: false, mode: 'comment' });
+  // 已經留言成功的：按鈕改叫「再留言」，並警告會重複
+  await page.locator('.sch-item', { hasText: '留言成功的' }).getByRole('button', { name: '再留言' }).click();
+  assert.match(await page.locator('#confirmMessage').textContent(), /重複的留言/);
 });

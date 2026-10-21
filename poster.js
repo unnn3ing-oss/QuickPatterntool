@@ -1,10 +1,12 @@
 // Facebook 粉專排程發文的背景端（由 background.js importScripts 載入）。
-// 流程：排定時間到 → 鬧鐘 post:<id> 觸發 → 開粉專分頁 → 把內容交給 fbpost.js（內容腳本）填好並按發佈
+// 流程：排定時間到 → 鬧鐘 post:<id> 觸發 → 開粉專分頁 → 把內容交給 fbpost.js（內容腳本）填好、按發佈、在剛發的貼文留言
 //       → 內容腳本回報結果 → 更新狀態、關分頁、發通知。
 // 背景腳本隨時可能被 Chrome 收掉，所以「現在跑到哪」一律寫進 storage（status／step），
 // 並設一個「卡住監看」鬧鐘 post-watch:<id>，保證不會永遠停在執行中。
+// 另外替網頁版（透過 schedbridge.js）提供排程清單的讀寫，以及快速產圖要用的「代抓文章／圖片」（sched:api）。
 (function (root) {
   const S = root.QptSched;
+  const B = root.QptSchedBridge;
   const ALARM = 'post:';
   const WATCH = 'post-watch:';
   const FB_ORIGIN = 'https://www.facebook.com';
@@ -21,43 +23,80 @@
     catch (e) { /* 沒有通知權限：狀態仍會顯示在側邊欄 */ }
   }
   const preview = item => ((item.text || '').trim().split('\n')[0] || `${item.images.length} 張圖片`).slice(0, 30);
+  const isCommentStep = step => step === 'finding' || step === 'commenting';
+
+  async function closeTab(item) {
+    // 成功就關掉我們開的分頁，並回到原本在看的分頁；失敗時留著，方便看卡在哪
+    try { if (item.tabId != null) await c().tabs.remove(item.tabId); } catch (e) { /* 已被關掉 */ }
+    try { if (item.prevTabId != null) await c().tabs.update(item.prevTabId, { active: true }); } catch (e) { /* 原分頁不在了 */ }
+  }
 
   // ---- 結束一次執行 -----------------------------------------------------
-  // 正式發佈：成功 → done；失敗 → failed。試跑：不論結果都回到執行前的狀態，只留下 step／error 讓側邊欄顯示。
+  // result：{ ok, step, error, commentState('none'|'done'|'failed'|'dry-ok'), commentError }
+  // 發貼文：成功 → done（留言失敗也算 done，另外記 commentState）；失敗 → failed。
+  // 試跑：不論結果都回到執行前的狀態，只留下 step／error 讓側邊欄顯示。
+  // 補留言（mode:comment）：貼文維持 done，只更新留言狀態。
   async function finish(item, result) {
-    const base = { tabId: undefined, startedAt: undefined, finishedAt: Date.now() };
+    const base = { tabId: undefined, startedAt: undefined, finishedAt: Date.now(), prevStatus: undefined, dryRun: false, mode: undefined };
+    if (item.mode === 'comment') {
+      if (item.dryRun) {
+        await S.update(item.id, Object.assign(base, {
+          status: 'done', step: result.ok ? 'dry-ok' : result.step, error: undefined,
+          commentError: result.ok ? undefined : result.error
+        }));   // 試跑留言：留言狀態維持原樣
+        notify(result.ok ? '試跑留言完成' : '試跑留言失敗', result.ok ? '留言已打好、尚未送出，請到 Facebook 分頁確認' : result.error);
+        return;
+      }
+      await S.update(item.id, Object.assign(base, {
+        status: 'done', step: result.ok ? 'commented' : result.step, error: undefined,
+        commentState: result.ok ? 'done' : 'failed', commentError: result.ok ? undefined : result.error
+      }));
+      if (result.ok) { notify('留言完成', preview(item)); await closeTab(item); }
+      else notify('補留言失敗', `${preview(item)}：${result.error}`);
+      return;
+    }
+
     if (item.dryRun) {
       await S.update(item.id, Object.assign(base, {
-        status: item.prevStatus || 'pending', dryRun: false, prevStatus: undefined,
-        step: result.ok ? 'dry-ok' : result.step, error: result.ok ? undefined : result.error
+        status: item.prevStatus || 'pending', step: result.ok ? 'dry-ok' : result.step, error: result.ok ? undefined : result.error
       }));   // 試跑完成後分頁留著讓你檢查，不再追蹤它
       notify(result.ok ? '試跑完成' : '試跑失敗', result.ok ? '內容已填好、尚未發佈，請到 Facebook 分頁確認' : result.error);
       return;
     }
+
+    const commentState = result.ok && result.commentState && result.commentState !== 'none' ? result.commentState : undefined;
     await S.update(item.id, Object.assign(base, {
-      status: result.ok ? 'done' : 'failed', step: result.step, error: result.ok ? undefined : result.error, prevStatus: undefined
+      status: result.ok ? 'done' : 'failed', step: result.step, error: result.ok ? undefined : result.error,
+      commentState, commentError: commentState === 'failed' ? result.commentError : undefined
     }));
-    if (result.ok) {
-      notify('已發佈到粉專', preview(item));
-      // 成功就關掉我們開的分頁，並回到原本在看的分頁；失敗時留著，方便看卡在哪
-      try { if (item.tabId != null) await c().tabs.remove(item.tabId); } catch (e) { /* 已被關掉 */ }
-      try { if (item.prevTabId != null) await c().tabs.update(item.prevTabId, { active: true }); } catch (e) { /* 原分頁不在了 */ }
-    } else {
-      notify('粉專排程發佈失敗', `${preview(item)}：${result.error}`);
+    if (!result.ok) { notify('粉專排程發佈失敗', `${preview(item)}：${result.error}`); return; }
+    if (commentState === 'failed') {
+      // 貼文發佈了、留言沒成：分頁留著，方便手動留言
+      notify('已發佈到粉專，但留言失敗', `${preview(item)}：${result.commentError}`);
+      return;
     }
+    notify(commentState === 'done' ? '已發佈並留言' : '已發佈到粉專', preview(item));
+    await closeTab(item);
   }
 
+  // 失敗收尾。貼文已經發佈、卡在留言階段時，不能把整筆標成失敗（會誤導人重發）：算已發佈、留言失敗。
+  function failItem(item, error, step) {
+    if (item.mode !== 'comment' && isCommentStep(step)) return finish(item, { ok: true, step, commentState: 'failed', commentError: error });
+    return finish(item, { ok: false, error, step });
+  }
   async function failRunning(id, error, step) {
     const item = (await S.list()).find(i => i.id === id);
     if (!item || item.status !== 'running') return;
     try { await c().alarms.clear(WATCH + id); } catch (e) { /* ignore */ }
-    await finish(item, { ok: false, error, step: step || item.step });
+    await failItem(item, error, step || item.step);
   }
 
   // ---- 開始一次執行 -----------------------------------------------------
-  // opts.manual：從側邊欄手動按「立即發佈」／「試跑」；opts.dryRun：只填內容、不按發佈
+  // opts.manual：從側邊欄／網頁版手動按；opts.dryRun：只填內容、不按發佈（補留言時：只打好留言、不送出）
+  // opts.mode：post（發貼文，之後留言）｜comment（貼文已發佈，只補留言）
   async function start(id, opts) {
     const { manual = false, dryRun = false } = opts || {};
+    const mode = opts && opts.mode === 'comment' ? 'comment' : 'post';
     const now = Date.now();
     const list = await S.list();
     const item = list.find(i => i.id === id);
@@ -68,7 +107,13 @@
       await c().alarms.create(ALARM + id, { when: now + BUSY_RETRY_MS });
       return { ok: true, deferred: true };
     }
-    if (item.status === 'running' || item.status === 'done') return { ok: false, error: item.status === 'done' ? '這筆已經發佈過了' : '這筆正在執行中' };
+    if (item.status === 'running') return { ok: false, error: '這筆正在執行中' };
+    if (mode === 'comment') {
+      if (item.status !== 'done') return { ok: false, error: '貼文還沒發佈，不能補留言' };
+      if (!S.commentOf(item)) return { ok: false, error: '這筆沒有要留言的內容（小編文和文章網址都是空的）' };
+    } else if (item.status === 'done') {
+      return { ok: false, error: '這筆已經發佈過了' };
+    }
 
     if (!manual) {   // 到點自動執行：只有「等待中」且在寬限內才發
       const act = S.classify(item, now);
@@ -79,12 +124,12 @@
 
     const v = S.validateItem(item);
     if (!v.ok) {
-      await finish(Object.assign({}, item, { dryRun, prevStatus: item.status }), { ok: false, error: v.error, step: 'start' });
+      await finish(Object.assign({}, item, { dryRun, mode, prevStatus: item.status }), { ok: false, error: v.error, step: 'start' });
       return { ok: false, error: v.error };
     }
 
     await S.update(id, {
-      status: 'running', startedAt: now, dryRun, prevStatus: item.status, step: 'start', error: undefined, finishedAt: undefined, tabId: undefined
+      status: 'running', startedAt: now, dryRun, mode, prevStatus: item.status, step: 'start', error: undefined, finishedAt: undefined, tabId: undefined
     });
     let prev = null;
     try { [prev] = await c().tabs.query({ active: true, lastFocusedWindow: true }); } catch (e) { /* ignore */ }
@@ -95,13 +140,17 @@
     await c().alarms.create(WATCH + id, { delayInMinutes: S.RUN_TIMEOUT_MS / 60000 });
 
     // 不 await：整段交付最久 90 秒，期間每次 sendMessage 都會讓背景腳本保持存活；結果由 fbpost:result 訊息回報
-    deliver(tab.id, item, dryRun).catch(err => failRunning(id, err.message || String(err), 'start'));
+    deliver(tab.id, item, dryRun, mode).catch(err => failRunning(id, err.message || String(err), 'start'));
     return { ok: true };
   }
 
   // 內容腳本要等頁面載入才會就緒，所以重複送，直到它回「已開始」
-  async function deliver(tabId, item, dryRun) {
-    const job = { type: 'fbpost:run', job: { id: item.id, text: item.text, images: item.images, dryRun } };
+  async function deliver(tabId, item, dryRun, mode) {
+    const m = mode === 'comment' ? 'comment' : 'post';
+    const job = {
+      type: 'fbpost:run',
+      job: { id: item.id, mode: m, text: item.text, images: m === 'comment' ? [] : item.images, comment: S.commentOf(item), dryRun }
+    };
     for (let i = 0; i < DELIVER_TRIES; i++) {
       try {
         const r = await c().tabs.sendMessage(tabId, job);
@@ -136,7 +185,7 @@
     for (const item of list) {
       const act = S.classify(item, now);
       if (act === 'missed') { await markMissed(item); continue; }
-      if (act === 'stale') { await finish(item, { ok: false, error: S.stuckMessage(item.step), step: item.step }); continue; }
+      if (act === 'stale') { await failItem(item, S.stuckMessage(item.step), item.step); continue; }
       if (item.status !== 'pending') continue;
       wanted.add(ALARM + item.id);
       const have = byName.get(ALARM + item.id);
@@ -146,6 +195,85 @@
     }
     for (const a of alarms) {
       if (a.name.startsWith(ALARM) && !wanted.has(a.name)) await c().alarms.clear(a.name);
+    }
+  }
+
+  // ---- 網頁版快速產圖：外掛代為下載文章與圖片 -----------------------------------------
+  // 網頁版（github.io）抓別家網站會被瀏覽器的跨網域限制擋住，外掛有權限抓，所以請外掛代勞；解析標題、挑圖都在網頁那邊做。
+  // 這等於讓網頁用外掛的身分發出請求，所以限制很嚴：
+  //   文章：只能是 https 的 tvbs.com.tw 網址（與熱門新聞庫橋接同一條規則，bridge.js 的 validateSend），轉址後也必須還在 tvbs.com.tw；
+  //   圖片：網址要是公開網站（不能是內網、本機，轉址後也一樣），而且回應必須真的是圖片（content-type）才會回傳，有大小與逾時上限。
+  async function blobToDataUrl(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return `data:${blob.type};base64,${root.btoa(bin)}`;
+  }
+  const fetchFailMessage = (e, what, seconds) => (e && e.reason === 'timeout' ? `${what}讀取逾時（超過 ${seconds} 秒），請稍後再試`
+    : e && e.reason === 'toobig' ? `${what}檔案太大，已停止讀取` : '連線失敗，請確認網址和網路');
+
+  async function webFetchArticle(p) {
+    const QF = root.QuickFill, BR = root.QptBridge;
+    if (!QF || !BR) return { ok: false, error: 'internal_error' };
+    const v = BR.validateSend({ url: p && p.url });
+    if (!v.ok) return { ok: false, error: '網頁版快速產圖只能抓 TVBS 的文章網址（https://….tvbs.com.tw/…）' };
+    let got;
+    try { got = await QF.fetchLimited(v.url, { timeoutMs: QF.LIMITS.ARTICLE_TIMEOUT, maxBytes: QF.LIMITS.MAX_ARTICLE_BYTES }); }
+    catch (e) { return { ok: false, error: fetchFailMessage(e, '文章', QF.LIMITS.ARTICLE_TIMEOUT / 1000) }; }
+    if (!got.res.ok) return { ok: false, error: `文章讀取失敗（HTTP ${got.res.status}）` };
+    const f = BR.validateSend({ url: got.res.url || v.url });   // 轉址之後也必須還在 TVBS
+    if (!f.ok) return { ok: false, error: '文章被轉址到 TVBS 以外的網站，已停止' };
+    return { ok: true, data: { html: await got.blob.text(), url: f.url } };
+  }
+
+  async function webFetchImage(p) {
+    const QF = root.QuickFill, BR = root.QptBridge;
+    if (!QF || !BR) return { ok: false, error: 'internal_error' };
+    const a = BR.validateSend({ url: p && p.articleUrl });
+    const imageUrl = p && typeof p.url === 'string' ? p.url : '';
+    if (!a.ok || !imageUrl || imageUrl.length > 2000 || !QF.isAllowedImageUrl(imageUrl, a.url)) return { ok: false, error: '圖片網址不安全，已略過' };
+    let got;
+    try { got = await QF.fetchLimited(imageUrl, { timeoutMs: QF.LIMITS.IMAGE_TIMEOUT, maxBytes: QF.LIMITS.MAX_IMAGE_BYTES }); }
+    catch (e) { return { ok: false, error: fetchFailMessage(e, '圖片', QF.LIMITS.IMAGE_TIMEOUT / 1000) }; }
+    if (!got.blob) return { ok: false, error: `圖片讀取失敗（HTTP ${got.res.status}）` };
+    if (!QF.isAllowedImageUrl(got.res.url || imageUrl, a.url)) return { ok: false, error: '圖片被轉址到不安全的位置，已略過' };
+    if (!/^image\/(png|jpe?g|webp|gif|avif|bmp)/i.test(got.blob.type)) return { ok: false, error: '這個網址不是圖片' };
+    return { ok: true, data: { dataUrl: await blobToDataUrl(got.blob), type: got.blob.type } };
+  }
+
+  // ---- 網頁版的排程操作（來自 schedbridge.js）---------------------------------
+  // 網頁傳來的資料一律當作不可信：新增／編輯都重新驗證（S.buildItem），圖片只在要編輯時單筆取。
+  async function webApi(op, p) {
+    const payload = p && typeof p === 'object' ? p : {};
+    switch (op) {
+      case 'ping': return { ok: true, data: { version: c().runtime.getManifest().version } };
+      case 'list': return { ok: true, data: (await S.list()).map(S.summarize) };
+      case 'get': {
+        const item = (await S.list()).find(i => i.id === payload.id);
+        return item ? { ok: true, data: item } : { ok: false, error: '找不到這筆排程' };
+      }
+      case 'add': {
+        const r = await S.addItem(payload.input);
+        return r.ok ? { ok: true, data: S.summarize(r.item) } : r;
+      }
+      case 'edit': {
+        const r = await S.edit(payload.id, payload.input);
+        return r.ok ? { ok: true, data: S.summarize(r.item) } : r;
+      }
+      case 'remove': {
+        const item = (await S.list()).find(i => i.id === payload.id);
+        if (!item) return { ok: true };
+        if (item.status === 'running') return { ok: false, error: '正在執行中，不能刪除' };
+        await S.remove(payload.id);
+        return { ok: true };
+      }
+      case 'start': {
+        if (typeof payload.id !== 'string') return { ok: false, error: 'bad_request' };
+        return start(payload.id, { manual: true, dryRun: !!payload.dryRun, mode: payload.mode === 'comment' ? 'comment' : 'post' });
+      }
+      case 'fetchArticle': return webFetchArticle(payload);
+      case 'fetchImage': return webFetchImage(payload);
+      default: return { ok: false, error: 'unknown_op' };
     }
   }
 
@@ -168,7 +296,15 @@
       // 來自側邊欄（擴充功能自己的頁面，沒有 tab）：手動執行
       if (msg.type === 'poster:start') {
         if (sender.tab || typeof msg.id !== 'string') return;
-        start(msg.id, { manual: true, dryRun: !!msg.dryRun }).then(sendResponse, () => sendResponse({ ok: false, error: 'internal_error' }));
+        start(msg.id, { manual: true, dryRun: !!msg.dryRun, mode: msg.mode === 'comment' ? 'comment' : 'post' })
+          .then(sendResponse, () => sendResponse({ ok: false, error: 'internal_error' }));
+        return true;
+      }
+
+      // 來自網頁版（內容腳本 schedbridge.js 轉進來）：排程清單的讀寫
+      if (msg.type === 'sched:api') {
+        if (!B || !B.senderAllowed(sender, c().runtime.id) || !B.OPS.includes(msg.op)) { sendResponse({ ok: false, error: 'not_allowed' }); return; }
+        webApi(msg.op, msg.payload).then(sendResponse, () => sendResponse({ ok: false, error: 'internal_error' }));
         return true;
       }
 
@@ -182,7 +318,9 @@
           try { await c().alarms.clear(WATCH + item.id); } catch (e) { /* ignore */ }
           await finish(item, {
             ok: !!msg.ok, step: String(msg.step || item.step || '').slice(0, 20),
-            error: msg.ok ? undefined : String(msg.error || '發佈失敗').slice(0, 300)
+            error: msg.ok ? undefined : String(msg.error || '發佈失敗').slice(0, 300),
+            commentState: ['none', 'done', 'failed', 'dry-ok'].includes(msg.commentState) ? msg.commentState : undefined,
+            commentError: msg.commentError ? String(msg.commentError).slice(0, 300) : undefined
           });
         })().catch(() => {});
         sendResponse({ ok: true });
@@ -194,7 +332,9 @@
     c().tabs.onRemoved.addListener(tabId => {
       S.list().then(list => {
         const item = list.find(i => i.status === 'running' && i.tabId === tabId);
-        if (item) return failRunning(item.id, item.step === 'publishing' ? S.stuckMessage('publishing') : '發佈途中分頁被關掉了，沒有發佈', item.step);
+        if (!item) return;
+        const msg = item.step === 'publishing' || isCommentStep(item.step) ? S.stuckMessage(item.step) : '發佈途中分頁被關掉了，沒有發佈';
+        return failRunning(item.id, msg, item.step);
       }).catch(() => {});
     });
 
@@ -205,5 +345,5 @@
   }
 
   if (S && root.chrome && root.chrome.alarms && root.chrome.tabs && root.chrome.storage && root.chrome.storage.local) register();
-  root.QptPoster = { start, sync, deliver, finish };
+  root.QptPoster = { start, sync, deliver, finish, webApi };
 })(typeof self !== 'undefined' ? self : this);

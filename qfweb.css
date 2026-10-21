@@ -1,0 +1,15 @@
+/* 網頁版專用：左邊編輯區卡片裡的「快速產圖」小輸入框（qfweb.js）。放在「下載／完成」那一列和「新聞／娛樂」切換之間，刻意做得小。 */
+.qfw-row { margin: 2px 0 10px; }
+.qfw-input {
+  display: block; width: 100%; box-sizing: border-box; height: 32px; padding: 0 14px;
+  font: inherit; font-size: 13px; color: var(--text, #1f2a3d);
+  border: none; border-radius: 999px; background: var(--field-bg, #fff);
+  box-shadow: inset 0 0 0 1px var(--border, rgba(0, 74, 173, 0.12));
+}
+.qfw-input::placeholder { color: var(--muted, #6b7890); }
+.qfw-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent, #004aad), 0 0 0 4px rgba(0, 74, 173, 0.12); }
+.qfw-status { margin: 4px 4px 0; font-size: 12px; line-height: 1.5; color: var(--muted, #6b7890); word-break: break-word; }
+.qfw-status[hidden] { display: none; }
+.qfw-status.ok { color: var(--success, #16a34a); }
+.qfw-status.warn { color: #b45309; }
+.qfw-status.err { color: #d92d20; }

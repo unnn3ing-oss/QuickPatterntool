@@ -7,12 +7,12 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const changelog = JSON.parse(read('changelog.json'));
 
-test('manifest 版本是 5.02', () => {
-  assert.strictEqual(manifest.version, '5.02');
+test('manifest 版本是 6.11', () => {
+  assert.strictEqual(manifest.version, '6.11');
 });
 
-test('content_scripts 只注入熱門新聞庫與 Facebook（粉專排程）', () => {
-  assert.strictEqual(manifest.content_scripts.length, 2);
+test('content_scripts 只注入熱門新聞庫、Facebook（粉專排程）與網頁版（排程橋接）', () => {
+  assert.strictEqual(manifest.content_scripts.length, 3);
   const hot = manifest.content_scripts.find(cs => cs.js.includes('bridge.js'));
   assert.deepStrictEqual(hot.matches, ['https://unnn3ing-oss.github.io/hottopic/*']);
   assert.deepStrictEqual(hot.js, ['bridge.js']);
@@ -22,6 +22,10 @@ test('content_scripts 只注入熱門新聞庫與 Facebook（粉專排程）', (
   assert.deepStrictEqual(fb.js, ['fbpost.js']);
   assert.strictEqual(fb.run_at, 'document_idle');
   assert.ok(!fb.all_frames);
+  const web = manifest.content_scripts.find(cs => cs.js.includes('schedbridge.js'));
+  assert.deepStrictEqual(web.matches, ['https://unnn3ing-oss.github.io/QuickPatterntool/*']);
+  assert.deepStrictEqual(web.js, ['schedbridge.js']);
+  assert.strictEqual(web.run_at, 'document_idle');
 });
 
 test('粉專排程需要 alarms、notifications、unlimitedStorage（圖片存在 storage.local）', () => {
@@ -46,10 +50,23 @@ test('changelog 有 4.50 且有 summary 與 items', () => {
   assert.ok(Array.isArray(c.items) && c.items.length > 0);
 });
 
+test('網頁版專用的排程抽屜與快速產圖（schedweb、qfweb）在 SKIP 清單，不會被外掛下載；quickfill.js 不在（側邊欄與背景要用）', () => {
+  const m = read('updater.js').match(/const SKIP = \[([\s\S]*?)\];/);
+  const skip = new Function('return [' + m[1] + ']')();
+  for (const f of ['schedweb.js', 'schedweb.css', 'qfweb.js', 'qfweb.css']) {
+    assert.strictEqual(skip.some(re => re.test(f)), true, f);
+    assert.ok(fs.existsSync(path.join(__dirname, '..', f)), f + ' 不存在');
+  }
+  assert.strictEqual(skip.some(re => re.test('quickfill.js')), false);
+  for (const f of ['schedweb.js', 'qfweb.js', 'quickfill.js']) assert.ok(read('index.html').includes(`src="${f}"`), `網頁版要載入 ${f}`);
+  // 網頁版 CSP 的 connect-src 不能放寬：網頁自己不能連 TVBS，文章與圖片一律請外掛代抓
+  assert.ok(/connect-src https:\/\/api\.github\.com https:\/\/raw\.githubusercontent\.com;/.test(read('index.html')), 'index.html 的 connect-src 被改動了');
+});
+
 test('粉專排程的檔案都要隨外掛更新（不在 SKIP 清單）', () => {
   const m = read('updater.js').match(/const SKIP = \[([\s\S]*?)\];/);
   const skip = new Function('return [' + m[1] + ']')();
-  for (const f of ['scheduler.js', 'poster.js', 'fbpost.js', 'schedpanel.js']) {
+  for (const f of ['scheduler.js', 'poster.js', 'fbpost.js', 'schedbridge.js', 'schedui.js', 'sched.css', 'schedpanel.js']) {
     assert.strictEqual(skip.some(re => re.test(f)), false, f);
     assert.ok(fs.existsSync(path.join(__dirname, '..', f)), f + ' 不存在');
   }
