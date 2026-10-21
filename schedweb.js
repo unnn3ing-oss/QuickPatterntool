@@ -40,6 +40,8 @@
     unknown_op: '外掛版本太舊，請更新到最新版'
   })[e] || e || '失敗';
 
+  window.QptWebBridge = { call, friendly };   // 網頁版快速產圖（qfweb.js）也用同一條橋接
+
   // ---- 介面需要的資料存取（和側邊欄同一組 api 介面）-------------------------------------
   let badge = null;
   const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
@@ -61,7 +63,8 @@
     onChange(cb) { changeHandlers.push(cb); }
   };
 
-  // 「帶入目前圖文」：目前展開的（沒有就取最後完成的）套版圖，標題放進【】
+  // 「帶入目前圖文」：目前展開的（沒有就取最後完成的）套版圖。用過快速產圖的卡片，連文章網址與圖文格式（【標題】／圖說／hashtag）一起帶入；
+  // 沒用過的只帶標題放進【】。
   async function compose() {
     const items = typeof batchItems !== 'undefined' ? batchItems : [];
     const openId = typeof expandedBatchItemId !== 'undefined' ? expandedBatchItemId : null;
@@ -69,7 +72,12 @@
     const pick = items.find(it => it.id === openId && finished(it)) || [...items].reverse().find(finished);
     if (!pick) return { text: '', image: null, articleUrl: '' };
     const title = String(pick.title || '').replace(/\s*\n\s*/g, ' ').trim();
-    return { text: title ? `【${title}】` : '', image: pick.resultDataUrl, articleUrl: '' };
+    const meta = pick.qfMeta;
+    if (!meta) return { text: title ? `【${title}】` : '', image: pick.resultDataUrl, articleUrl: '' };
+    // 標題在快速產圖之後又改過：第一行【標題】換成現在的標題，圖說與 hashtag 照原本；沒改過就原樣帶入（保留文章原本的標題寫法）
+    const rows = String(meta.copyText || '').split('\n');
+    if (title && pick.title !== meta.appliedTitle) { if (/^【.*】$/.test(rows[0] || '')) rows[0] = `【${title}】`; else rows.unshift(`【${title}】`); }
+    return { text: rows.join('\n').trim(), image: pick.resultDataUrl, articleUrl: meta.articleUrl || '' };
   }
 
   // ---- 抽屜 ---------------------------------------------------------------------

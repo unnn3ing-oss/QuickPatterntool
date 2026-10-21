@@ -10,6 +10,10 @@ test('validateRequest：格式正確的請求通過，payload 預設為空物件
   for (const op of B.OPS) assert.strictEqual(B.validateRequest(ok({ op })).ok, true, op);
 });
 
+test('OPS 白名單：排程操作與快速產圖的代抓，沒有別的', () => {
+  assert.deepStrictEqual(B.OPS, ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start', 'fetchArticle', 'fetchImage']);
+});
+
 test('validateRequest：來源標記、版本、nonce、op、payload 任何一項不對都拒絕', () => {
   const bad = [
     null, 'x', [], {}, ok({ source: 'hottopic' }), ok({ type: 'send-to-quickpattern' }), ok({ v: 2 }), ok({ v: undefined }),

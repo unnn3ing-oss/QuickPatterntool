@@ -3,7 +3,7 @@
 //       → 內容腳本回報結果 → 更新狀態、關分頁、發通知。
 // 背景腳本隨時可能被 Chrome 收掉，所以「現在跑到哪」一律寫進 storage（status／step），
 // 並設一個「卡住監看」鬧鐘 post-watch:<id>，保證不會永遠停在執行中。
-// 另外替網頁版（透過 schedbridge.js）提供排程清單的讀寫（sched:api）。
+// 另外替網頁版（透過 schedbridge.js）提供排程清單的讀寫，以及快速產圖要用的「代抓文章／圖片」（sched:api）。
 (function (root) {
   const S = root.QptSched;
   const B = root.QptSchedBridge;
@@ -198,6 +198,49 @@
     }
   }
 
+  // ---- 網頁版快速產圖：外掛代為下載文章與圖片 -----------------------------------------
+  // 網頁版（github.io）抓別家網站會被瀏覽器的跨網域限制擋住，外掛有權限抓，所以請外掛代勞；解析標題、挑圖都在網頁那邊做。
+  // 這等於讓網頁用外掛的身分發出請求，所以限制很嚴：
+  //   文章：只能是 https 的 tvbs.com.tw 網址（與熱門新聞庫橋接同一條規則，bridge.js 的 validateSend），轉址後也必須還在 tvbs.com.tw；
+  //   圖片：網址要是公開網站（不能是內網、本機，轉址後也一樣），而且回應必須真的是圖片（content-type）才會回傳，有大小與逾時上限。
+  async function blobToDataUrl(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return `data:${blob.type};base64,${root.btoa(bin)}`;
+  }
+  const fetchFailMessage = (e, what, seconds) => (e && e.reason === 'timeout' ? `${what}讀取逾時（超過 ${seconds} 秒），請稍後再試`
+    : e && e.reason === 'toobig' ? `${what}檔案太大，已停止讀取` : '連線失敗，請確認網址和網路');
+
+  async function webFetchArticle(p) {
+    const QF = root.QuickFill, BR = root.QptBridge;
+    if (!QF || !BR) return { ok: false, error: 'internal_error' };
+    const v = BR.validateSend({ url: p && p.url });
+    if (!v.ok) return { ok: false, error: '網頁版快速產圖只能抓 TVBS 的文章網址（https://….tvbs.com.tw/…）' };
+    let got;
+    try { got = await QF.fetchLimited(v.url, { timeoutMs: QF.LIMITS.ARTICLE_TIMEOUT, maxBytes: QF.LIMITS.MAX_ARTICLE_BYTES }); }
+    catch (e) { return { ok: false, error: fetchFailMessage(e, '文章', QF.LIMITS.ARTICLE_TIMEOUT / 1000) }; }
+    if (!got.res.ok) return { ok: false, error: `文章讀取失敗（HTTP ${got.res.status}）` };
+    const f = BR.validateSend({ url: got.res.url || v.url });   // 轉址之後也必須還在 TVBS
+    if (!f.ok) return { ok: false, error: '文章被轉址到 TVBS 以外的網站，已停止' };
+    return { ok: true, data: { html: await got.blob.text(), url: f.url } };
+  }
+
+  async function webFetchImage(p) {
+    const QF = root.QuickFill, BR = root.QptBridge;
+    if (!QF || !BR) return { ok: false, error: 'internal_error' };
+    const a = BR.validateSend({ url: p && p.articleUrl });
+    const imageUrl = p && typeof p.url === 'string' ? p.url : '';
+    if (!a.ok || !imageUrl || imageUrl.length > 2000 || !QF.isAllowedImageUrl(imageUrl, a.url)) return { ok: false, error: '圖片網址不安全，已略過' };
+    let got;
+    try { got = await QF.fetchLimited(imageUrl, { timeoutMs: QF.LIMITS.IMAGE_TIMEOUT, maxBytes: QF.LIMITS.MAX_IMAGE_BYTES }); }
+    catch (e) { return { ok: false, error: fetchFailMessage(e, '圖片', QF.LIMITS.IMAGE_TIMEOUT / 1000) }; }
+    if (!got.blob) return { ok: false, error: `圖片讀取失敗（HTTP ${got.res.status}）` };
+    if (!QF.isAllowedImageUrl(got.res.url || imageUrl, a.url)) return { ok: false, error: '圖片被轉址到不安全的位置，已略過' };
+    if (!/^image\/(png|jpe?g|webp|gif|avif|bmp)/i.test(got.blob.type)) return { ok: false, error: '這個網址不是圖片' };
+    return { ok: true, data: { dataUrl: await blobToDataUrl(got.blob), type: got.blob.type } };
+  }
+
   // ---- 網頁版的排程操作（來自 schedbridge.js）---------------------------------
   // 網頁傳來的資料一律當作不可信：新增／編輯都重新驗證（S.buildItem），圖片只在要編輯時單筆取。
   async function webApi(op, p) {
@@ -228,6 +271,8 @@
         if (typeof payload.id !== 'string') return { ok: false, error: 'bad_request' };
         return start(payload.id, { manual: true, dryRun: !!payload.dryRun, mode: payload.mode === 'comment' ? 'comment' : 'post' });
       }
+      case 'fetchArticle': return webFetchArticle(payload);
+      case 'fetchImage': return webFetchImage(payload);
       default: return { ok: false, error: 'unknown_op' };
     }
   }

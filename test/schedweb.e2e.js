@@ -1,95 +1,24 @@
-// 網頁版右側「排程」抽屜在真的 Chromium 裡的流程測試。
-// 網頁版從假的網址 https://unnn3ing-oss.github.io/QuickPatterntool/ 載入（內容取自本機檔案），
-// 並在頁面裡放「真的」scheduler.js、schedbridge.js（內容腳本）、poster.js（背景），接上假的 chrome.*（記憶體 storage／鬧鐘／分頁），
-// 所以「網頁 → postMessage → 橋接 → 背景 → 儲存 → 通知網頁重新整理」整條路都是真的程式在跑。
+// 網頁版右側「排程」抽屜在真的 Chromium 裡的流程測試（測試環境見 test/web-harness.js：假網址載入網頁版、真的橋接與背景程式、假的 chrome.*）。
 // 真的擴充功能環境（content script 注入、跨環境訊息）仍需 Chrome 實機。
 // 需要 playwright：NODE_PATH=<有 playwright 的 node_modules> node --test test/schedweb.e2e.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+const { EXTENSION, openWeb } = require('./web-harness');
 
 let chromium = null;
 try { ({ chromium } = require('playwright')); } catch (e) { /* 沒裝 playwright：整檔略過 */ }
 const skip = chromium ? false : '找不到 playwright（設 NODE_PATH 指到有 playwright 的 node_modules）';
 
-const ROOT = path.join(__dirname, '..');
-const BASE = 'https://unnn3ing-oss.github.io/QuickPatterntool/';
 const FB = 'https://www.facebook.com/tvbsfb/';
 const TEA = 'https://www.facebook.com/tvbsteatimenews';
 const ART = 'https://news.tvbs.com.tw/politics/4039103';
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
-const src = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 let browser;
 test.before(async () => { if (chromium) browser = await chromium.launch(); });
 test.after(async () => { if (browser) await browser.close(); });
 
-// 假的 chrome.* ＋ 真的 scheduler／schedbridge／poster。withExtension:false 時什麼都不放（沒裝外掛的網頁版）。
-const EXTENSION = () => `
-(() => {
-  const data = { fbQueue: window.__initialQueue || [] };
-  const listeners = { storage: [], message: [] };
-  window.__tabs = { created: [], sent: [], removed: [] };
-  const clone = v => JSON.parse(JSON.stringify(v));
-  window.chrome = {
-    runtime: {
-      id: 'me', getManifest: () => ({ version: '9.99' }),
-      onMessage: { addListener: f => listeners.message.push(f) }, onInstalled: { addListener() {} }, onStartup: { addListener() {} },
-      sendMessage: msg => new Promise(res => {
-        let async = false;
-        for (const f of listeners.message) { if (f(msg, { id: 'me', tab: { id: 5 }, url: location.href }, v => res(v)) === true) async = true; }
-        if (!async) res(undefined);
-      })
-    },
-    storage: {
-      local: {
-        get: async k => (k in data ? { [k]: clone(data[k]) } : {}),
-        set: async o => {
-          const changes = {};
-          for (const k of Object.keys(o)) { changes[k] = { newValue: clone(o[k]) }; data[k] = clone(o[k]); }
-          listeners.storage.forEach(f => f(changes, 'local'));
-        }
-      },
-      onChanged: { addListener: f => listeners.storage.push(f) }
-    },
-    alarms: { create: async () => {}, getAll: async () => [], clear: async () => true, onAlarm: { addListener() {} } },
-    tabs: {
-      query: async () => [{ id: 7 }], create: async o => { window.__tabs.created.push(o); return { id: 100 + window.__tabs.created.length }; },
-      sendMessage: async (id, m) => { window.__tabs.sent.push(m); return { started: true }; },
-      remove: async id => { window.__tabs.removed.push(id); }, update: async () => {}, onRemoved: { addListener() {} }
-    },
-    notifications: { create: async () => {} }
-  };
-  window.__data = data;
-})();
-${src('scheduler.js')}
-${src('schedbridge.js')}
-${src('poster.js')}
-`;
-
-async function open(t, { queue = [], withExtension = true } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  t.after(() => ctx.close());
-  const page = await ctx.newPage();
-  const errors = [];
-  page.on('pageerror', e => errors.push(e.message));
-  await page.route('**/*', route => {
-    const url = new URL(route.request().url());
-    if (url.origin !== 'https://unnn3ing-oss.github.io' || !url.pathname.startsWith('/QuickPatterntool/')) return route.abort();
-    const rel = decodeURIComponent(url.pathname.slice('/QuickPatterntool/'.length)) || 'index.html';
-    const file = path.join(ROOT, rel);
-    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return route.fulfill({ status: 404, body: '' });
-    return route.fulfill({ contentType: TYPES[path.extname(file)] || 'application/octet-stream', body: fs.readFileSync(file) });
-  });
-  if (withExtension) {
-    await page.addInitScript(q => { window.__initialQueue = q; }, queue);
-    await page.addInitScript(EXTENSION());
-  }
-  await page.goto(BASE);
-  return { page, errors };
-}
+const open = (t, opts) => openWeb(browser, t, opts);
 const store = page => page.evaluate(() => window.__data.fbQueue);
 const future = (min = 60) => { const d = new Date(Date.now() + min * 60000); d.setSeconds(0, 0); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const item = over => Object.assign({ id: 'x1', text: '既有的貼文', images: [], pageUrl: FB, note: '', articleUrl: '', at: Date.now() + 3600000, status: 'pending', createdAt: Date.now() }, over);
@@ -105,7 +34,7 @@ test('抽屜預設收在右邊緣只露出「排程」頁籤；點頁籤彈出�
   await page.click('#schedTab');
   await page.waitForSelector('#schPage', { state: 'visible' });
   assert.equal(await page.locator('#schedTab').getAttribute('aria-expanded'), 'true');
-  await page.waitForFunction(() => document.getElementById('schedDrawerPanel').getBoundingClientRect().x < 845);   // 等彈出動畫跑完（寬度 440）
+  await page.waitForFunction(() => document.getElementById('schedDrawerPanel').getBoundingClientRect().x < 841);   // 等彈出動畫跑完（寬度 440，停在 840）
   const panel = await page.locator('#schedDrawerPanel').boundingBox();
   assert.ok(panel.x + panel.width <= 1281 && panel.x >= 1280 - 460, '抽屜寬度約 440：' + JSON.stringify(panel));
   await page.keyboard.press('Escape');

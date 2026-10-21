@@ -1,7 +1,8 @@
 // 點工具列圖示就打開側邊欄；另外定時問 GitHub 有沒有新版，有的話在圖示上顯示「新」。
 // 真正的更新要在側邊欄按「更新」才會執行（見 updater.js）。
 // 另外載入 Facebook 粉專排程發文的背景端（scheduler.js／schedbridge.js／poster.js）：自己註冊鬧鐘與訊息監聽。
-importScripts('updater.js', 'bridge.js', 'scheduler.js', 'schedbridge.js', 'poster.js');
+// quickfill.js 在背景只用到它的下載函式（網頁版快速產圖請外掛代抓），沒有 document 也能載入。
+importScripts('updater.js', 'bridge.js', 'quickfill.js', 'scheduler.js', 'schedbridge.js', 'poster.js');
 
 const CHECK_EVERY_MINUTES = 60;   // 每小時檢查一次
 

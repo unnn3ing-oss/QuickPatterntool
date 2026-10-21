@@ -70,3 +70,16 @@ test('pickTags：無重複文字的優先，重複的最後才補', () => {
 test('formatCopy：沒有 2～3 字標籤就略過 hashtag 那一行', () => {
   assert.strictEqual(QF.formatCopy({ title: '標題', caption: '', tags: ['台灣大哥大'] }), '【標題】');
 });
+
+test('沒有 document 的環境（背景 service worker）也能載入，並匯出下載函式與限制', () => {
+  const sw = {};
+  sw.self = sw;   // service worker 只有 self，沒有 window／document
+  sw.URL = URL;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'quickfill.js'), 'utf8'), sw);
+  assert.strictEqual(typeof sw.QuickFill.fetchLimited, 'function');
+  assert.strictEqual(typeof sw.QuickFill.normalizeUrl, 'function');
+  assert.strictEqual(sw.QuickFill.normalizeUrl('news.tvbs.com.tw/x'), 'https://news.tvbs.com.tw/x');
+  assert.strictEqual(sw.QuickFill.normalizeUrl('  '), '');
+  assert.deepStrictEqual(Object.keys(sw.QuickFill.LIMITS).sort(), ['ARTICLE_TIMEOUT', 'IMAGE_TIMEOUT', 'MAX_ARTICLE_BYTES', 'MAX_IMAGE_BYTES', 'MAX_IMAGE_TRIES', 'MAX_PIXELS', 'MIN_H', 'MIN_W']);
+  assert.strictEqual(sw.QuickFill.isPrivateHost('192.168.1.1'), true);
+});

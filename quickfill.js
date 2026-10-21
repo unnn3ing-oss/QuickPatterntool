@@ -1,7 +1,8 @@
-// 側邊欄「快速產圖」：貼文章網址 → 抓標題／首圖／圖說／hashtag，
-// 標題與圖帶進套版，同時組好「複製圖文格式」的文字。
-//
-// 需要在 app.js 之後載入（會呼叫它的 singleBgPicker 並透過 DOM 填標題）。
+// 快速產圖：貼文章網址 → 抓標題／首圖／圖說／hashtag，標題與圖帶進套版，同時組好「複製圖文格式」的文字。
+// 這個檔案有三種載入方式：
+//   1. 側邊欄（有 #qfUrl）：完整的快速產圖介面，需要在 app.js 之後載入（會呼叫它的 singleBgPicker 並透過 DOM 填標題）
+//   2. 網頁版（qfweb.js 用）：沒有 #qfUrl，只匯出純函式（解析文章、斷行、格式），文章與圖片由外掛代為下載
+//   3. 背景 service worker（poster.js 用）：沒有 document，只匯出純函式與下載函式
 (function (root) {
   // ---- 標題換行 ----------------------------------------------------------------
   // 強斷點：每個空格（半形／全形）換一行（空格本身丟掉）；「！」「？」之後也換行（標點留在上一行），
@@ -370,11 +371,65 @@
     return /\n/.test(override) ? override.split('\n').map(l => l.trim()).filter(Boolean).join(' ') : override;
   }
 
-  root.QuickFill = { breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl, resolveTitle, overrideLines, overrideOneLine };
+  // ---- 抓取（側邊欄、網頁版、背景共用）-------------------------------------------------
+  // 沒有 document 的環境（背景 service worker）也要能載入這個檔案，所以這一段只用 fetch／AbortController／Blob。
+  const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
+  // 抓取上限：避免一個卡住或超大的網站讓快速產圖一直轉、或吃光記憶體
+  const ARTICLE_TIMEOUT = 15000, IMAGE_TIMEOUT = 20000;       // 毫秒（整個下載過程，不只是連線）
+  const MAX_ARTICLE_BYTES = 5 * 1024 * 1024, MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+  const MAX_PIXELS = 50e6;        // 5,000 萬畫素（約 7000×7000）
+  const MAX_IMAGE_TRIES = 6;      // 最多試前幾張圖
+
+  function normalizeUrl(raw) {
+    let s = raw.trim();
+    if (!s) return '';
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+    try { return new URL(s).href; } catch (e) { return ''; }
+  }
+
+  // 有逾時、有大小上限的下載。逾時涵蓋整個下載過程；超過上限就中止。回傳 { res, blob }
+  async function fetchLimited(url, { timeoutMs, maxBytes, signal }) {
+    const ctrl = new AbortController();
+    let why = '';
+    const timer = setTimeout(() => { why = 'timeout'; ctrl.abort(); }, timeoutMs);
+    const onOuterAbort = () => ctrl.abort();
+    if (signal) { if (signal.aborted) ctrl.abort(); else signal.addEventListener('abort', onOuterAbort); }
+    try {
+      const res = await fetch(url, { credentials: 'omit', signal: ctrl.signal });
+      if (!res.ok) return { res, blob: null };
+      if (Number(res.headers.get('content-length')) > maxBytes) { why = 'toobig'; ctrl.abort(); throw new Error('toobig'); }
+      const chunks = [];
+      let size = 0;
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > maxBytes) { why = 'toobig'; ctrl.abort(); throw new Error('toobig'); }
+        chunks.push(value);
+      }
+      return { res, blob: new Blob(chunks, { type: res.headers.get('content-type') || '' }) };
+    } catch (e) {
+      const err = new Error(why || (e && e.message) || 'network');
+      err.reason = why || (signal && signal.aborted ? 'cancelled' : 'network');
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onOuterAbort);
+    }
+  }
+
+
+  root.QuickFill = {
+    breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl, resolveTitle, overrideLines, overrideOneLine,
+    normalizeUrl, fetchLimited,
+    LIMITS: { MIN_W, MIN_H, ARTICLE_TIMEOUT, IMAGE_TIMEOUT, MAX_ARTICLE_BYTES, MAX_IMAGE_BYTES, MAX_PIXELS, MAX_IMAGE_TRIES }
+  };
 
   // ---- 側邊欄互動 --------------------------------------------------------------
+  if (typeof document === 'undefined') return;   // 背景 service worker：只要上面匯出的函式
   const urlInput = document.getElementById('qfUrl');
-  if (!urlInput) return;
+  if (!urlInput) return;   // 網頁版：同樣只用匯出的函式
   const runBtn = document.getElementById('qfBtn');
   const statusEl = document.getElementById('qfStatus');
   const copyText = document.getElementById('qfCopyText');
@@ -383,12 +438,6 @@
   const downloadBtn = document.getElementById('downloadBtn');
   const tipEl = document.getElementById('qfTip');
   const confirmTipEl = document.getElementById('qfConfirmTip');
-  const MIN_W = 300, MIN_H = 200;   // 太小的圖（圖示、追蹤像素）不當背景
-  // 抓取上限：避免一個卡住或超大的網站讓快速產圖一直轉、或吃光記憶體
-  const ARTICLE_TIMEOUT = 15000, IMAGE_TIMEOUT = 20000;       // 毫秒（整個下載過程，不只是連線）
-  const MAX_ARTICLE_BYTES = 5 * 1024 * 1024, MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-  const MAX_PIXELS = 50e6;        // 5,000 萬畫素（約 7000×7000）
-  const MAX_IMAGE_TRIES = 6;      // 最多試前幾張圖
   let runId = 0;
   let runCtrl = null;    // 目前這次快速產圖的 AbortController；重新產圖或全部清除時中止上一次
   let armed = false;     // 產圖完成後按鈕變成「直接下載」；再按一次按鈕或 Enter 就下載
@@ -433,45 +482,6 @@
   function setStatus(msg, kind) {
     statusEl.textContent = msg;
     statusEl.className = 'qf-status' + (kind ? ` ${kind}` : '');
-  }
-
-  function normalizeUrl(raw) {
-    let s = raw.trim();
-    if (!s) return '';
-    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
-    try { return new URL(s).href; } catch (e) { return ''; }
-  }
-
-  // 有逾時、有大小上限的下載。逾時涵蓋整個下載過程；超過上限就中止。回傳 { res, blob }
-  async function fetchLimited(url, { timeoutMs, maxBytes, signal }) {
-    const ctrl = new AbortController();
-    let why = '';
-    const timer = setTimeout(() => { why = 'timeout'; ctrl.abort(); }, timeoutMs);
-    const onOuterAbort = () => ctrl.abort();
-    if (signal) { if (signal.aborted) ctrl.abort(); else signal.addEventListener('abort', onOuterAbort); }
-    try {
-      const res = await fetch(url, { credentials: 'omit', signal: ctrl.signal });
-      if (!res.ok) return { res, blob: null };
-      if (Number(res.headers.get('content-length')) > maxBytes) { why = 'toobig'; ctrl.abort(); throw new Error('toobig'); }
-      const chunks = [];
-      let size = 0;
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.length;
-        if (size > maxBytes) { why = 'toobig'; ctrl.abort(); throw new Error('toobig'); }
-        chunks.push(value);
-      }
-      return { res, blob: new Blob(chunks, { type: res.headers.get('content-type') || '' }) };
-    } catch (e) {
-      const err = new Error(why || (e && e.message) || 'network');
-      err.reason = why || (signal && signal.aborted ? 'cancelled' : 'network');
-      throw err;
-    } finally {
-      clearTimeout(timer);
-      if (signal) signal.removeEventListener('abort', onOuterAbort);
-    }
   }
 
   // 依序嘗試（最多 MAX_IMAGE_TRIES 張），抓不到、太小、太大或網址不安全就換下一張
@@ -657,4 +667,4 @@
     runBtn.disabled = false;
     setStatus('');
   });
-})(window);
+})(typeof self !== 'undefined' ? self : window);

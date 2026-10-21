@@ -1,4 +1,6 @@
-// 網頁版（GitHub Pages 上的 QuickPatterntool）和外掛之間的排程橋接：網頁版的「排程」抽屜靠它讀寫外掛裡的排程清單。
+// 網頁版（GitHub Pages 上的 QuickPatterntool）和外掛之間的橋接：
+//   · 網頁版的「排程」抽屜靠它讀寫外掛裡的排程清單
+//   · 網頁版的「快速產圖」靠它請外掛代為下載 TVBS 文章與圖片（網頁自己抓會被跨網域限制擋住）
 // 這個檔案同時被兩個地方載入：
 //   1. 內容腳本（只注入網頁版頁面）：接頁面的 postMessage → 轉給 background（sched:api）→ 把結果回給頁面；
 //      排程清單有變動時通知頁面重新讀取
@@ -7,7 +9,7 @@
 (function (root) {
   const PAGE_ORIGIN = 'https://unnn3ing-oss.github.io';
   const PAGE_PATH_PREFIX = '/QuickPatterntool/';
-  const OPS = ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start'];
+  const OPS = ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start', 'fetchArticle', 'fetchImage'];
 
   // → { ok:true, nonce, op, payload } 或 { ok:false }
   function validateRequest(d) {

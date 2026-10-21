@@ -11,7 +11,7 @@ const PAGE = 'https://www.facebook.com/tvbsnews';
 const clone = v => JSON.parse(JSON.stringify(v));
 const tick = async (n = 12) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 
-function load({ send, fast } = {}) {
+function load({ send, fast, fetchImpl } = {}) {
   const log = { notify: [], removed: [], updated: [], created: [], sent: [] };
   const data = {};
   const alarms = new Map();
@@ -42,9 +42,15 @@ function load({ send, fast } = {}) {
     },
     notifications: { create: async (id, o) => { log.notify.push(o); } }
   };
-  const ctx = { chrome, console, Date, URL, setTimeout: fast ? (fn => setTimeout(fn, 0)) : setTimeout };
+  const fetchLog = [];
+  const ctx = {
+    chrome, console, Date, URL, setTimeout: fast ? (fn => setTimeout(fn, 0)) : setTimeout, clearTimeout, AbortController, Blob, btoa,
+    fetch: async (url, opts) => { fetchLog.push(url); if (!fetchImpl) throw new Error('no network'); return fetchImpl(url, opts); }
+  };
   ctx.self = ctx;
   vm.createContext(ctx);
+  vm.runInContext(read('bridge.js'), ctx);
+  vm.runInContext(read('quickfill.js'), ctx);   // 背景沒有 document 也要能載入（只匯出純函式與下載函式）
   vm.runInContext(read('scheduler.js'), ctx);
   vm.runInContext(read('schedbridge.js'), ctx);
   vm.runInContext(read('poster.js'), ctx);
@@ -68,7 +74,7 @@ function load({ send, fast } = {}) {
     handlers.message.forEach(f => { if (f({ type: 'sched:api', op, payload }, sender, v => { handled = true; res(clone(v)); }) === true) handled = true; });
     if (!handled) res(undefined);
   });
-  return { S, data, alarms, log, handlers, item, get, fire, report, fromPanel, fromWeb, chrome };
+  return { S, data, alarms, log, handlers, item, get, fire, report, fromPanel, fromWeb, chrome, fetchLog };
 }
 
 test('到點：開粉專分頁、把文字與圖片交給內容腳本；回報成功 → done、關分頁、回到原分頁、發通知', async () => {
@@ -443,4 +449,76 @@ test('編輯排程時間：對帳會把鬧鐘改到新的時間', async () => {
   assert.strictEqual(r.ok, true);
   await tick();
   assert.strictEqual(t.alarms.get('post:i1').scheduledTime, at2);
+});
+
+// ---- 網頁版快速產圖：外掛代抓文章與圖片 --------------------------------------------
+const ART = 'https://news.tvbs.com.tw/politics/4039103';
+const respond = (body, { status = 200, type = 'text/html; charset=utf-8', url } = {}) => {
+  const res = new Response(body, { status, headers: { 'content-type': type } });
+  if (url) Object.defineProperty(res, 'url', { value: url });
+  return res;
+};
+const PNG_BYTES = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+test('代抓文章：只准 https 的 tvbs.com.tw；回傳 HTML 與最終網址', async () => {
+  const t = load({ fetchImpl: async url => respond('<html><title>標題</title></html>', { url }) });
+  const r = await t.fromWeb('fetchArticle', { url: ART });
+  assert.deepStrictEqual(r, { ok: true, data: { html: '<html><title>標題</title></html>', url: ART } });
+  assert.deepStrictEqual(clone(t.fetchLog), [ART]);
+});
+
+test('代抓文章：不是 TVBS、不是 https、網址格式不對、塞帳密 → 拒絕，而且根本沒有發出請求', async () => {
+  const t = load({ fetchImpl: async url => respond('x', { url }) });
+  for (const url of ['https://evil.example/x', 'http://news.tvbs.com.tw/x', 'https://news.tvbs.com.tw.evil.example/x', 'https://user:pw@news.tvbs.com.tw/x',
+    'https://192.168.1.1/admin', 'file:///etc/passwd', 'javascript:alert(1)', 'abc', '', null, 5]) {
+    const r = await t.fromWeb('fetchArticle', { url });
+    assert.strictEqual(r.ok, false, String(url));
+    assert.match(r.error, /只能抓 TVBS/);
+  }
+  assert.deepStrictEqual(clone(t.fetchLog), []);
+});
+
+test('代抓文章：轉址到 TVBS 以外的網站 → 停止、不回傳內容；HTTP 錯誤與連線失敗有說明', async () => {
+  let t = load({ fetchImpl: async () => respond('<html>secret</html>', { url: 'https://evil.example/landing' }) });
+  let r = await t.fromWeb('fetchArticle', { url: ART });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /轉址到 TVBS 以外/);
+  assert.strictEqual(r.data, undefined);
+  t = load({ fetchImpl: async url => respond('nope', { status: 404, url }) });
+  assert.match((await t.fromWeb('fetchArticle', { url: ART })).error, /HTTP 404/);
+  t = load({ fetchImpl: async () => { throw new Error('boom'); } });
+  assert.match((await t.fromWeb('fetchArticle', { url: ART })).error, /連線失敗/);
+});
+
+test('代抓圖片：回傳 data URL；網址要是公開網站、回應要真的是圖片', async () => {
+  const IMG = 'https://img.tvbs.com.tw/a.png';
+  const t = load({ fetchImpl: async url => respond(PNG_BYTES, { type: 'image/png', url }) });
+  const r = await t.fromWeb('fetchImage', { url: IMG, articleUrl: ART });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.data.type, 'image/png');
+  assert.strictEqual(r.data.dataUrl, 'data:image/png;base64,' + PNG_BYTES.toString('base64'));
+});
+
+test('代抓圖片：內網／本機網址、不是圖片的回應、文章網址不是 TVBS、轉址到內網 → 拒絕', async () => {
+  const t = load({ fetchImpl: async url => respond('<html>router</html>', { type: 'text/html', url }) });
+  for (const url of ['http://192.168.1.1/a.png', 'http://localhost/a.png', 'https://nas/a.png', 'http://10.0.0.5/x.jpg', 'file:///etc/passwd', 'javascript:alert(1)', '', 'x'.repeat(2500)]) {
+    const r = await t.fromWeb('fetchImage', { url, articleUrl: ART });
+    assert.strictEqual(r.ok, false, url);
+  }
+  assert.deepStrictEqual(clone(t.fetchLog), [], '不安全的網址不能發出請求');
+  assert.strictEqual((await t.fromWeb('fetchImage', { url: 'https://img.tvbs.com.tw/a.png', articleUrl: 'https://evil.example/x' })).ok, false);
+  const notImage = await t.fromWeb('fetchImage', { url: 'https://img.tvbs.com.tw/a.png', articleUrl: ART });
+  assert.strictEqual(notImage.ok, false);
+  assert.match(notImage.error, /不是圖片/);
+  const redirected = load({ fetchImpl: async () => respond(PNG_BYTES, { type: 'image/png', url: 'http://192.168.1.1/a.png' }) });
+  const r2 = await redirected.fromWeb('fetchImage', { url: 'https://img.tvbs.com.tw/a.png', articleUrl: ART });
+  assert.strictEqual(r2.ok, false);
+  assert.match(r2.error, /不安全/);
+});
+
+test('代抓：來源不是網頁版頁面一律拒絕（和排程 API 同一套驗證）', async () => {
+  const t = load({ fetchImpl: async url => respond('x', { url }) });
+  const r = await t.fromWeb('fetchArticle', { url: ART }, { id: 'me', tab: { id: 5 }, url: 'https://evil.example/QuickPatterntool/' });
+  assert.deepStrictEqual(r, { ok: false, error: 'not_allowed' });
+  assert.deepStrictEqual(clone(t.fetchLog), []);
 });
