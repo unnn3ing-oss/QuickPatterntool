@@ -417,6 +417,52 @@
     return on ? out + '*' : out;
   }
 
+  // ---- 字幕清單（SRT 匯入、V 標記）------------------------------------------------
+  // SRT → [{ start, end（格，不含 end）, text }]。時間碼允許逗號或句點、可省略小時；拿掉 <i> 之類的標籤與 {\an8} 這種定位碼
+  function parseSrt(src, fps) {
+    const out = [];
+    const ts = '(?:(\\d+):)?(\\d{1,2}):(\\d{1,2})[,.](\\d{1,3})';
+    const re = new RegExp('^\\s*' + ts + '\\s*-->\\s*' + ts);
+    const sec = (h, m, s2, ms) => (+h || 0) * 3600 + (+m) * 60 + (+s2) + (+(ms + '00').slice(0, 3)) / 1000;
+    const lines = String(src == null ? '' : src).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const m = re.exec(lines[i]);
+      if (!m) continue;
+      const body = [];
+      for (i++; i < lines.length && lines[i].trim() !== '' && !re.test(lines[i]); i++) body.push(lines[i]);
+      // 下一段的序號（純數字）會黏在空行前：拿掉文字最後的純數字行，要是下一行就是時間碼
+      if (i < lines.length && re.test(lines[i]) && body.length && /^\s*\d+\s*$/.test(body[body.length - 1])) body.pop();
+      i--;
+      const text = body.join('\n').replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '').trim();
+      const start = Math.round(sec(m[1], m[2], m[3], m[4]) * fps), end = Math.round(sec(m[5], m[6], m[7], m[8]) * fps);
+      if (end > start) out.push({ start, end, text });
+    }
+    return fitCues(out);
+  }
+  // 依開始時間排序；跟後一段重疊時，前一段結束在後一段開始的前一格（不含 end，所以 end＝後一段的 start）；同一格開始的只留第一段
+  function fitCues(list) {
+    const a = list.slice().sort((x, y) => x.start - y.start);
+    const out = [];
+    for (const c of a) {
+      const prev = out[out.length - 1];
+      if (prev && c.start <= prev.start) continue;
+      if (prev && prev.end > c.start) prev.end = c.start;
+      out.push({ ...c });
+    }
+    return out;
+  }
+  // 在第 f 格按 V：新字幕從 f 開始，最長 maxSec 秒，碰到下一段就停在它前一格；正在播的前一段改成在 f 的前一格結束
+  // subs：[{ id, start, end }]。回傳 { start, end, trimPrev: { id, end } | null }，f 剛好是某段的開頭時回傳 { existing: id }
+  function planSubtitleMark(subs, f, fps, maxSec) {
+    const a = subs.slice().sort((x, y) => x.start - y.start);
+    const same = a.find(c => c.start === f);
+    if (same) return { existing: same.id };
+    let prev = null, next = null;
+    for (const c of a) { if (c.start < f) prev = c; else if (!next) next = c; }
+    const end = Math.min(f + Math.max(1, Math.round((maxSec || 10) * fps)), next ? next.start : Infinity);
+    return { start: f, end, trimPrev: prev && prev.end > f ? { id: prev.id, end: f } : null };
+  }
+
   // 字體特效：進場動畫；char＝逐字依序錯開，line＝一行一行錯開（整行一起動），都沒有＝整塊（含底色）一起動
   const TEXT_FX = {
     none: { name: '無' },
@@ -1298,7 +1344,7 @@
     DEFAULT_TRANSFORM, DEFAULT_CROP, defaultTransform, defaultCrop, defaultVideo,
     fitRect, clipMatrix, applyMatrix, cropRect, getParam,
     drawClipVisual, drawSolid, drawTitle, titleBounds, clipQuad,
-    TRANSITIONS, ease, TITLE_PRESETS, TITLE_STYLES, TEXT_FX, makeTitle, normTitle, parseAccent, buildAccent, wrapText, parseColor, formatColor,
+    TRANSITIONS, ease, TITLE_PRESETS, TITLE_STYLES, TEXT_FX, makeTitle, normTitle, parseAccent, buildAccent, parseSrt, fitCues, planSubtitleMark, wrapText, parseColor, formatColor,
     ready, get fontLoaded() { return defaultFontLoaded(); }, FONTS, loadFont, onFontLoad, fontIsLoaded,
     inspector: { sections: SECTIONS },
     ensureStyle,                 // 插入詳細內容樣式（.ed-fx-*）；UI 自己的區段也用這套外觀，啟動時先呼叫一次

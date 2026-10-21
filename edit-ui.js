@@ -167,8 +167,10 @@
   const selIds = () => [...state.selection].filter(id => state.project.clips[id]);
   const lastSel = () => { if (state.primary && state.selection.has(state.primary) && state.project.clips[state.primary]) return state.primary; const a = selIds(); return a.length ? a[a.length - 1] : null; };
   const mediaOf = id => (R && R.media.get(id)) || null;
+  const isSubClip = c => !!(c && c.type === 'title' && c.title && c.title.sub);
   const clipTitle = c => {
     if (!c) return '';
+    if (isSubClip(c)) { const t = F.parseAccent(c.title.text).text.split('\n')[0].trim(); if (t) return t.length > 24 ? t.slice(0, 24) + '…' : t; }   // 字幕清單的片段：時間軸上直接顯示字幕內容
     if (c.name) return c.name;
     const m = c.mediaId && mediaOf(c.mediaId);
     return m ? m.name : (c.type === 'title' ? '字幕' : c.type === 'solid' ? '色塊' : '片段');
@@ -233,7 +235,7 @@
   // 媒體庫（媒體／轉場／字幕）
   // =====================================================================================
   const lib = { tab: 'media', trans: 'crossDissolve', title: 'static', textFx: 'pop', tstyle: 'plain' };
-  const FILE_ACCEPT = 'video/*,audio/*,image/*,.mkv,.mov,.m4a,.mp3,.wav,.flac,.opus,.ogg,.webm,.heic,.heif';
+  const FILE_ACCEPT = 'video/*,audio/*,image/*,.srt,.mkv,.mov,.m4a,.mp3,.wav,.flac,.opus,.ogg,.webm,.heic,.heif';
 
   function buildMediaPanel() {
     const host = $('edMedia');
@@ -303,7 +305,17 @@
     sb.title = '把選取的字幕樣式套用到時間軸上選取的字幕片段';
     sb.addEventListener('click', () => applyTitleStyle(lib.tstyle));
     sa.append(sb, el('span', 'ed-hint', '顏色、描邊、外框、立體一次換好（不動文字與位置）。新增字幕也會用選取的樣式；可以把樣式拖到時間軸的字幕片段上。'));
-    pg.append(groupHead('字幕過場'), gl, ga, groupHead('字幕樣式'), sl, sa);
+    const ca = el('div', 'ed-pfoot');
+    const cb = el('button', 'ed-btn'); cb.type = 'button'; cb.id = 'edSrtImport'; cb.textContent = '匯入 SRT';
+    cb.title = '匯入 SRT 字幕檔：每一段變成「字幕」軌上的一個字幕片段';
+    const ci = el('input'); ci.type = 'file'; ci.id = 'edSrtFile'; ci.accept = '.srt,application/x-subrip,text/plain'; ci.hidden = true; ci.tabIndex = -1;
+    ci.addEventListener('change', () => { const f = ci.files && ci.files[0]; ci.value = ''; if (f) importSrt(f); });
+    cb.addEventListener('click', () => ci.click());
+    const cm = el('button', 'ed-btn'); cm.type = 'button'; cm.textContent = '在播放頭標記（V）';
+    cm.title = '在播放頭加一段字幕（快捷鍵 V），之後在右側詳細內容的「字幕清單」輸入文字';
+    cm.addEventListener('click', () => markSubtitle());
+    ca.append(cb, cm, ci, el('span', 'ed-hint', '匯入 SRT，或邊播放邊按 V 標記每一句的開始時間，再到右側「字幕清單」一行一行輸入文字。每段預設 10 秒，碰到下一段就提早結束。'));
+    pg.append(groupHead('字幕清單'), ca, groupHead('字幕過場'), gl, ga, groupHead('字幕樣式'), sl, sa);
 
     host.append(pm, pt, pg);
     setMediaView(state.mediaView, true);
@@ -316,6 +328,7 @@
     const host = $('edMedia');
     for (const b of host.querySelectorAll('.ed-tab')) { const on = b.dataset.tab === k; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); }
     for (const p of host.querySelectorAll('.ed-panel')) p.hidden = p.dataset.panel !== k;
+    updateSubMark();
   }
 
   // 轉場與字幕樣式的縮圖（用 fx 真的畫一次，所以和成品一致）
@@ -442,6 +455,8 @@
   let importChain = Promise.resolve([]);
   function importFiles(files) {
     files = [...(files || [])];
+    const srt = files.filter(isSrtFile);
+    if (srt.length) { files = files.filter(f => !isSrtFile(f)); srt.reduce((pr, f) => pr.then(() => importSrt(f)), Promise.resolve()); }
     if (!files.length) return importChain;
     importChain = importChain.then(() => doImport(files), () => doImport(files));
     return importChain;
@@ -725,7 +740,9 @@
     const cur = el('span', 'ed-tc'); cur.id = 'edTc'; cur.textContent = '00:00:00:00';
     const dur = el('span', 'ed-tcdur'); dur.id = 'edTcDur'; dur.textContent = '/ 00:00:00:00';
     time.append(cur, dur);
-    tr.append(group, jkl, time);
+    const vm = mk('edSubMark', null, '字幕標記（V）：在播放頭加一段字幕，右側詳細內容會多一行可以輸入文字', () => markSubtitle(), 'V');
+    vm.classList.add('ed-submark'); vm.hidden = true;
+    tr.append(group, jkl, vm, time);
 
     const empty = $('edEmpty');
     empty.innerHTML = '<div class="ed-empty-box"><strong>把影片、音訊或圖片拖進來開始剪輯</strong><span>拖到左側「媒體」，或直接拖到這裡；也可以按下面的按鈕選檔案。<br>雙擊素材先預覽，再按 F10（覆蓋）、F9（插入）或「加到結尾」放上時間軸。</span></div>';
@@ -1577,6 +1594,86 @@
     return r;
   }
 
+  // ---- 字幕清單：SRT 匯入、V 標記 ---------------------------------------------------------
+  // 字幕清單的片段＝title.sub 為 true 的字幕片段，放在名為「字幕」的影片軌（沒有就在最上層新增一條）
+  const SUB_TRACK = '字幕', SUB_MAX_SEC = 10;
+  const isSrtFile = f => /\.srt$/i.test((f && f.name) || '');
+  const subClips = () => Object.values(state.project.clips).filter(isSubClip).sort((a, b) => a.start - b.start);
+  function subTrackId(p) {
+    const t = C.tracksOf(p, 'video').find(x => x.name === SUB_TRACK && !x.locked);
+    if (t) return { ok: true, id: t.id };
+    const a = C.addTrack(p, 'video');
+    if (!a.ok) return a;
+    const r = C.setTrackProps(p, a.id, { name: SUB_TRACK });
+    return r.ok ? { ok: true, id: a.id } : r;
+  }
+  function subTitle(text) {
+    const st = F.TITLE_STYLES && F.TITLE_STYLES[lib.tstyle];
+    const t = Object.assign(F.makeTitle('static', text), { size: 64, y: 0.86 }, st ? JSON.parse(JSON.stringify(st.patch)) : {});
+    if (!st || lib.tstyle === 'plain') t.stroke = { color: '#000000', width: 6 };   // 沒選樣式時加黑邊，字幕在亮的畫面上才看得清楚
+    t.sub = true;
+    return t;
+  }
+  const subMarkOn = () => state.mode === 'timeline' && (lib.tab === 'title' || (primaryClip() && primaryClip().type === 'title'));
+  function updateSubMark() { const b = $('edSubMark'); if (b) b.hidden = !subMarkOn(); }
+  // V：在播放頭加一段字幕。規則見 fx.planSubtitleMark（最長 10 秒、碰到下一段就停、正在播的前一段改成在這格前結束）
+  function markSubtitle() {
+    if (state.mode !== 'timeline') { say('切到「時間軸」才能標記字幕', 'error'); return null; }
+    const f = state.playhead, fps = state.project.fps;
+    const plan = F.planSubtitleMark(subClips().map(c => ({ id: c.id, start: c.start, end: c.start + c.duration })), f, fps, SUB_MAX_SEC);
+    if (plan.existing) { selectClips([plan.existing]); showSubsTab(plan.existing); say('這一格已經有字幕了', 'ok'); return null; }
+    const r = op('字幕標記', p => {
+      if (plan.trimPrev) {
+        const pc = p.clips[plan.trimPrev.id];
+        const t = C.trimEdge(p, pc.id, 'end', plan.trimPrev.end - (pc.start + pc.duration), { linked: false });
+        if (!t.ok) return t;
+      }
+      const tr = subTrackId(p);
+      if (!tr.ok) return tr;
+      return C.addClip(p, { type: 'title', trackId: tr.id, start: plan.start, duration: plan.end - plan.start, mode: 'overwrite', title: subTitle(''), name: '字幕' });
+    });
+    if (r && r.ok) {
+      selectClips([r.id]);
+      showSubsTab(r.id);
+      say(`已標記字幕 ${tc(plan.start, fps)}（${fmtNum((plan.end - plan.start) / fps, 2)} 秒）：在右側字幕清單輸入文字`, 'ok');
+    }
+    return r;
+  }
+  function showSubsTab(id) {
+    loadTabOf().sub = 'subs';
+    insp.revealSub = id;
+    scheduleInspector();
+  }
+  async function readText(file) {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (_) { /* 不是 UTF-8：台灣常見的舊字幕檔是 Big5 */ }
+    try { return new TextDecoder('big5').decode(buf); } catch (_) { return new TextDecoder('utf-8').decode(buf); }
+  }
+  async function importSrt(file) {
+    let text;
+    try { text = await readText(file); } catch (e) { say(`讀不到「${file.name}」`, 'error'); return null; }
+    const cues = F.parseSrt(text, state.project.fps);
+    if (!cues.length) { say(`「${file.name}」裡找不到字幕（請確認是 SRT 格式）`, 'error'); return null; }
+    const r = op('匯入 SRT', p => {
+      const tr = subTrackId(p);
+      if (!tr.ok) return tr;
+      const ids = [];
+      for (const c of cues) {
+        const a = C.addClip(p, { type: 'title', trackId: tr.id, start: c.start, duration: c.end - c.start, mode: 'overwrite', title: subTitle(c.text), name: '字幕' });
+        if (!a.ok) return a;
+        ids.push(a.id);
+      }
+      return { ok: true, ids };
+    });
+    if (r && r.ok) {
+      selectClips([r.ids[0]]);
+      showSubsTab(r.ids[0]);
+      afterRender(() => revealFrame(cues[0].start, cues[cues.length - 1].end));
+      say(`已匯入 ${cues.length} 段字幕（「${SUB_TRACK}」軌）`, 'ok');
+    }
+    return r;
+  }
+
   // 字幕樣式／字體特效套用到字幕片段：ids 沒給就用選取中的字幕片段
   function titleTargets(ids) {
     return (ids || selIds()).filter(id => { const c = clipOf(id); return c && c.type === 'title'; });
@@ -1774,6 +1871,7 @@
       case 'x': done(); if (fresh) markClipRange(); break;
       case 'n': done(); if (fresh) toggleSnap(); break;
       case 'm': done(); if (fresh) addMarkerHere(); break;
+      case 'v': if (subMarkOn()) { done(); if (fresh) markSubtitle(); } break;
       case 'j': done(); if (fresh) shuttle(-1); break;
       case 'k': done(); if (fresh) shuttle(0); break;
       case 'l': done(); if (fresh) shuttle(1); break;
@@ -2286,6 +2384,7 @@
     scheduleInspector();
     if (state.history) updateToolbar();
     scheduleStage();
+    updateSubMark();
   }
 
   // =====================================================================================
@@ -2933,6 +3032,8 @@
     buildAudioSection(insp.audio.body);
     insp.speed = mkSection('speed', '速度');
     buildSpeedSection(insp.speed.body);
+    insp.subs = mkSection('subs', '字幕清單');
+    buildSubsSection(insp.subs.body);
     insp.delTrans = el('div', 'ed-sec-act'); insp.delTrans.hidden = true;
     const dt = el('button', 'ed-btn small danger', '刪除這個轉場'); dt.type = 'button'; dt.id = 'edDelTrans';
     dt.addEventListener('click', () => { if (state.selTransition) { op('刪除轉場', p => C.removeTransition(p, state.selTransition)); state.selTransition = null; refreshSelectionUI(); } });
@@ -3117,12 +3218,73 @@
     insp.speedNote.textContent = frozen ? '這是定格片段，不能變速。' : '也可以按 ' + MOD + 'R 開啟變速對話框。';
   }
 
+  // ---- 字幕清單：每段字幕一行（時間＋文字框）----------------------------------------------
+  function buildSubsSection(body) {
+    insp.subHead = el('div', 'ed-hint');
+    insp.subList = el('div', 'ed-sublist');
+    const foot = el('div', 'ed-hint', '按時間跳到那一段；Enter 跳到下一行，Shift＋Enter 換行。播放時按 V 可以再加一段。');
+    body.append(insp.subHead, insp.subList, foot);
+    insp.subKey = null;
+  }
+  function updateSubsSection() {
+    const subs = subClips(), fps = state.project.fps, list = insp.subList;
+    insp.subHead.textContent = `共 ${subs.length} 段字幕`;
+    const key = subs.map(c => c.id + '@' + c.start + '+' + c.duration).join(',');
+    if (key !== insp.subKey) {
+      insp.subKey = key;
+      list.textContent = '';
+      subs.forEach((c, i) => {
+        const row = el('div', 'ed-subrow'); row.dataset.clip = c.id;
+        const t = el('button', 'ed-subtc', tc(c.start, fps)); t.type = 'button';
+        t.title = `跳到這一段（${tc(c.start, fps)}，${fmtNum(c.duration / fps, 2)} 秒）`;
+        t.addEventListener('click', () => { seekTimeline(c.start); selectClips([c.id]); });
+        const d = el('span', 'ed-subdur', fmtNum(c.duration / fps, 1) + ' 秒');
+        const ta = el('textarea', 'ed-subtxt'); ta.rows = 1; ta.placeholder = `第 ${i + 1} 段字幕`; ta.setAttribute('aria-label', `第 ${i + 1} 段字幕文字`);
+        const commit = live => applyProps([c.id], { title: { text: ta.value } }, live, '修改字幕');
+        ta.addEventListener('input', () => { fitRows(ta); commit(true); });
+        ta.addEventListener('change', () => commit(false));
+        ta.addEventListener('focus', () => { if (state.playhead < c.start || state.playhead >= c.start + c.duration) seekTimeline(c.start); });
+        ta.addEventListener('keydown', e => {
+          if (e.isComposing || e.keyCode === 229) return;                       // 注音／倉頡選字中的 Enter 不算
+          if (e.key === 'Escape') { e.preventDefault(); ta.blur(); return; }
+          if (e.key !== 'Enter' || e.shiftKey) return;
+          e.preventDefault();
+          const next = row.nextElementSibling && row.nextElementSibling.querySelector('.ed-subtxt');
+          ta.blur();
+          if (next) next.focus();
+        });
+        const x = el('button', 'ed-subdel', '×'); x.type = 'button'; x.title = '刪除這段字幕'; x.setAttribute('aria-label', `刪除第 ${i + 1} 段字幕`);
+        x.addEventListener('click', () => { const r = op('刪除字幕', p => C.lift(p, [c.id], { linked: false })); if (r && r.ok) { state.selection.delete(c.id); refreshSelectionUI(); } });
+        row.append(t, d, x, ta);
+        list.appendChild(row);
+      });
+      if (!subs.length) list.appendChild(el('div', 'ed-hint', '還沒有字幕。按 V 或「匯入 SRT」。'));
+    }
+    for (const row of list.children) {
+      const c = clipOf(row.dataset.clip);
+      if (!c) continue;
+      row.classList.toggle('sel', state.selection.has(c.id));
+      const ta = row.querySelector('.ed-subtxt');
+      if (ta && doc.activeElement !== ta && ta.value !== c.title.text) { ta.value = c.title.text; fitRows(ta); }
+    }
+    if (insp.revealSub) {
+      const row = list.querySelector(`.ed-subrow[data-clip="${insp.revealSub}"]`);
+      insp.revealSub = null;
+      if (row) { row.scrollIntoView({ block: 'nearest' }); row.classList.add('new'); root.setTimeout(() => row.classList.remove('new'), 1200); }
+    }
+  }
+  const fitRows = ta => { ta.rows = Math.min(4, Math.max(1, ta.value.split('\n').length)); };
+
   // ---- 分頁：依選取的物件種類分頁，一次只看一頁 ------------------------------------------
   // 每頁列出要顯示的區段（沒有的區段自動略過，整頁都沒有就不出現這個分頁）；各種類記住上次看的分頁
   const fxSec = id => insp.fxSecs.find(f => f.def.id === id);
   function inspPages(c) {
     const fx = (...ids) => ids.map(id => { const f = fxSec(id); return f && f.def.appliesTo(c) ? f : null; });
     const audio = audioClip() ? insp.audio : null, speed = speedClip() ? insp.speed : null;
+    if (isSubClip(c)) {
+      return { kind: 'sub', pages: [['subs', '清單', [insp.subs]], ['text', '文字', fx('title')], ['look', '外觀', fx('titleLook')], ['anim', '動畫', fx('titleAnim')],
+        ['xform', '變形', fx('transform', 'crop')], ['info', '資訊', [insp.info]]] };
+    }
     if (c.type === 'title') {
       return { kind: 'title', pages: [['text', '文字', fx('title')], ['look', '外觀', fx('titleLook')], ['anim', '動畫', fx('titleAnim')],
         ['xform', '變形', fx('transform', 'crop')], ['info', '資訊', [insp.info]]] };
@@ -3130,8 +3292,12 @@
     const kind = c.video ? c.type : 'audio';
     return { kind, pages: [['xform', '變形', fx('transform')], ['crop', '裁切', fx('crop')], ['audio', '音訊', [audio]], ['speed', '速度', [speed]], ['info', '資訊', [insp.info]]] };
   }
+  function loadTabOf() {
+    if (!insp.tabOf) { insp.tabOf = {}; try { insp.tabOf = JSON.parse(root.localStorage.getItem('qpt-edit-itab')) || {}; } catch (_) { /* 讀不到就用預設 */ } }
+    return insp.tabOf;
+  }
   function setInspTab(kind, id) {
-    insp.tabOf[kind] = id;
+    loadTabOf()[kind] = id;
     try { root.localStorage.setItem('qpt-edit-itab', JSON.stringify(insp.tabOf)); } catch (_) { /* 不能存就算了 */ }
     renderInspector();
   }
@@ -3143,10 +3309,10 @@
     const tr = state.selTransition && p.transitions[state.selTransition];
     const ids = selIds(), c = primaryClip();
     const show = (sec, on) => { sec.el.hidden = !on; };
-    show(insp.project, false); show(insp.info, false); show(insp.audio, false); show(insp.speed, false);
+    show(insp.project, false); show(insp.info, false); show(insp.audio, false); show(insp.speed, false); show(insp.subs, false);
     insp.delTrans.hidden = true;
     for (const f of insp.fxSecs) show(f.ui, false);
-    for (const s of [insp.info, insp.audio, insp.speed, ...insp.fxSecs.map(f => f.ui)]) s.el.classList.remove('solo');
+    for (const s of [insp.info, insp.audio, insp.speed, insp.subs, ...insp.fxSecs.map(f => f.ui)]) s.el.classList.remove('solo');
     insp.tabs.hidden = true;
     $('edInspHead').textContent = '詳細內容';
     if (tr) {
@@ -3160,8 +3326,7 @@
     updateInfoSection(c, ids.length);
     const { kind, pages } = inspPages(c);
     const avail = pages.map(([id, label, secs]) => [id, label, secs.filter(Boolean)]).filter(pg => pg[2].length);
-    if (!insp.tabOf) { insp.tabOf = {}; try { insp.tabOf = JSON.parse(root.localStorage.getItem('qpt-edit-itab')) || {}; } catch (_) { /* 讀不到就用預設 */ } }
-    const page = avail.find(pg => pg[0] === insp.tabOf[kind]) || avail[0];
+    const page = avail.find(pg => pg[0] === loadTabOf()[kind]) || avail[0];
     const key = kind + ':' + avail.map(pg => pg[0]).join(',') + ':' + page[0];
     if (insp.tabsKey !== key) {
       insp.tabsKey = key;
@@ -3182,6 +3347,7 @@
       if (s.def) s.def.render(s.ui.body, c, commitFor(s.def));
       else if (s === insp.audio) updateAudioSection();
       else if (s === insp.speed) updateSpeedSection(speedClip());
+      else if (s === insp.subs) updateSubsSection();
     }
   }
 
@@ -3293,7 +3459,7 @@
   }
 
   Object.assign(Q.ui, {
-    init, importFiles, doEdit, selectClips, applyTitleStyle, applyTextFx, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
+    init, importFiles, importSrt, markSubtitle, doEdit, selectClips, applyTitleStyle, applyTextFx, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
     setZoom, zoomFit, renderNow, bladeAtPlayhead, deleteSelection, markIn, markOut, clearInOut, addMarkerHere, toggleLink, toggleSnap, ensureMediaInfo,
     openSpeedPop, openFreezePop, tl, tc, setTheme: t => applyTheme(t, true),
   });
