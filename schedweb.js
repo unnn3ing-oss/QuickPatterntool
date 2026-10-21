@@ -58,6 +58,7 @@
     async edit(id, input) { const r = await call('edit', { id, input }); return { ok: r.ok, error: friendly(r.error) }; },
     async remove(id) { await call('remove', { id }); },
     async start(id, o) { const r = await call('start', { id, dryRun: !!(o && o.dryRun), mode: o && o.mode === 'comment' ? 'comment' : 'post' }); return { ok: r.ok, error: friendly(r.error) }; },
+    async cancel(id) { const r = await call('cancel', { id }); return { ok: r.ok, error: friendly(r.error) }; },
     async loadPrefs() { return { pageUrl: lsGet(PAGE_KEY) || '' }; },
     async savePrefs(p) { lsSet(PAGE_KEY, p.pageUrl || ''); },
     onChange(cb) { changeHandlers.push(cb); }
@@ -105,8 +106,9 @@
     for (const kid of kids) if (kid) el.append(kid);
     return el;
   };
-  const tab = h('button', { type: 'button', class: 'sched-tab', id: 'schedTab', 'aria-expanded': 'false', 'aria-controls': 'schedDrawerPanel', title: 'FB 粉專排程' },
-    h('span', { text: '排程' }));
+  // 「排程」兩個字上下堆疊（不用直排 writing-mode：button＋flex＋直排在 Chrome 會把高度壓成幾像素，字疊成一團）
+  const tab = h('button', { type: 'button', class: 'sched-tab', id: 'schedTab', 'aria-expanded': 'false', 'aria-controls': 'schedDrawerPanel', 'aria-label': 'FB 粉專排程', title: 'FB 粉專排程' },
+    h('span', { class: 'sched-tab-label', 'aria-hidden': 'true' }, h('span', { text: '排' }), h('span', { text: '程' })));
   badge = h('span', { class: 'sched-tab-badge', hidden: true, 'aria-hidden': 'true' });
   tab.append(badge);
   const close = h('button', { type: 'button', class: 'sched-close', 'aria-label': '關閉排程', text: '✕' });
@@ -154,6 +156,17 @@
     const modal = document.querySelector('.modal-overlay.open');   // 確認視窗開著時，Esc 先關那個
     if (!modal) { setOpen(false); tab.focus(); }
   });
+
+  // 排程只在「圖片套版」顯示：切到浮水印、拼圖、尺寸、剪輯時，頁籤與抽屜都不顯示（開著的也會收起來）。
+  // 直接看圖片套版區塊的 hidden（watermark.js 的 setFunc 切換功能時會設定它），不管是從哪裡切換都會同步。
+  const layout = document.getElementById('layoutApp');
+  function syncVisible() {
+    const on = !layout || !layout.hidden;
+    drawer.hidden = !on;
+    if (!on) setOpen(false);
+  }
+  if (layout) new MutationObserver(syncVisible).observe(layout, { attributes: true, attributeFilter: ['hidden'] });
+  syncVisible();
 
   detect();   // 先偵測一次：有外掛就先把清單抓下來，頁籤上才有「等待中」數量
   if (typeof document !== 'undefined') setTimeout(() => { if (!mounted) detect(); }, 1500);   // 內容腳本可能比頁面晚一點才就緒

@@ -9,6 +9,9 @@
   const B = root.QptSchedBridge;
   const ALARM = 'post:';
   const WATCH = 'post-watch:';
+  const BEAT = 'post-beat:';          // 每分鐘檢查一次內容腳本還活不活著
+  const BEAT_LOST_MS = 45 * 1000;      // 超過這麼久沒收到心跳（內容腳本每 4 秒一次）就當它失聯了
+  const MAX_RESUME = 1;                // 腳本在留言階段失聯時，最多重新交付一次（頁面被重新載入的情況）
   const FB_ORIGIN = 'https://www.facebook.com';
   const DELIVER_TRIES = 60;          // 等內容腳本就緒：最多 60 次 × 1.5 秒
   const DELIVER_EVERY_MS = 1500;
@@ -25,6 +28,9 @@
   const preview = item => ((item.text || '').trim().split('\n')[0] || `${item.images.length} 張圖片`).slice(0, 30);
   const isCommentStep = step => step === 'finding' || step === 'commenting';
 
+  async function clearWatchers(id) {
+    for (const name of [WATCH + id, BEAT + id]) { try { await c().alarms.clear(name); } catch (e) { /* ignore */ } }
+  }
   async function closeTab(item) {
     // 成功就關掉我們開的分頁，並回到原本在看的分頁；失敗時留著，方便看卡在哪
     try { if (item.tabId != null) await c().tabs.remove(item.tabId); } catch (e) { /* 已被關掉 */ }
@@ -37,7 +43,8 @@
   // 試跑：不論結果都回到執行前的狀態，只留下 step／error 讓側邊欄顯示。
   // 補留言（mode:comment）：貼文維持 done，只更新留言狀態。
   async function finish(item, result) {
-    const base = { tabId: undefined, startedAt: undefined, finishedAt: Date.now(), prevStatus: undefined, dryRun: false, mode: undefined };
+    const base = { tabId: undefined, startedAt: undefined, finishedAt: Date.now(), prevStatus: undefined, dryRun: false, mode: undefined, beat: undefined, resume: undefined, resumed: undefined };
+    await clearWatchers(item.id);
     if (item.mode === 'comment') {
       if (item.dryRun) {
         await S.update(item.id, Object.assign(base, {
@@ -87,7 +94,6 @@
   async function failRunning(id, error, step) {
     const item = (await S.list()).find(i => i.id === id);
     if (!item || item.status !== 'running') return;
-    try { await c().alarms.clear(WATCH + id); } catch (e) { /* ignore */ }
     await failItem(item, error, step || item.step);
   }
 
@@ -129,7 +135,7 @@
     }
 
     await S.update(id, {
-      status: 'running', startedAt: now, dryRun, mode, prevStatus: item.status, step: 'start', error: undefined, finishedAt: undefined, tabId: undefined
+      status: 'running', startedAt: now, beat: now, dryRun, mode, prevStatus: item.status, step: 'start', error: undefined, finishedAt: undefined, tabId: undefined, resume: undefined, resumed: undefined
     });
     let prev = null;
     try { [prev] = await c().tabs.query({ active: true, lastFocusedWindow: true }); } catch (e) { /* ignore */ }
@@ -138,6 +144,7 @@
     catch (e) { await failRunning(id, '無法開啟 Facebook 分頁', 'start'); return { ok: false, error: 'tab_failed' }; }
     await S.update(id, { tabId: tab.id, prevTabId: prev ? prev.id : undefined });
     await c().alarms.create(WATCH + id, { delayInMinutes: S.RUN_TIMEOUT_MS / 60000 });
+    await c().alarms.create(BEAT + id, { delayInMinutes: 1, periodInMinutes: 1 });
 
     // 不 await：整段交付最久 90 秒，期間每次 sendMessage 都會讓背景腳本保持存活；結果由 fbpost:result 訊息回報
     deliver(tab.id, item, dryRun, mode).catch(err => failRunning(id, err.message || String(err), 'start'));
@@ -168,6 +175,38 @@
     await c().alarms.clear(ALARM + item.id);
     await S.update(item.id, { status: 'missed', error: `排定 ${when(item.at)}，但那時瀏覽器沒開或電腦休眠，已超過 ${S.GRACE_MS / 60000} 分鐘所以沒有補發` });
     notify('粉專排程錯過了', `${preview(item)}（排定 ${when(item.at)}）`);
+  }
+
+  // ---- 內容腳本失聯／手動中止 ------------------------------------------------------
+  // 內容腳本每 4 秒回報一次心跳。頁面被重新載入、分頁當機時腳本會被帶走，不會有人回報結果，
+  // 如果等到 6 分鐘的「卡住監看」才收尾，畫面就會一直顯示「執行中」。所以每分鐘檢查一次：失聯超過 45 秒就處理。
+  async function checkBeat(id) {
+    const item = (await S.list()).find(i => i.id === id);
+    if (!item || item.status !== 'running') { try { await c().alarms.clear(BEAT + id); } catch (e) { /* ignore */ } return; }
+    if (Date.now() - (item.beat || item.startedAt || 0) <= BEAT_LOST_MS) return;
+    // 貼文已經發佈、只差留言：頁面重新載入後內容腳本會重新注入，再交付一次「只留言」的工作，接著做
+    if (item.mode !== 'comment' && !item.dryRun && isCommentStep(item.step) && item.tabId != null && (item.resumed || 0) < MAX_RESUME) {
+      await S.update(id, { resume: true, resumed: (item.resumed || 0) + 1, beat: Date.now(), step: 'finding' });
+      deliver(item.tabId, item, false, 'comment').catch(err => failRunning(id, err.message || String(err), 'finding'));
+      return;
+    }
+    const label = S.STEP_LABELS[item.step] || '開始';
+    const msg = item.step === 'publishing' || isCommentStep(item.step) ? S.stuckMessage(item.step)
+      : `Facebook 分頁沒有回應（可能重新載入、被關掉或當機），停在「${label}」這一步，沒有發佈`;
+    await failRunning(id, msg, item.step);
+  }
+
+  // 手動中止：叫分頁的腳本停手，並把這筆收尾。已經按下發佈的、已經發佈在留言的，訊息都說清楚「貼文可能已經發出」。
+  async function cancel(id) {
+    const item = (await S.list()).find(i => i.id === id);
+    if (!item || item.status !== 'running') return { ok: false, error: '這筆沒有在執行中' };
+    const step = item.step;
+    const msg = step === 'publishing' ? '已手動中止；中止時已按下發佈，貼文可能已經發出，請先到粉專確認，再決定要不要重發'
+      : isCommentStep(step) ? '貼文已經發佈，留言已手動中止（可以按「補留言」）'
+      : '已手動中止，沒有發佈';
+    try { if (item.tabId != null) await c().tabs.sendMessage(item.tabId, { type: 'fbpost:cancel', id }); } catch (e) { /* 分頁已經不在了 */ }
+    await failRunning(id, msg, step);
+    return { ok: true };
   }
 
   // ---- 對帳：鬧鐘和佇列保持一致（啟動、安裝、佇列變動時呼叫）-------------------
@@ -271,6 +310,7 @@
         if (typeof payload.id !== 'string') return { ok: false, error: 'bad_request' };
         return start(payload.id, { manual: true, dryRun: !!payload.dryRun, mode: payload.mode === 'comment' ? 'comment' : 'post' });
       }
+      case 'cancel': return typeof payload.id === 'string' ? cancel(payload.id) : { ok: false, error: 'bad_request' };
       case 'fetchArticle': return webFetchArticle(payload);
       case 'fetchImage': return webFetchImage(payload);
       default: return { ok: false, error: 'unknown_op' };
@@ -281,6 +321,7 @@
   function register() {
     c().alarms.onAlarm.addListener(alarm => {
       if (alarm.name.startsWith(ALARM)) start(alarm.name.slice(ALARM.length)).catch(() => {});
+      else if (alarm.name.startsWith(BEAT)) checkBeat(alarm.name.slice(BEAT.length)).catch(() => {});
       else if (alarm.name.startsWith(WATCH)) {
         const id = alarm.name.slice(WATCH.length);
         S.list().then(list => {
@@ -301,6 +342,12 @@
         return true;
       }
 
+      if (msg.type === 'poster:cancel') {
+        if (sender.tab || typeof msg.id !== 'string') return;
+        cancel(msg.id).then(sendResponse, () => sendResponse({ ok: false, error: 'internal_error' }));
+        return true;
+      }
+
       // 來自網頁版（內容腳本 schedbridge.js 轉進來）：排程清單的讀寫
       if (msg.type === 'sched:api') {
         if (!B || !B.senderAllowed(sender, c().runtime.id) || !B.OPS.includes(msg.op)) { sendResponse({ ok: false, error: 'not_allowed' }); return; }
@@ -314,8 +361,12 @@
         (async () => {
           const item = (await S.list()).find(i => i.id === msg.id);
           if (!item || item.status !== 'running' || item.tabId !== sender.tab.id) return;
-          if (msg.type === 'fbpost:progress') { await S.update(item.id, { step: String(msg.step || '').slice(0, 20) }); return; }
-          try { await c().alarms.clear(WATCH + item.id); } catch (e) { /* ignore */ }
+          if (msg.type === 'fbpost:progress') { await S.update(item.id, { step: String(msg.step || '').slice(0, 20), beat: Date.now() }); return; }
+          // 接手繼續留言（resume）失敗：貼文早就發佈了，只能算「留言失敗」，不能把整筆標成失敗
+          if (item.resume && !msg.ok) {
+            await finish(item, { ok: true, step: String(msg.step || item.step || '').slice(0, 20), commentState: 'failed', commentError: String(msg.error || '留言失敗').slice(0, 300) });
+            return;
+          }
           await finish(item, {
             ok: !!msg.ok, step: String(msg.step || item.step || '').slice(0, 20),
             error: msg.ok ? undefined : String(msg.error || '發佈失敗').slice(0, 300),
@@ -345,5 +396,5 @@
   }
 
   if (S && root.chrome && root.chrome.alarms && root.chrome.tabs && root.chrome.storage && root.chrome.storage.local) register();
-  root.QptPoster = { start, sync, deliver, finish, webApi };
+  root.QptPoster = { start, sync, deliver, finish, webApi, cancel, checkBeat };
 })(typeof self !== 'undefined' ? self : this);

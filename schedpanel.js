@@ -11,6 +11,7 @@
     edit: (id, input) => S.edit(id, input),
     remove: id => S.remove(id),
     start: (id, o) => chrome.runtime.sendMessage({ type: 'poster:start', id, dryRun: !!(o && o.dryRun), mode: o && o.mode === 'comment' ? 'comment' : 'post' }),
+    cancel: id => chrome.runtime.sendMessage({ type: 'poster:cancel', id }),
     loadPrefs: async () => { const got = await chrome.storage.local.get(S.PAGE_KEY); return { pageUrl: got[S.PAGE_KEY] }; },
     savePrefs: p => chrome.storage.local.set({ [S.PAGE_KEY]: p.pageUrl }),
     onChange: cb => chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes[S.KEY]) cb(); })

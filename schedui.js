@@ -4,7 +4,7 @@
 //
 // QptSchedUI.mount(container, { api, compose, confirm }) → { refresh }
 //   api：{ list():Promise<item[]>, get(id):Promise<item|null>, add(input):Promise<{ok,error}>, edit(id,input):Promise<{ok,error}>,
-//          remove(id), start(id,{dryRun,mode}):Promise<{ok,error}>, loadPrefs():Promise<{pageUrl}>, savePrefs({pageUrl}), onChange(cb) }
+//          remove(id), start(id,{dryRun,mode}):Promise<{ok,error}>, cancel(id):Promise<{ok,error}>, loadPrefs():Promise<{pageUrl}>, savePrefs({pageUrl}), onChange(cb) }
 //   compose（選用）：async () => ({ text, image(dataURL|null), articleUrl })，「帶入目前圖文」用
 //   confirm（選用）：async ({ title, message, okText }) => boolean
 (function (root) {
@@ -241,7 +241,8 @@
       const out = [];
       if (item.status === 'running') {
         const what = item.mode === 'comment' ? (item.dryRun ? '試跑留言' : '補留言') : (item.dryRun ? '試跑' : '發佈');
-        out.push({ text: `${what}中：${S.STEP_LABELS[item.step] || '開始'}…` });
+        const secs = item.startedAt ? Math.max(0, Math.round((Date.now() - item.startedAt) / 1000)) : 0;
+        out.push({ text: `${what}中：${S.STEP_LABELS[item.step] || '開始'}…（已 ${secs >= 60 ? Math.floor(secs / 60) + ' 分 ' + (secs % 60) + ' 秒' : secs + ' 秒'}；卡住的話可以按「中止」）` });
         return out;
       }
       if (item.status === 'done') {
@@ -277,6 +278,22 @@
       else say((r && r.error) || '無法開始', 'err');
     }
 
+    async function abort(item) {
+      const publishing = item.step === 'publishing';
+      const ok = await confirm({
+        title: '中止這次執行？',
+        message: publishing ? '已經按下發佈了，貼文可能已經發出去。中止後請先到粉專確認，再決定要不要重發。'
+          : (item.step === 'finding' || item.step === 'commenting') ? '貼文已經發佈，只會中止留言（之後可以按「補留言」）。'
+            : '會停止這次執行，貼文不會發佈。',
+        okText: '中止'
+      });
+      if (!ok) return;
+      let r;
+      try { r = await api.cancel(item.id); } catch (e) { r = { ok: false, error: '無法連到外掛，請確認外掛已更新到最新版' }; }
+      say(r && r.ok ? '已中止' : ((r && r.error) || '中止失敗'), r && r.ok ? 'ok' : 'err');
+      refresh();
+    }
+
     function renderList(items) {
       el.list.textContent = '';
       const sorted = items.slice().sort((a, b) => a.at - b.at);
@@ -302,6 +319,7 @@
           btn('試跑留言', () => run(item, { dryRun: true, mode: 'comment' }), '在貼文下把留言打好，但不送出');
           btn(item.commentState === 'done' ? '再留言' : '補留言', () => run(item, { dryRun: false, mode: 'comment' }));
         }
+        if (item.status === 'running') btn('中止', () => abort(item), '中止這次執行（腳本沒有回應、卡住時用）');
         if (item.status !== 'running') btn('刪除', async () => { if (editId === item.id) resetForm(); await api.remove(item.id); refresh(); });
         li.append(actions);
         el.list.append(li);
