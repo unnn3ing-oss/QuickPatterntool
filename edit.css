@@ -451,6 +451,10 @@ html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
 .ed-bladeline { border-left: 1.5px solid var(--ed-playhead); }
 .ed-dropline { border-left: 2px solid var(--accent); }
 .ed-io-tint { position: absolute; bottom: 0; background: var(--ed-region); border-left: 2px solid var(--ed-io); border-right: 2px solid var(--ed-io); }
+/* 拖頭尾修剪時的時間碼：貼在拖的那一側邊緣外面 */
+.ed-edgetc { position: absolute; z-index: 2; transform: translate(6px, -50%); padding: 2px 6px; border-radius: 5px; background: rgba(15, 18, 26, 0.92); color: #fff; border: 1px solid var(--accent); font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.ed-edgetc[data-edge="start"] { transform: translate(calc(-100% - 6px), -50%); }
+.ed-edgetc[hidden] { display: none; }
 .ed-marquee { position: absolute; border: 1px solid var(--accent); background: var(--ed-marq); }
 .ed-tl-empty { position: absolute; left: 170px; top: 40px; max-width: 420px; font-size: 13px; line-height: 1.6; color: var(--muted); }
 .ed-tl-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--ed-line); font-size: 11.5px; min-height: 26px; }

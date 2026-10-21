@@ -311,10 +311,13 @@
     const ci = el('input'); ci.type = 'file'; ci.id = 'edSrtFile'; ci.accept = '.srt,application/x-subrip,text/plain'; ci.hidden = true; ci.tabIndex = -1;
     ci.addEventListener('change', () => { const f = ci.files && ci.files[0]; ci.value = ''; if (f) importSrt(f); });
     cb.addEventListener('click', () => ci.click());
+    const ce = el('button', 'ed-btn'); ce.type = 'button'; ce.id = 'edSrtExport'; ce.textContent = '匯出 SRT';
+    ce.title = '把「字幕」軌的字幕存成 SRT 檔（沒有字幕清單時，改匯出時間軸上所有有文字的字幕）';
+    ce.addEventListener('click', () => exportSrt());
     const cm = el('button', 'ed-btn'); cm.type = 'button'; cm.textContent = '在播放頭標記（V）';
     cm.title = '在播放頭加一段字幕（快捷鍵 V），之後在右側詳細內容的「字幕清單」輸入文字';
     cm.addEventListener('click', () => markSubtitle());
-    ca.append(cb, cm, ci, el('span', 'ed-hint', '匯入 SRT，或邊播放邊按 V 標記每一句的開始時間，再到右側「字幕清單」一行一行輸入文字。每段預設 10 秒，碰到下一段就提早結束。'));
+    ca.append(cb, ce, cm, ci, el('span', 'ed-hint', '匯入／匯出 SRT，或邊播放邊按 V 標記每一句的開始時間，再到右側「字幕清單」一行一行輸入文字。每段預設 10 秒，碰到下一段就提早結束。'));
     pg.append(groupHead('字幕清單'), ca, groupHead('字幕過場'), gl, ga, groupHead('字幕樣式'), sl, sa);
 
     host.append(pm, pt, pg);
@@ -1674,6 +1677,28 @@
     return r;
   }
 
+  // 匯出 SRT：字幕清單（「字幕」軌）的字幕；沒有的話改用時間軸上所有有文字的字幕片段
+  function srtCues() {
+    const all = Object.values(state.project.clips).filter(c => c.type === 'title' && c.title && String(c.title.text || '').trim());
+    const subs = all.filter(isSubClip);
+    return (subs.length ? subs : all).map(c => ({ start: c.start, end: c.start + c.duration, text: c.title.text }));
+  }
+  function exportSrt() {
+    const cues = srtCues();
+    const text = cues.length ? F.formatSrt(cues, state.project.fps) : '';
+    if (!text) { say('時間軸上沒有可以匯出的字幕文字', 'error'); return null; }
+    const d = new Date(), p2 = n => String(n).padStart(2, '0');
+    const filename = `字幕_${p2(d.getFullYear() % 100)}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}.srt`;
+    const a = doc.createElement('a');
+    a.download = filename;
+    a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-subrip;charset=utf-8' }));
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    const n = (text.match(/ --> /g) || []).length;
+    say(`已匯出 ${n} 段字幕：${filename}`, 'ok');
+    return { ok: true, filename, text, count: n };
+  }
+
   // 字幕樣式／字體特效套用到字幕片段：ids 沒給就用選取中的字幕片段
   function titleTargets(ids) {
     return (ids || selIds()).filter(id => { const c = clipOf(id); return c && c.type === 'title'; });
@@ -1890,7 +1915,7 @@
   // =====================================================================================
   // 時間軸：畫面
   // =====================================================================================
-  const tl = { scroll: null, inner: null, k: 1, contentW: 0, overlay: null, playhead: null, phHead: null, snapLine: null, bladeLine: null, dropLine: null, marquee: null };
+  const tl = { scroll: null, inner: null, k: 1, contentW: 0, overlay: null, playhead: null, phHead: null, snapLine: null, bladeLine: null, dropLine: null, marquee: null, edgeTc: null, edgeAt: null };
 
   function buildTimeline() {
     const host = $('edTimeline');
@@ -2089,7 +2114,8 @@
     tl.bladeLine = el('div', 'ed-bladeline'); tl.bladeLine.hidden = true;
     tl.dropLine = el('div', 'ed-dropline'); tl.dropLine.hidden = true;
     tl.marquee = el('div', 'ed-marquee'); tl.marquee.hidden = true;
-    ov.append(tl.playhead, tl.snapLine, tl.bladeLine, tl.dropLine, tl.marquee);
+    tl.edgeTc = el('div', 'ed-edgetc'); tl.edgeTc.hidden = true;
+    ov.append(tl.playhead, tl.snapLine, tl.bladeLine, tl.dropLine, tl.marquee, tl.edgeTc);
     if (!Object.keys(p.clips).length) {
       const hint = el('div', 'ed-tl-empty', '時間軸是空的：把媒體庫的素材拖到這裡，或選好素材後按「加到結尾」（F12）。');
       ov.appendChild(hint);
@@ -2099,6 +2125,7 @@
     for (const l of [tl.snapLine, tl.bladeLine, tl.dropLine]) { l.style.top = RULER_H + 'px'; }
 
     sc.scrollLeft = sl; sc.scrollTop = st;
+    placeEdgeTc();
     const z = $('edZoom'); if (z && doc.activeElement !== z) z.value = String(clamp(zoomToSlider(state.zoom), 0, 100));
     updatePlayheadPos(false);
     paintVisible();
@@ -2448,6 +2475,22 @@
     root.addEventListener('blur', onBlur);        // 在視窗外放開滑鼠時不會收到 pointerup：視窗失焦就取消這次拖曳
   }
 
+  // 拖片段頭尾修剪時，在拖的那一側邊緣旁顯示目前的時間碼（tl.edgeAt＝{ clipId, edge }；null＝不顯示）
+  function placeEdgeTc() {
+    const b = tl.edgeTc;
+    if (!b) return;
+    const at = tl.edgeAt, c = at && clipOf(at.clipId), ce = c && tl.inner.querySelector(`.ed-clip[data-clip="${c.id}"]`);
+    if (!ce) { b.hidden = true; return; }
+    const f = at.edge === 'start' ? c.start : C.clipEnd(c);
+    const ir = tl.inner.getBoundingClientRect(), r = ce.getBoundingClientRect();
+    b.textContent = tc(f, state.project.fps);
+    b.dataset.edge = at.edge;
+    b.hidden = false;
+    b.style.left = (HEAD_W + f * tl.k) + 'px';
+    b.style.top = (r.top - ir.top + r.height / 2) + 'px';
+  }
+  function showEdgeTc(clipId, edge) { tl.edgeAt = clipId ? { clipId, edge } : null; placeEdgeTc(); }
+
   function showSnap(frame) {
     tl.snapAt = frame;
     if (!tl.snapLine) return;
@@ -2559,12 +2602,10 @@
       case 'clip': e.preventDefault(); return onClipDown(e, h);
       case 'lane': e.preventDefault(); return onLaneDown(e, h);
       default:
-        // 軌道下方的空白：也是取消選取（捲軸、軌道標頭不算）
+        // 軌道下方的空白：跟軌道空白一樣，拖曳框選、點一下取消選取（捲軸、軌道標頭不算）
         const sr = tl.scroll.getBoundingClientRect();
         const onBar = e.clientX - sr.left >= tl.scroll.clientWidth || e.clientY - sr.top >= tl.scroll.clientHeight;
-        if (h.kind === 'none' && (e.target === tl.scroll || e.target === tl.inner) && !onBar) {
-          if (!(e.shiftKey || e.ctrlKey || e.metaKey) && (state.selection.size || state.selTransition)) { state.selection = new Set(); state.selTransition = null; refreshSelectionUI(); }
-        }
+        if (h.kind === 'none' && (e.target === tl.scroll || e.target === tl.inner || e.target === tl.overlay) && !onBar && e.clientX - sr.left >= HEAD_W) { e.preventDefault(); onLaneDown(e, h); }
     }
   }
 
@@ -2644,6 +2685,7 @@
     const f0 = edge === 'start' ? c0.start : C.clipEnd(c0);
     const targets = C.snapTargets(p, { playhead: state.playhead, exclude: group });
     const label = (kind === 'ripple' ? '波紋修剪' : '修剪邊緣') + (ids ? `（${ids.length} 個片段）` : '');
+    showEdgeTc(clipId, edge);
     beginDrag(e, {
       autoscroll: true,
       move(ev, dx) {
@@ -2652,8 +2694,8 @@
         if (!r.ok) say(r.reason, 'error');
         else if (r.applied != null && r.applied !== d) say('已經到極限了（來源沒有更多畫面，或碰到旁邊的片段）');
       },
-      up(ev, moved) { if (moved) live.end(); },
-      cancel() { live.abort(); },
+      up(ev, moved) { showEdgeTc(null); if (moved) live.end(); },
+      cancel() { showEdgeTc(null); live.abort(); },
     });
   }
 
@@ -2661,6 +2703,7 @@
     const p = state.project, R_ = p.clips[plan.rightId], f0 = R_.start;
     const group = groupOf([plan.leftId, plan.rightId]);
     const targets = C.snapTargets(p, { playhead: state.playhead, exclude: group });
+    showEdgeTc(plan.leftId, 'end');
     beginDrag(e, {
       autoscroll: true,
       move(ev, dx) {
@@ -2669,8 +2712,8 @@
         if (!r.ok) say(r.reason, 'error');
         else if (r.applied != null && r.applied !== d) say('已經到極限了（來源沒有更多畫面）');
       },
-      up(ev, moved) { if (moved) live.end(); },
-      cancel() { live.abort(); },
+      up(ev, moved) { showEdgeTc(null); if (moved) live.end(); },
+      cancel() { showEdgeTc(null); live.abort(); },
     });
   }
 
@@ -2757,7 +2800,8 @@
     beginDrag(e, {
       autoscroll: true,
       move(ev) {
-        const x1 = ev.clientX - ir.left, y1 = ev.clientY - ir.top;
+        // 用「現在」的位置換算：拖到邊緣自動捲動後，框的起點要跟著內容走，不會停在螢幕上同一個地方
+        const cr = tl.inner.getBoundingClientRect(), x1 = ev.clientX - cr.left, y1 = ev.clientY - cr.top;
         const l = Math.min(x0, x1), r = Math.max(x0, x1), t = Math.min(y0, y1), b = Math.max(y0, y1);
         tl.marquee.hidden = false;
         Object.assign(tl.marquee.style, { left: l + 'px', top: t + 'px', width: (r - l) + 'px', height: (b - t) + 'px' });
@@ -3223,7 +3267,9 @@
     insp.subHead = el('div', 'ed-hint');
     insp.subList = el('div', 'ed-sublist');
     const foot = el('div', 'ed-hint', '按時間跳到那一段；Enter 跳到下一行，Shift＋Enter 換行。播放時按 V 可以再加一段。');
-    body.append(insp.subHead, insp.subList, foot);
+    const ex = el('button', 'ed-btn'); ex.type = 'button'; ex.id = 'edSubsExport'; ex.textContent = '匯出 SRT';
+    ex.addEventListener('click', () => exportSrt());
+    body.append(insp.subHead, insp.subList, foot, ex);
     insp.subKey = null;
   }
   function updateSubsSection() {
@@ -3459,7 +3505,7 @@
   }
 
   Object.assign(Q.ui, {
-    init, importFiles, importSrt, markSubtitle, doEdit, selectClips, applyTitleStyle, applyTextFx, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
+    init, importFiles, importSrt, exportSrt, markSubtitle, doEdit, selectClips, applyTitleStyle, applyTextFx, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
     setZoom, zoomFit, renderNow, bladeAtPlayhead, deleteSelection, markIn, markOut, clearInOut, addMarkerHere, toggleLink, toggleSnap, ensureMediaInfo,
     openSpeedPop, openFreezePop, tl, tc, setTheme: t => applyTheme(t, true),
   });
