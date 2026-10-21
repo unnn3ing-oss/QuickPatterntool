@@ -181,10 +181,10 @@ body{margin:0;padding:16px;font-family:system-ui,"Noto Sans TC",sans-serif;backg
       if (!host) { const wrap = document.createElement('div'); wrap.innerHTML = `<div style="font-weight:700;margin:10px 0 4px">${sec.title}</div>`; host = document.createElement('div'); host.id = 'sec-' + id; wrap.append(host); document.getElementById('insp').append(wrap); }
       sec.render(host, subj, window.__commit);
     };
-    __mount('transform', __clip); __mount('crop', __clip); __mount('title', __title); __mount('transition', __tr);
+    __mount('transform', __clip); __mount('crop', __clip); __mount('title', __title); __mount('titleLook', __title); __mount('titleAnim', __title); __mount('transition', __tr);
   });
-  const rowCount = await page.evaluate(() => Object.fromEntries(['transform', 'crop', 'title', 'transition'].map(id => [id, document.querySelectorAll('#sec-' + id + ' .ed-fx-row').length])));
-  ok(rowCount.transform >= 12 && rowCount.crop === 6 && rowCount.title >= 15 && rowCount.transition === 6, '四個區段都有畫出欄位 ' + JSON.stringify(rowCount));
+  const rowCount = await page.evaluate(() => Object.fromEntries(['transform', 'crop', 'title', 'titleLook', 'titleAnim', 'transition'].map(id => [id, document.querySelectorAll('#sec-' + id + ' .ed-fx-row').length])));
+  ok(rowCount.transform >= 12 && rowCount.crop === 6 && rowCount.title >= 8 && rowCount.titleLook >= 15 && rowCount.titleAnim >= 3 && rowCount.transition === 6, '四個區段都有畫出欄位 ' + JSON.stringify(rowCount));
   await page.screenshot({ path: path.join(SHOTS, 'fx-inspector.png'), fullPage: true });
 
   // 在「縮放 X」標籤上往右拖 40px：1 + 40*0.005 = 1.2；中途 live、放開 live:false
@@ -231,7 +231,7 @@ body{margin:0;padding:16px;font-family:system-ui,"Noto Sans TC",sans-serif;backg
   const typedTitle = await page.evaluate(() => __log);
   ok(typedTitle.some(e => e.live && e.p.title.text === '新的字幕\n第二行'), '字幕輸入中 live:true');
   await page.evaluate(() => { __log.length = 0; });
-  await page.selectOption('#sec-title .ed-fx-row:has-text("樣式") select', 'crawl');
+  await page.selectOption('#sec-titleAnim .ed-fx-row:has-text("字幕過場") select', 'crawl');
   const pre = (await page.evaluate(() => __log))[0].p.title;
   ok(pre.preset === 'crawl' && pre.align === 'left' && pre.y === 0.9 && pre.size === undefined, '切換樣式只套用位置／對齊／背景，不動字級 ' + JSON.stringify(pre));
   // 轉場：切到擦拭才出現方向、切到浸入顏色才出現顏色
@@ -242,6 +242,42 @@ body{margin:0;padding:16px;font-family:system-ui,"Noto Sans TC",sans-serif;backg
     return [st, [rowOf('顏色').hidden, rowOf('方向').hidden]];
   });
   ok(vis2[0][0] === false && vis2[0][1] === true && vis2[1][0] === true && vis2[1][1] === false, '轉場：顏色只在浸入顏色、方向只在擦拭／推擠／滑入顯示');
+  // 外框（色框）：增加 → 4 格完整送出、第 1 格啟用；移除 → 剩下的往前補
+  const outl = await page.evaluate(() => {
+    const btn = t => [...document.querySelectorAll('#sec-titleLook button')].find(b => b.textContent.trim() === t);
+    const shown = t => { const b = btn(t); return !!b && !b.closest('[hidden]'); };
+    const click = t => { __log.length = 0; btn(t).click(); const e = __log[__log.length - 1]; __title.title.outlines = e.p.title.outlines; __mount('titleLook', __title); return e.p.title.outlines; };
+    const r = { before: [shown('＋ 增加外框'), shown('移除外框 1')] };
+    r.add1 = click('＋ 增加外框');
+    r.add2 = click('＋ 增加外框');
+    r.after2 = [shown('移除外框 1'), shown('移除外框 2'), shown('移除外框 3')];
+    r.rm1 = click('移除外框 1');
+    r.textFx = [...document.querySelectorAll('#sec-titleAnim .ed-fx-row')].some(row => row.textContent.includes('進場') && row.querySelector('select option[value="jumpLine"]'));
+    return r;
+  });
+  ok(outl.before[0] && !outl.before[1], '一開始只有「＋ 增加外框」');
+  ok(outl.add1.length === 4 && outl.add1[0].on && !outl.add1[1].on, '增加外框：送出完整 4 格、第 1 格啟用 ' + JSON.stringify(outl.add1));
+  ok(outl.add2[1].on && outl.add2[0].color !== outl.add2[1].color && outl.after2[0] && outl.after2[1] && !outl.after2[2], '第二層外框顏色不同，出現兩組設定');
+  ok(outl.rm1.length === 4 && outl.rm1[0].on && !outl.rm1[1].on && outl.rm1[0].color === outl.add2[1].color, '移除外框 1：外框 2 往前補 ' + JSON.stringify(outl.rm1));
+  ok(outl.textFx, '字幕動畫有「字體特效 → 進場」選單（含逐行跳起）');
+  // 選字變色：點「瘋」、從「狂」拖到「的」→ 一次送出，文字加上星號；再點「瘋」取消
+  await page.evaluate(() => { __title.title.text = '進行瘋狂的編輯'; __mount('title', __title); __log.length = 0; });
+  const chip = ch => page.locator('#sec-title .ed-fx-ch', { hasText: ch }).first();
+  await chip('瘋').click();
+  let lg = await page.evaluate(() => __log);
+  ok(lg.length === 1 && !lg[0].live && lg[0].p.title.text === '進行*瘋*狂的編輯', '點一個字：變色 ' + JSON.stringify(lg.map(e => e.p.title.text)));
+  await page.evaluate(() => { __title.title.text = __log[0].p.title.text; __mount('title', __title); __log.length = 0; });
+  const b1 = await chip('狂').boundingBox(), b2 = await chip('的').boundingBox();
+  await page.mouse.move(b1.x + b1.width / 2, b1.y + b1.height / 2); await page.mouse.down();
+  await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2, { steps: 5 }); await page.mouse.up();
+  lg = await page.evaluate(() => __log);
+  ok(lg.length === 1 && lg[0].p.title.text === '進行*瘋狂的*編輯', '拖過去一串：只送出一次 ' + JSON.stringify(lg.map(e => e.p.title.text)));
+  await page.evaluate(() => { __title.title.text = __log[0].p.title.text; __mount('title', __title); __log.length = 0; });
+  ok(await page.evaluate(() => [...document.querySelectorAll('#sec-title .ed-fx-ch.on')].map(e => e.textContent).join('')) === '瘋狂的', '已變色的字有標示');
+  await chip('瘋').click();
+  lg = await page.evaluate(() => __log);
+  ok(lg[0] && lg[0].p.title.text === '進行瘋*狂的*編輯', '再點一次取消 ' + JSON.stringify(lg.map(e => e.p.title.text)));
+  await page.locator('#sec-title').screenshot({ path: path.join(SHOTS, 'fx-accent-chips.png') });
   ok(errors.length === 0, '頁面沒有錯誤 ' + errors.join(' | '));
 
   await browser.close();

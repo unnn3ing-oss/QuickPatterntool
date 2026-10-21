@@ -232,14 +232,14 @@
   // =====================================================================================
   // 媒體庫（媒體／轉場／字幕）
   // =====================================================================================
-  const lib = { tab: 'media', trans: 'crossDissolve', title: 'static' };
+  const lib = { tab: 'media', trans: 'crossDissolve', title: 'static', textFx: 'pop', tstyle: 'plain' };
   const FILE_ACCEPT = 'video/*,audio/*,image/*,.mkv,.mov,.m4a,.mp3,.wav,.flac,.opus,.ogg,.webm,.heic,.heif';
 
   function buildMediaPanel() {
     const host = $('edMedia');
     host.textContent = '';
     const tabs = el('div', 'ed-tabs'); tabs.setAttribute('role', 'tablist');
-    for (const [k, t] of [['media', '媒體'], ['trans', '轉場'], ['title', '字幕']]) {
+    for (const [k, t] of [['media', '媒體'], ['trans', '特效'], ['title', '字幕']]) {
       const b = el('button', 'ed-tab', t); b.type = 'button'; b.dataset.tab = k; b.setAttribute('role', 'tab');
       b.addEventListener('click', () => setLibTab(k));
       tabs.appendChild(b);
@@ -270,8 +270,9 @@
     const foot = el('div', 'ed-mfoot', '單擊選取　雙擊在檢視器預覽（可設來源 In／Out）　拖到時間軸放入');
     pm.append(drop, msgs, mbar, list, foot);
 
-    const pt = el('div', 'ed-panel'); pt.dataset.panel = 'trans'; pt.hidden = true;
-    const tl = el('div', 'ed-glist'); tl.id = 'edTransList';
+    // 特效：轉場特效（加在剪接點）＋字體特效（加在字幕片段）。兩組都在同一個捲動面板裡
+    const pt = el('div', 'ed-panel scroll'); pt.dataset.panel = 'trans'; pt.hidden = true;
+    const tl = el('div', 'ed-glist static'); tl.id = 'edTransList';
     const ta = el('div', 'ed-pfoot');
     const tbIn = el('button', 'ed-btn'); tbIn.type = 'button'; tbIn.id = 'edTransAddIn'; tbIn.textContent = '加到開頭';
     tbIn.title = '把選取的轉場加到所選片段的開頭（和前一個片段之間；前面是空隙或時間軸起點時是淡入）';
@@ -281,16 +282,28 @@
     tb.addEventListener('click', () => addTransitionToSelection(lib.trans, 'end'));
     const tbs = el('div', 'ed-btnrow'); tbs.append(tbIn, tb);
     ta.append(tbs, el('span', 'ed-hint', '先選一個片段，按「加到開頭」或「加到結尾」；或把轉場拖到剪接點、片段的開頭或結尾。'));
-    pt.append(tl, ta);
+    const xl = el('div', 'ed-glist static'); xl.id = 'edTextFxList';
+    const xa = el('div', 'ed-pfoot');
+    const xb = el('button', 'ed-btn primary'); xb.type = 'button'; xb.id = 'edTextFxApply'; xb.textContent = '套用到選取的字幕';
+    xb.title = '把選取的字體特效套用到時間軸上選取的字幕片段';
+    xb.addEventListener('click', () => applyTextFx(lib.textFx));
+    xa.append(xb, el('span', 'ed-hint', '字幕出現時的動畫。選取字幕片段後按「套用」，或把特效拖到時間軸的字幕片段上；長度在詳細內容調整。'));
+    pt.append(groupHead('轉場特效'), tl, ta, groupHead('字體特效'), xl, xa);
 
-    const pg = el('div', 'ed-panel'); pg.dataset.panel = 'title'; pg.hidden = true;
-    const gl = el('div', 'ed-glist'); gl.id = 'edTitleList';
+    const pg = el('div', 'ed-panel scroll'); pg.dataset.panel = 'title'; pg.hidden = true;
+    const gl = el('div', 'ed-glist static'); gl.id = 'edTitleList';
     const ga = el('div', 'ed-pfoot');
     const gb = el('button', 'ed-btn primary'); gb.type = 'button'; gb.id = 'edTitleAdd'; gb.textContent = '在播放頭新增';
     gb.title = '在播放頭的位置新增選取樣式的字幕（放在最上層沒被佔用的影片軌）';
     gb.addEventListener('click', () => addTitle(lib.title));
-    ga.append(gb, el('span', 'ed-hint', '字幕放在影片軌上，新增後在右側詳細內容改文字、字型、顏色。也可以把樣式拖到時間軸。'));
-    pg.append(gl, ga);
+    ga.append(gb, el('span', 'ed-hint', '字幕放在影片軌上，新增後在右側詳細內容改文字、字型、顏色。也可以把過場拖到時間軸。'));
+    const sl = el('div', 'ed-glist static'); sl.id = 'edTStyleList';
+    const sa = el('div', 'ed-pfoot');
+    const sb = el('button', 'ed-btn primary'); sb.type = 'button'; sb.id = 'edTStyleApply'; sb.textContent = '套用到選取的字幕';
+    sb.title = '把選取的字幕樣式套用到時間軸上選取的字幕片段';
+    sb.addEventListener('click', () => applyTitleStyle(lib.tstyle));
+    sa.append(sb, el('span', 'ed-hint', '顏色、描邊、外框、立體一次換好（不動文字與位置）。新增字幕也會用選取的樣式；可以把樣式拖到時間軸的字幕片段上。'));
+    pg.append(groupHead('字幕過場'), gl, ga, groupHead('字幕樣式'), sl, sa);
 
     host.append(pm, pt, pg);
     setMediaView(state.mediaView, true);
@@ -329,12 +342,66 @@
       it.addEventListener('dblclick', () => { lib.title = preset; markGallery(); addTitle(preset); });
       it.addEventListener('keydown', e => { if (e.key === 'Enter') { lib.title = preset; markGallery(); addTitle(preset); } });
     }
+    const xl = $('edTextFxList'), sl = $('edTStyleList');
+    xl.textContent = ''; sl.textContent = '';
+    for (const [kind, def] of Object.entries(F.TEXT_FX || {})) {
+      const it = el('div', 'ed-gitem'); it.dataset.textfx = kind; it.tabIndex = 0; it.title = `${def.name}：拖到時間軸的字幕片段，或選取字幕後按「套用到選取的字幕」（滑鼠移上來會播放）`;
+      const cv = el('canvas'); cv.width = 192; cv.height = 108;
+      it.append(cv, el('span', 'ed-gname', def.name));
+      xl.appendChild(it);
+      paintTextFxThumb(cv, kind, null);
+      wireThumbPlay(it, cv, f => paintTextFxThumb(cv, kind, f));
+      it.addEventListener('pointerdown', e => libPointerDown(e, { kind: 'textfx', id: kind }, def.name, () => { lib.textFx = kind; markGallery(); }));
+      it.addEventListener('dblclick', () => { lib.textFx = kind; markGallery(); applyTextFx(kind); });
+      it.addEventListener('keydown', e => { if (e.key === 'Enter') { lib.textFx = kind; markGallery(); applyTextFx(kind); } });
+    }
+    for (const [key, def] of Object.entries(F.TITLE_STYLES || {})) {
+      const it = el('div', 'ed-gitem'); it.dataset.tstyle = key; it.tabIndex = 0; it.title = `${def.name}：拖到時間軸的字幕片段，或選取字幕後按「套用到選取的字幕」`;
+      const cv = el('canvas'); cv.width = 192; cv.height = 108;
+      it.append(cv, el('span', 'ed-gname', def.name));
+      sl.appendChild(it);
+      paintStyleThumb(cv, key);
+      it.addEventListener('pointerdown', e => libPointerDown(e, { kind: 'tstyle', id: key }, def.name, () => { lib.tstyle = key; markGallery(); }));
+      it.addEventListener('dblclick', () => { lib.tstyle = key; markGallery(); applyTitleStyle(key); });
+      it.addEventListener('keydown', e => { if (e.key === 'Enter') { lib.tstyle = key; markGallery(); applyTitleStyle(key); } });
+    }
     markGallery();
-    if (F.ready) F.ready().then(() => { for (const it of gl.children) paintTitleThumb(it.querySelector('canvas'), it.dataset.title); }).catch(() => {});
+    if (F.ready) F.ready().then(() => {
+      for (const it of gl.children) paintTitleThumb(it.querySelector('canvas'), it.dataset.title);
+      for (const it of xl.children) paintTextFxThumb(it.querySelector('canvas'), it.dataset.textfx, null);
+      for (const it of sl.children) paintStyleThumb(it.querySelector('canvas'), it.dataset.tstyle);
+    }).catch(() => {});
   }
   function markGallery() {
     for (const it of $('edTransList').children) it.classList.toggle('sel', it.dataset.trans === lib.trans);
     for (const it of $('edTitleList').children) it.classList.toggle('sel', it.dataset.title === lib.title);
+    for (const it of $('edTextFxList').children) it.classList.toggle('sel', it.dataset.textfx === lib.textFx);
+    for (const it of $('edTStyleList').children) it.classList.toggle('sel', it.dataset.tstyle === lib.tstyle);
+  }
+  const groupHead = t => el('div', 'ed-ghead', t);
+  // 縮圖背景＋畫一個字幕片段（用 fx 真的畫，和成品一致）
+  function paintSampleTitle(cv, title, f) {
+    const g = cv.getContext('2d'), W = cv.width, H = cv.height;
+    const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#5b6b86'); gr.addColorStop(1, '#2a3550');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    try { F.drawTitle(g, { id: 'thumb', type: 'title', duration: 60, title, video: F.defaultVideo() }, W, H, f, 30); } catch (_) { /* 字型還沒好：之後會重畫 */ }
+  }
+  // 字體特效縮圖：f＝null 時畫動畫進行到一半的樣子（看得出效果），播放時逐格畫
+  function paintTextFxThumb(cv, kind, f) {
+    const t = Object.assign(F.makeTitle('static', '字體特效'), { size: 260, textFx: kind, textFxDur: 0.5, stroke: { color: '#1b2233', width: 6 } });
+    paintSampleTitle(cv, t, f == null ? (F.TEXT_FX[kind] && F.TEXT_FX[kind].char ? 9 : 7) : f);
+  }
+  function paintStyleThumb(cv, key) {
+    const st = F.TITLE_STYLES[key];
+    if (!st) return;
+    paintSampleTitle(cv, Object.assign(F.makeTitle('static', st.sample || '字幕樣式'), JSON.parse(JSON.stringify(st.patch)), { size: 260 }), 0);
+  }
+  // 滑鼠移到縮圖上：用 requestAnimationFrame 播 0~45 格（30 fps），重複播放；移開停在預設畫面
+  function wireThumbPlay(it, cv, draw) {
+    let raf = 0, t0 = 0;
+    const tick = now => { const f = Math.floor(((now - t0) / 1000 * 30) % 45); draw(f); raf = root.requestAnimationFrame(tick); };
+    it.addEventListener('pointerenter', () => { if (raf) return; t0 = performance.now(); raf = root.requestAnimationFrame(tick); });
+    it.addEventListener('pointerleave', () => { if (raf) root.cancelAnimationFrame(raf); raf = 0; draw(null); });
   }
   function paintTransThumb(cv, type) {
     const g = cv.getContext('2d'), W = cv.width, H = cv.height;
@@ -1498,7 +1565,9 @@
         const free = videoTracksTopFirst().find(t => trackFreeAt(p, t, at, dur));
         if (free) tid = free.id; else { const a = C.addTrack(p, 'video'); if (!a.ok) return a; tid = a.id; }
       }
-      return C.addClip(p, { type: 'title', trackId: tid, start: at, duration: dur, mode: 'overwrite', title: F.makeTitle(preset, '輸入字幕'), name: def.name || '字幕' });
+      const st = F.TITLE_STYLES && F.TITLE_STYLES[lib.tstyle];   // 新增的字幕套用目前選取的字幕樣式
+      const title = Object.assign(F.makeTitle(preset, '輸入字幕'), st ? JSON.parse(JSON.stringify(st.patch)) : {});
+      return C.addClip(p, { type: 'title', trackId: tid, start: at, duration: dur, mode: 'overwrite', title, name: def.name || '字幕' });
     });
     if (r && r.ok) {
       selectClips([r.id]);
@@ -1506,6 +1575,28 @@
       say('已新增字幕：在右側詳細內容改文字與樣式', 'ok');
     }
     return r;
+  }
+
+  // 字幕樣式／字體特效套用到字幕片段：ids 沒給就用選取中的字幕片段
+  function titleTargets(ids) {
+    return (ids || selIds()).filter(id => { const c = clipOf(id); return c && c.type === 'title'; });
+  }
+  function applyTitlePatch(label, patch, ids, okMsg) {
+    const list = titleTargets(ids);
+    if (!list.length) { say('請先在時間軸選取字幕片段（或把它拖到字幕片段上）', 'error'); return null; }
+    const r = op(label, p => C.setClipProps(p, list, { title: patch }));
+    if (r && r.ok) { if (player && !player.playing) player.refresh(); say(list.length > 1 ? `${okMsg}（${list.length} 個字幕）` : okMsg, 'ok'); }
+    return r;
+  }
+  function applyTitleStyle(key, ids) {
+    const st = F.TITLE_STYLES && F.TITLE_STYLES[key];
+    if (!st) return null;
+    return applyTitlePatch('字幕樣式', JSON.parse(JSON.stringify(st.patch)), ids, `已套用字幕樣式「${st.name}」`);
+  }
+  function applyTextFx(kind, ids) {
+    const d = F.TEXT_FX && F.TEXT_FX[kind];
+    if (!d) return null;
+    return applyTitlePatch('字體特效', { textFx: kind }, ids, kind === 'none' ? '已移除字體特效' : `已套用字體特效「${d.name}」`);
   }
 
   // ---- 開關、復原 ------------------------------------------------------------------
@@ -2369,6 +2460,12 @@
       case 'clip': e.preventDefault(); return onClipDown(e, h);
       case 'lane': e.preventDefault(); return onLaneDown(e, h);
       default:
+        // 軌道下方的空白：也是取消選取（捲軸、軌道標頭不算）
+        const sr = tl.scroll.getBoundingClientRect();
+        const onBar = e.clientX - sr.left >= tl.scroll.clientWidth || e.clientY - sr.top >= tl.scroll.clientHeight;
+        if (h.kind === 'none' && (e.target === tl.scroll || e.target === tl.inner) && !onBar) {
+          if (!(e.shiftKey || e.ctrlKey || e.metaKey) && (state.selection.size || state.selTransition)) { state.selection = new Set(); state.selTransition = null; refreshSelectionUI(); }
+        }
     }
   }
 
@@ -2551,7 +2648,7 @@
     });
   }
 
-  // 空白處：拖曳框選；點一下取消選取並把播放頭移過去
+  // 空白處：拖曳框選；點一下取消選取
   function onLaneDown(e, h) {
     if (state.tool === 'blade') return;
     const ir = tl.inner.getBoundingClientRect();
@@ -2573,7 +2670,8 @@
       },
       up(ev, moved) {
         if (tl.marquee) tl.marquee.hidden = true;
-        if (!moved) { if (!base.size) { state.selection = new Set(); state.selTransition = null; refreshSelectionUI(); } seekTimeline(Math.max(0, Math.round(xToFrame(ev.clientX)))); }
+        // 點一下只取消選取，不移動播放頭（播放頭只在拖紅色箭頭或點時間尺時移動）
+        if (!moved && !base.size) { state.selection = new Set(); state.selTransition = null; refreshSelectionUI(); }
       },
       cancel() { if (tl.marquee) tl.marquee.hidden = true; },
     });
@@ -2634,6 +2732,10 @@
       }
       return { lane, tid, kind, f: best ? best.f : f, clipId: best && best.clipId, edge: best && best.edge, leftId: best && best.edge === 'end' ? best.clipId : null };
     }
+    if (payload.kind === 'textfx' || payload.kind === 'tstyle') {   // 字體特效／字幕樣式：放在游標下的片段上
+      const c = C.clipAt(p, tid, f);
+      return { lane, tid, kind, f, clipId: c ? c.id : null, isTitle: !!(c && c.type === 'title') };
+    }
     if (state.snapping) f = C.snap(f, C.snapTargets(p, { playhead: state.playhead }), SNAP_PX / tl.k);
     return { lane, tid, kind, f };
   }
@@ -2647,6 +2749,7 @@
     let ok = true;
     if (payload.kind === 'transition') ok = !!t.clipId && t.kind === 'video';
     else if (payload.kind === 'title') ok = t.kind === 'video';
+    else if (payload.kind === 'textfx' || payload.kind === 'tstyle') ok = t.isTitle;
     else if (m) ok = t.kind === 'video' ? m.kind !== 'audio' : (m.kind === 'audio' || !!m.hasAudio);
     t.lane.classList.add(ok ? 'drop-ok' : 'drop-bad');
     tl.dropLine.hidden = false;
@@ -2662,6 +2765,10 @@
     } else if (payload.kind === 'title') {
       if (t.kind !== 'video') { say('字幕只能放在影片軌上', 'error'); return; }
       addTitle(payload.id, t.tid, t.f);
+    } else if (payload.kind === 'textfx' || payload.kind === 'tstyle') {
+      if (!t.isTitle) { say(payload.kind === 'textfx' ? '字體特效要拖到時間軸的字幕片段上' : '字幕樣式要拖到時間軸的字幕片段上', 'error'); return; }
+      selectClips([t.clipId]);
+      if (payload.kind === 'textfx') applyTextFx(payload.id, [t.clipId]); else applyTitleStyle(payload.id, [t.clipId]);
     } else dropMedia(payload.id, t);
   }
   function dropMedia(id, t) {
@@ -2808,8 +2915,9 @@
     const host = $('edInspector');
     host.textContent = '';
     const head = el('div', 'ed-ph'); head.id = 'edInspHead'; head.textContent = '詳細內容';
+    insp.tabs = el('div', 'ed-itabs'); insp.tabs.id = 'edInspTabs'; insp.tabs.setAttribute('role', 'tablist'); insp.tabs.hidden = true;
     insp.body = el('div', 'ed-insp-body');
-    host.append(head, insp.body);
+    host.append(head, insp.tabs, insp.body);
     // 在數值標籤上按下去拖曳時，先讓輸入框失焦：不然焦點還停在輸入框裡，Ctrl+Z 會變成輸入框自己的文字復原
     host.addEventListener('pointerdown', e => {
       if (e.target.closest && e.target.closest('.ed-fx-lab') && doc.activeElement && doc.activeElement !== doc.body && host.contains(doc.activeElement) && isTextTarget(doc.activeElement)) doc.activeElement.blur();
@@ -3009,6 +3117,25 @@
     insp.speedNote.textContent = frozen ? '這是定格片段，不能變速。' : '也可以按 ' + MOD + 'R 開啟變速對話框。';
   }
 
+  // ---- 分頁：依選取的物件種類分頁，一次只看一頁 ------------------------------------------
+  // 每頁列出要顯示的區段（沒有的區段自動略過，整頁都沒有就不出現這個分頁）；各種類記住上次看的分頁
+  const fxSec = id => insp.fxSecs.find(f => f.def.id === id);
+  function inspPages(c) {
+    const fx = (...ids) => ids.map(id => { const f = fxSec(id); return f && f.def.appliesTo(c) ? f : null; });
+    const audio = audioClip() ? insp.audio : null, speed = speedClip() ? insp.speed : null;
+    if (c.type === 'title') {
+      return { kind: 'title', pages: [['text', '文字', fx('title')], ['look', '外觀', fx('titleLook')], ['anim', '動畫', fx('titleAnim')],
+        ['xform', '變形', fx('transform', 'crop')], ['info', '資訊', [insp.info]]] };
+    }
+    const kind = c.video ? c.type : 'audio';
+    return { kind, pages: [['xform', '變形', fx('transform')], ['crop', '裁切', fx('crop')], ['audio', '音訊', [audio]], ['speed', '速度', [speed]], ['info', '資訊', [insp.info]]] };
+  }
+  function setInspTab(kind, id) {
+    insp.tabOf[kind] = id;
+    try { root.localStorage.setItem('qpt-edit-itab', JSON.stringify(insp.tabOf)); } catch (_) { /* 不能存就算了 */ }
+    renderInspector();
+  }
+
   // ---- 總更新 ----------------------------------------------------------------------
   function renderInspector() {
     if (!insp.body) return;
@@ -3019,6 +3146,8 @@
     show(insp.project, false); show(insp.info, false); show(insp.audio, false); show(insp.speed, false);
     insp.delTrans.hidden = true;
     for (const f of insp.fxSecs) show(f.ui, false);
+    for (const s of [insp.info, insp.audio, insp.speed, ...insp.fxSecs.map(f => f.ui)]) s.el.classList.remove('solo');
+    insp.tabs.hidden = true;
     $('edInspHead').textContent = '詳細內容';
     if (tr) {
       const f = insp.fxSecs.find(x => x.def.appliesTo(tr));
@@ -3028,15 +3157,32 @@
       return;
     }
     if (!c) { show(insp.project, true); updateProjectSection(); return; }
-    show(insp.info, true); updateInfoSection(c, ids.length);
-    for (const f of insp.fxSecs) {
-      if (!f.def.appliesTo(c) || (c && c.leftClipId !== undefined)) continue;
-      show(f.ui, true);
-      f.def.render(f.ui.body, c, commitFor(f.def));
+    updateInfoSection(c, ids.length);
+    const { kind, pages } = inspPages(c);
+    const avail = pages.map(([id, label, secs]) => [id, label, secs.filter(Boolean)]).filter(pg => pg[2].length);
+    if (!insp.tabOf) { insp.tabOf = {}; try { insp.tabOf = JSON.parse(root.localStorage.getItem('qpt-edit-itab')) || {}; } catch (_) { /* 讀不到就用預設 */ } }
+    const page = avail.find(pg => pg[0] === insp.tabOf[kind]) || avail[0];
+    const key = kind + ':' + avail.map(pg => pg[0]).join(',') + ':' + page[0];
+    if (insp.tabsKey !== key) {
+      insp.tabsKey = key;
+      insp.tabs.textContent = '';
+      for (const [id, label] of avail) {
+        const b = el('button', 'ed-itab' + (id === page[0] ? ' active' : ''), label);
+        b.type = 'button'; b.dataset.itab = id; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(id === page[0]));
+        b.addEventListener('click', () => setInspTab(kind, id));
+        insp.tabs.appendChild(b);
+      }
     }
-    if (audioClip()) { show(insp.audio, true); updateAudioSection(); }
-    const sc = speedClip();
-    if (sc) { show(insp.speed, true); updateSpeedSection(sc); }
+    insp.tabs.hidden = avail.length < 2;
+    const secs = page[2];
+    for (const s of secs) {
+      const ui = s.ui || s;
+      show(ui, true);
+      if (secs.length === 1) ui.el.classList.add('solo');
+      if (s.def) s.def.render(s.ui.body, c, commitFor(s.def));
+      else if (s === insp.audio) updateAudioSection();
+      else if (s === insp.speed) updateSpeedSection(speedClip());
+    }
   }
 
   // =====================================================================================
@@ -3147,7 +3293,7 @@
   }
 
   Object.assign(Q.ui, {
-    init, importFiles, doEdit, selectClips, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
+    init, importFiles, doEdit, selectClips, applyTitleStyle, applyTextFx, selectTransition, seekTimeline, setTool, undo, redo, openSource, setMode, addTitle, addTransitionAt, addTransitionToSelection,
     setZoom, zoomFit, renderNow, bladeAtPlayhead, deleteSelection, markIn, markOut, clearInOut, addMarkerHere, toggleLink, toggleSnap, ensureMediaInfo,
     openSpeedPop, openFreezePop, tl, tc, setTheme: t => applyTheme(t, true),
   });

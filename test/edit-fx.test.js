@@ -311,8 +311,8 @@ test('drawTitle：不透明度為 0 不畫', () => {
 // ---- 檢查器（資料面；DOM 部分在 e2e 測） ----
 test('inspector.sections：id、標題與適用對象', () => {
   const s = fx.inspector.sections;
-  assert.deepEqual(s.map(x => x.id), ['transform', 'crop', 'title', 'transition']);
-  assert.deepEqual(s.map(x => x.title), ['變形', '裁切', '字幕', '轉場']);
+  assert.deepEqual(s.map(x => x.id), ['transform', 'crop', 'title', 'titleLook', 'titleAnim', 'transition']);
+  assert.deepEqual(s.map(x => x.title), ['變形', '裁切', '字幕文字', '字幕外觀', '字幕動畫', '轉場']);
   const by = id => s.find(x => x.id === id);
   const media = { id: 'a', type: 'media', video: fx.defaultVideo() };
   const title = titleClip('static', 'x');
@@ -320,6 +320,63 @@ test('inspector.sections：id、標題與適用對象', () => {
   const tr = { id: 'tr1', trackId: 't', leftClipId: 'a', rightClipId: null, type: 'wipe', duration: 15 };
   assert.ok(by('transform').appliesTo(media) && by('transform').appliesTo(title) && !by('transform').appliesTo(audioOnly) && !by('transform').appliesTo(tr));
   assert.ok(by('crop').appliesTo(media) && !by('crop').appliesTo(tr));
-  assert.ok(by('title').appliesTo(title) && !by('title').appliesTo(media));
+  for (const id of ['title', 'titleLook', 'titleAnim']) assert.ok(by(id).appliesTo(title) && !by(id).appliesTo(media) && !by(id).appliesTo(tr), id);
   assert.ok(by('transition').appliesTo(tr) && !by('transition').appliesTo(media));
+});
+
+test('字幕：*星號* 強調、外框疊層、立體、漸層', () => {
+  assert.deepEqual(fx.parseAccent('進行*瘋狂*的'), { text: '進行瘋狂的', mask: [false, false, true, true, false] });
+  assert.deepEqual(fx.parseAccent('3*4'), { text: '3*4', mask: null }, '落單的星號保留');
+  const n = fx.normTitle({ text: 'a', outlines: [{ on: true, color: '#f00' }], extrude: { depth: 4 } });
+  assert.equal(n.outlines.length, 4); assert.equal(n.outlines[0].width, 6); assert.equal(n.extrude.color, '#3a2386');
+  // 強調：逐字畫，強調的字用強調色
+  const ctx = mockCtx();
+  fx.drawTitle(ctx, titleClip('static', '進行*瘋狂*', 90, { accent: '#e5141b' }), 1000, 1000, 0, 30);
+  assert.equal(texts(ctx).map(a => a[0]).join(''), '進行瘋狂', '星號不會畫出來');
+  const fills = ctx.__log.filter(e => e[0] === 'set:fillStyle' || e[0] === 'fillText');
+  const colorOf = ch => { let c = null; for (const e of fills) { if (e[0] === 'set:fillStyle') c = e[1]; else if (e[1] === ch) return c; } return null; };
+  assert.equal(colorOf('瘋'), '#e5141b'); assert.equal(colorOf('進'), '#ffffff');
+  // 外框：描邊 4 + 兩層外框 6、10 → 由外往內 lineWidth 40、16、8
+  const c2 = mockCtx();
+  fx.drawTitle(c2, titleClip('static', '字', 90, { stroke: { color: '#000', width: 4 }, outlines: [{ on: true, color: '#fff', width: 6 }, { on: true, color: '#00f', width: 10 }] }), 1080, 1080, 0, 30);
+  assert.deepEqual(c2.__log.filter(e => e[0] === 'set:lineWidth').map(e => e[1]), [40, 20, 8]);
+  assert.equal(calls(c2, 'strokeText').length, 3);
+  // 立體：深度 16 → 16 層，在主體之前畫
+  const c3 = mockCtx();
+  fx.drawTitle(c3, titleClip('static', '字', 90, { extrude: { depth: 16, color: '#333', angle: 45 } }), 1080, 1080, 0, 30);
+  assert.equal(texts(c3).length, 17);
+  // 漸層
+  const c4 = mockCtx();
+  fx.drawTitle(c4, titleClip('static', '字', 90, { gradient: { on: true, color: '#8fd8ff' } }), 1080, 1080, 0, 30);
+  assert.equal(calls(c4, 'createLinearGradient').length, 1);
+});
+test('字體特效：彈出、逐字跳起', () => {
+  const run = (fxName, f) => { const ctx = mockCtx(); fx.drawTitle(ctx, titleClip('static', '一二三四', 90, { textFx: fxName, textFxDur: 0.5 }), 1000, 1000, f, 30); return ctx; };
+  const scaleAt = f => { const s = calls(run('pop', f), 'scale'); return s.length ? s[0][1] : 1; };
+  assert.equal(scaleAt(0), 0, '開頭縮放 0');
+  assert.ok(scaleAt(10) > 1, '中途超過 1（彈一下）：' + scaleAt(10));
+  assert.ok(Math.abs(scaleAt(15) - 1) < 1e-9, '動畫結束回到 1');
+  // 逐字跳起：第 2 格時第一個字已經出現，最後一個字還沒
+  const c = run('jumpChar', 2);
+  const drawn = texts(c).map(a => a[0]);
+  assert.ok(drawn.includes('一') && !drawn.includes('四'), '逐字錯開：' + drawn);
+  const end = texts(run('jumpChar', 80)).map(a => a[0]).join('');
+  assert.equal(end, '一二三四', '結束時每個字都在');
+  assert.ok(Object.keys(fx.TITLE_STYLES).length >= 5 && fx.TEXT_FX.jump && fx.TEXT_FX.pop);
+});
+test('字體特效：逐行跳起、逐行彈出（整行一起動，一行一行錯開）', () => {
+  const run = (fxName, f) => { const ctx = mockCtx(); fx.drawTitle(ctx, titleClip('static', '第一行\n第二行', 90, { textFx: fxName, textFxDur: 0.5 }), 1000, 1000, f, 30); return ctx; };
+  // 第 2 格：第一行開始了、第二行（晚 0.15 秒＝4.5 格）還沒
+  assert.deepEqual(texts(run('jumpLine', 2)).map(a => a[0]), ['第一行'], '整行一次畫、第二行還沒出現');
+  assert.deepEqual(texts(run('jumpLine', 80)).map(a => a[0]), ['第一行', '第二行']);
+  const sc = calls(run('popLine', 0), 'scale');
+  assert.ok(!texts(run('popLine', 0)).length && !sc.length, '彈出開頭縮放 0：什麼都不畫');
+  assert.equal(calls(run('popLine', 80), 'scale')[0][1], 1, '結束時縮放回到 1');
+});
+test('選字變色：buildAccent 是 parseAccent 的反向', () => {
+  assert.equal(fx.buildAccent('進行瘋狂的', [false, false, true, true, false]), '進行*瘋狂*的');
+  assert.equal(fx.buildAccent('一\n二', [true, true, true]), '*一*\n*二*', '跨行時每行各自包');
+  assert.equal(fx.buildAccent('abc', null), 'abc');
+  const r = fx.parseAccent(fx.buildAccent('a*b', [false, false, true]));
+  assert.deepEqual([r.text, r.mask], ['a＊b', [false, false, true]], '原本的星號換成全形，不會被當成標記');
 });
