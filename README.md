@@ -26,7 +26,7 @@
 
 ### 剪輯（網頁版）— 已搬到 QuickCut
 
-> **這個分頁的剪輯工具已停用**，改成獨立網站 **QuickCut**：<https://unnn3ing-oss.github.io/quickcut/>（程式與最新說明在 [quickcut 專案](https://github.com/unnn3ing-oss/quickcut)）。網頁版點「剪輯」只會看到搬家說明與 4 步功能介紹（多軌時間軸、轉場與字幕、專案檔與自動暫存、匯出 MP4；版型沿用「安裝插件」全螢幕教學，每步有示意動畫），按「前往 QuickCut」會在新分頁開啟。`index.html` 不再載入 `edit.css`／`edit-*.js`，檔案還留在專案裡但不會被用到。下面是停用前的說明，只留作參考。
+> **這個分頁的剪輯工具已停用**，改成獨立網站 **QuickCut**：<https://unnn3ing-oss.github.io/quickcut/>（程式與最新說明在 [quickcut 專案](https://github.com/unnn3ing-oss/quickcut)）。網頁版點「剪輯」只會看到搬家說明與自動輪播的 4 則功能介紹（多軌時間軸、轉場與字幕、專案檔與自動暫存、匯出 MP4；版型沿用「安裝插件」全螢幕教學，每則有示意動畫；滑鼠停上去或按「暫停輪播」會停，也能用箭頭／圓點／方向鍵切換），右下角的「前往 QuickCut」會在新分頁開啟。`index.html` 不再載入 `edit.css`／`edit-*.js`，檔案還留在專案裡但不會被用到。下面是停用前的說明，只留作參考。
 
 上排第五個功能「剪輯」，**只在網頁版**（不會被放進 Chrome 擴充功能）。多軌時間軸：把影片、音訊、圖片排成一支影片，匯出 MP4。版面是左側媒體庫、中間檢視器、右側詳細內容，下方是時間軸。
 
@@ -234,7 +234,7 @@
 | `segmented.js` / `segmented.css` | 切換開關的滑動動畫與拖曳切換（網頁版與側邊欄共用，會被放進擴充功能） |
 | `watermark.js` / `watermark.css` | 網頁版專用：上排名稱＋「圖片套版／浮水印／拼圖」功能切換，以及「浮水印」功能本身（不會被放進擴充功能） |
 | `collage.js` / `collage.css` | 網頁版專用：「拼圖」功能本身（獨立的檔案；不會被放進擴充功能） |
-| `deploy.js` / `deploy.css` | 網頁版專用：「安裝插件」全螢幕教學與「剪輯」分頁的 QuickCut 搬家介紹（4 步功能介紹，同一種版型）（6 步驟動畫示意＋複製按鈕；抓 GitHub 最新版檔案寫入資料夾或打包 ZIP），以及右下角圓形「N」按鈕的「其他工具」彈窗（進入網頁時會自動打開、5 秒後自動收起；5 秒內碰到它就不再自動收），介紹並連到 [Line 推播套版產生器](https://unnn3ing-oss.github.io/LinePushPatternTool/) 與 [YouTube 批量下載器](https://unnn3ing-oss.github.io/videodownload/)（不會被放進擴充功能） |
+| `deploy.js` / `deploy.css` | 網頁版專用：「安裝插件」全螢幕教學與「剪輯」分頁的 QuickCut 搬家介紹（自動輪播的 4 則功能介紹，同一種版型）（6 步驟動畫示意＋複製按鈕；抓 GitHub 最新版檔案寫入資料夾或打包 ZIP），以及右下角圓形「N」按鈕的「其他工具」彈窗（進入網頁時會自動打開、5 秒後自動收起；5 秒內碰到它就不再自動收），介紹並連到 [Line 推播套版產生器](https://unnn3ing-oss.github.io/LinePushPatternTool/) 與 [YouTube 批量下載器](https://unnn3ing-oss.github.io/videodownload/)（不會被放進擴充功能） |
 | `test/` | 單元測試（`node --test test/*.test.js`）與瀏覽器流程測試（`NODE_PATH=<有 playwright 的 node_modules> node --test test/sidepanel.e2e.js test/schedpanel.e2e.js test/schedweb.e2e.js test/qfweb.e2e.js test/fbpost.e2e.js`；`sidepanel`／`schedpanel` 用假的 `chrome.*`，`schedweb`／`qfweb` 在假的網址載入網頁版並放進真的橋接與背景程式（共用 `test/web-harness.js`），`fbpost` 用模擬的 Facebook 發文框、動態牆與留言框）；不會被放進擴充功能 |
 | `icons/` | 擴充功能圖示（16／32／48／128） |
 | `whz-heavy.ttf` | 套版標題與網頁大標題使用的字型（WHZ-Heavy），以 `@font-face` 載入；其餘介面文字使用系統內建中文字型（蘋方／微軟正黑體） |

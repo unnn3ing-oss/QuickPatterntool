@@ -284,7 +284,7 @@
   </div>
 
   <!-- 剪輯：原本的剪輯工具已獨立成專屬網站 QuickCut（https://unnn3ing-oss.github.io/quickcut/），這個分頁只放「搬家說明＋功能介紹」，
-       介紹的版型沿用「安裝插件」全螢幕教學（deploy.css 的 .ds-*；步驟精靈在 deploy.js 的「QuickCut 介紹」）。
+       介紹是自動輪播的 4 則功能（版型與示意動畫沿用「安裝插件」全螢幕教學的 deploy.css .ds-*；輪播邏輯在 deploy.js 的 qcIntro），右下角是前往 QuickCut 的連結。
        id 維持 editApp：watermark.js 的分頁切換靠它顯示／隱藏。舊的剪輯程式（edit-*.js、edit.css）仍留在專案裡但不再載入。 -->
   <section class="qc" id="editApp" aria-labelledby="qcTitle" hidden>
     <div class="qc-card">
@@ -292,17 +292,9 @@
         <img class="qc-logo" src="favicon.svg" alt="" width="44" height="44">
         <div class="qc-title">
           <h2 id="qcTitle">QuickCut 影片剪輯已經搬家了</h2>
-          <p>多軌時間軸剪輯已獨立成專屬網站，這個分頁不再提供剪輯。按右邊的按鈕就能前往（會在新分頁開啟）。</p>
+          <p>多軌時間軸剪輯已獨立成專屬網站，這個分頁不再提供剪輯。下面輪播介紹它的功能，按右下角的「前往 QuickCut」就能過去（會在新分頁開啟）。</p>
         </div>
-        <a class="ds-btn primary qc-go" id="qcGo" href="https://unnn3ing-oss.github.io/quickcut/" target="_blank" rel="noopener noreferrer">前往 QuickCut <span aria-hidden="true">↗</span></a>
       </header>
-
-      <ol class="ds-steps" id="qcSteps" aria-label="功能介紹">
-        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 1：多軌時間軸"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">多軌時間軸</span></button></li>
-        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 2：轉場與字幕"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">轉場與字幕</span></button></li>
-        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 3：專案檔"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">專案檔與暫存</span></button></li>
-        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 4：匯出 MP4"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">匯出 MP4</span></button></li>
-      </ol>
 
       <div class="qc-main">
         <!-- 1：多軌時間軸 -->
@@ -437,15 +429,24 @@
               <li>素材全部在你的瀏覽器裡處理，<b>不會上傳</b>到任何伺服器。</li>
               <li>建議用最新版 <b>Chrome 或 Edge</b>（匯出用 WebCodecs），桌面瀏覽器專用。</li>
             </ol>
-            <div class="ds-actions"><a class="ds-btn primary" href="https://unnn3ing-oss.github.io/quickcut/" target="_blank" rel="noopener noreferrer">前往 QuickCut <span aria-hidden="true">↗</span></a></div>
           </div>
         </section>
       </div>
 
-      <footer class="ds-foot">
-        <button type="button" class="ds-btn" id="qcPrev">上一步</button>
-        <span class="ds-count" id="qcCount" aria-live="polite">1 / 4</span>
-        <button type="button" class="ds-btn primary" id="qcNext">下一步</button>
+      <footer class="qc-foot">
+        <div class="qc-ctrl">
+          <button type="button" class="qc-arrow" id="qcPrev" aria-label="上一則">‹</button>
+          <div class="qc-dots" id="qcDots" role="group" aria-label="功能介紹，選一則">
+            <button type="button" class="qc-dot" aria-label="第 1 則：多軌時間軸"></button>
+            <button type="button" class="qc-dot" aria-label="第 2 則：轉場與字幕"></button>
+            <button type="button" class="qc-dot" aria-label="第 3 則：專案檔與自動暫存"></button>
+            <button type="button" class="qc-dot" aria-label="第 4 則：匯出 MP4"></button>
+          </div>
+          <button type="button" class="qc-arrow" id="qcNext" aria-label="下一則">›</button>
+          <button type="button" class="qc-pause" id="qcPause" aria-pressed="false" title="暫停自動輪播">暫停輪播</button>
+          <span class="qc-count" id="qcCount" aria-live="off">1 / 4</span>
+        </div>
+        <a class="ds-btn primary qc-go" id="qcGo" href="https://unnn3ing-oss.github.io/quickcut/" target="_blank" rel="noopener noreferrer">前往 QuickCut <span aria-hidden="true">↗</span></a>
       </footer>
     </div>
   </section>

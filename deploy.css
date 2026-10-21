@@ -300,19 +300,13 @@ html.ds-lock, html.ds-lock body { overflow: hidden; }
 .qc-title { flex: 1 1 320px; min-width: 0; }
 .qc-title h2 { margin: 0; font-size: 24px; font-weight: 800; }
 .qc-title p { margin: 5px 0 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
-.qc-go { flex: none; display: inline-block; text-decoration: none; padding: 12px 26px; font-size: 16px; }
+.qc-go { flex: none; display: inline-block; text-decoration: none; padding: 12px 26px; font-size: 16px; }   /* 在右下角（.qc-foot） */
 .qc-go:hover { text-decoration: none; }
-.qc .ds-steps { margin-top: 22px; }
-.qc-main { padding: 18px 2px 22px; }
+.qc-main { padding: 22px 2px 24px; }
 .qc .ds-pane { min-height: 0; }
-.qc .ds-foot { margin: 0 -30px; padding-left: 30px; padding-right: 30px; }
-.qc .ds-actions { margin-top: 14px; }
-.qc .ds-actions .ds-btn { flex: 0 1 auto; display: inline-block; text-decoration: none; }
 @media (max-width: 900px) {
   .qc-card { padding: 16px 16px 0; border-radius: 22px; }
-  .qc .ds-foot { margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
   .qc-title h2 { font-size: 20px; }
-  .qc-go { width: 100%; text-align: center; box-sizing: border-box; }
 }
 
 /* 介紹用的示意圖（時間軸片段、轉場、字幕）：顏色只在這裡定義 */
@@ -332,3 +326,26 @@ html.ds-lock, html.ds-lock body { overflow: hidden; }
   .ds-art.play .x-sweep { animation: qc-sweep 2.4s 1.7s ease-in-out both; }
 }
 @keyframes qc-sweep { from { opacity: 0; transform: translateX(-250px); } 12% { opacity: 1; } to { opacity: 1; transform: none; } }
+
+/* 輪播的頁尾：左邊是上一則／圓點／下一則／暫停，右下角是前往 QuickCut 的連結 */
+.qc-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 -30px; padding: 14px 30px calc(18px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); }
+.qc-ctrl { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.qc-arrow { margin: 0; width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid var(--border); background: #fff; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.qc-arrow:hover { color: var(--accent); border-color: var(--accent); }
+.qc-dots { display: flex; align-items: center; gap: 8px; }
+.qc-dot { position: relative; overflow: hidden; margin: 0; padding: 0; width: 10px; height: 10px; border: none; border-radius: 999px; background: #cdd7ea; cursor: pointer; transition: width .25s ease; }
+.qc-dot.current { width: 38px; }
+.qc-dot.current::after { content: ""; position: absolute; inset: 0; background: var(--accent); }
+.qc.playing .qc-dot.current::after { transform-origin: left center; animation: qc-fill var(--cyc, 7s) linear both; }
+@keyframes qc-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.qc-dot:focus-visible, .qc-arrow:focus-visible, .qc-pause:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
+.qc-pause { margin: 0 0 0 4px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: 600 13px/1 var(--ui-font); cursor: pointer; }
+.qc-pause:hover { color: var(--accent); border-color: var(--accent); }
+.qc-pause[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.qc-count { font-size: 13px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .qc-dot { transition: none; } }
+@media (max-width: 900px) {   /* 窄螢幕：控制列在上、前往按鈕撐滿寬度在最下面 */
+  .qc-foot { flex-direction: column; align-items: stretch; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+  .qc-ctrl { justify-content: center; }
+  .qc-go { text-align: center; }
+}

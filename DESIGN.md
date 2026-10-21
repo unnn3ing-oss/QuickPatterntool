@@ -94,10 +94,10 @@
 
 ## 9. 剪輯（`edit-*.js`）— 已停用，搬到 QuickCut
 
-> **現況**：剪輯已獨立成網站 QuickCut（<https://unnn3ing-oss.github.io/quickcut/>，自己的 repo、程式與測試）。網頁版 `index.html` **不再載入** `edit.css`／`edit-*.js`，「剪輯」分頁（`#editApp`）改成「搬家說明＋4 步功能介紹」，頁首的深色開關也拿掉了。下面各節描述的是停用前的舊剪輯，留作參考。
+> **現況**：剪輯已獨立成網站 QuickCut（<https://unnn3ing-oss.github.io/quickcut/>，自己的 repo、程式與測試）。網頁版 `index.html` **不再載入** `edit.css`／`edit-*.js`，「剪輯」分頁（`#editApp`）改成「搬家說明＋4 則功能輪播」，頁首的深色開關也拿掉了。下面各節描述的是停用前的舊剪輯，留作參考。
 > - **id 維持 `editApp`**：`watermark.js` 的 `setFunc` 靠 `apps.edit` 顯示／隱藏它，改名就要動 `watermark.js`。
-> - **介紹的版型沿用「安裝插件」全螢幕教學**（`deploy.css` 的 `.ds-steps`／`.ds-pane`／`.ds-art`／`.ds-text`／`.ds-foot` 與示意動畫 class），只多了「嵌在分頁裡」需要的 `.qc-*`；精靈邏輯在 `deploy.js` 的 `qcIntro`（和安裝教學同一種換步＋重播動畫做法，但不蓋滿畫面、沒有 Esc/Tab 圈住）。全是網頁版專用檔（已在 `SKIP` 內），所以不升外掛版號。
-> - **不自動跳轉**：只放「前往 QuickCut」按鈕（`target=_blank rel="noopener noreferrer"`）。自動導向會讓人還沒看懂就被帶走，也容易被瀏覽器擋彈出視窗。
+> - **介紹的版型沿用「安裝插件」全螢幕教學**（`deploy.css` 的 `.ds-pane`／`.ds-art`／`.ds-text` 與示意動畫 class），只多了「嵌在分頁裡」需要的 `.qc-*`（頁尾輪播控制、圓點、右下角連結）；輪播邏輯在 `deploy.js` 的 `qcIntro`（和安裝教學同一種換則＋重播動畫做法，但不蓋滿畫面、沒有 Esc/Tab 圈住）。全是網頁版專用檔（已在 `SKIP` 內），所以不升外掛版號。
+> - **自動輪播、右下角連結、不自動跳轉**：4 則功能每則依自己的示意動畫長度（`data-cycle`，7～8 秒）播完就換下一則、循環；圓點會一邊填色顯示這則剩多久。**滑鼠停在輪播上、鍵盤焦點在裡面（`:focus-visible`）、按「暫停輪播」、分頁在背景、系統「減少動態效果」時都不自動換**，也都能用箭頭／圓點／方向鍵手動切。滑鼠點按鈕留下的焦點**不算**暫停，否則點過一次就再也不會自動換。離開「剪輯」分頁就停計時器，回來從第 1 則開始。唯一的連結是右下角的「前往 QuickCut ↗」（`target=_blank rel="noopener noreferrer"`，窄螢幕撐滿寬度排在最下面）；不自動導向，免得人還沒看懂就被帶走，也容易被瀏覽器擋彈出視窗。
 > - **舊檔案與測試**：`edit-*.js`、`edit.css`、`test/edit-*.test.js`（純程式單元測試）都還在；會開 `index.html` 的 `test/edit-ui.e2e.js`、`edit-export.e2e.js`、`edit-render.e2e.js` 開頭加了停用開關（設 `QPT_EDIT_LEGACY=1` 並自己補回載入才會跑）。要徹底刪除舊剪輯時，連同 `updater.js`／`deploy.js` `SKIP` 裡的 `edit` 規則一起清。
 > - 介紹文案只寫 QuickCut README 有寫的事實（8 種轉場、字體特效、SRT、`.qcut` 只存剪輯資料、H.264＋AAC 或 VP9＋Opus、本機處理不上傳、建議 Chrome／Edge）；QuickCut 之後功能有變時，這裡的文字要跟著改。
 
