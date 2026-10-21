@@ -72,3 +72,12 @@ test('deploy.js 的 SKIP 與 updater.js 一致（都略過 test/）', () => {
   };
   assert.deepStrictEqual(get('deploy.js'), get('updater.js'));
 });
+
+test('updater SKIP 會略過網頁版剪輯檔案（edit.css、edit-*.js、fonts/）', () => {
+  const m = read('updater.js').match(/const SKIP = \[([\s\S]*?)\];/);
+  const skip = new Function('return [' + m[1] + ']')();
+  const skipped = p => skip.some(re => re.test(p));
+  for (const f of ['edit.css', 'edit-core.js', 'edit-ui.js', 'edit-export.js', 'fonts/cactus-classical-serif.woff2', 'fonts/OFL-CactusClassicalSerif.txt']) assert.strictEqual(skipped(f), true, f);
+  assert.strictEqual(skipped('whz-heavy.ttf'), false, '套版用的字型外掛也要');
+  assert.strictEqual(skipped('app.js'), false);
+});
