@@ -52,7 +52,7 @@ function fixturesDir() {
 
 // ---- 本機伺服器（WebCodecs 需要 localhost 這種安全來源）-----------------------------------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf' };
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
 function serve() {
   return new Promise(res => {
     const server = http.createServer((req, rsp) => {
@@ -175,6 +175,17 @@ async function runViewport(browser, base, fix, [W, H]) {
   ok((await page.textContent('#edMList')).includes('landscape-720p-6s.webm'), '媒體庫列出素材名稱');
   ok((await page.textContent('#edMList')).includes('1280×720'), '媒體庫顯示解析度');
   await shot(page, `${tag}-2-imported`);
+  // 媒體庫：列表／網格
+  eq(await page.textContent('#edMCount'), '5 個素材', '媒體庫上方顯示素材數量');
+  ok((await page.getAttribute('[data-mview="list"]', 'aria-pressed')) === 'true', '預設是列表顯示');
+  await page.click('[data-mview="grid"]'); await settle(page);
+  ok(await page.evaluate(() => document.getElementById('edMList').classList.contains('grid')), '按「網格」：媒體庫改成網格');
+  const gtops = await page.evaluate(() => [...document.querySelectorAll('.ed-mitem')].map(e => Math.round(e.getBoundingClientRect().top)));
+  ok(gtops[0] === gtops[1], `網格：前兩個素材在同一排（${gtops.slice(0, 3)}）`);
+  eq(await page.evaluate(() => localStorage.getItem('qpt-edit-mview')), 'grid', '顯示方式記在 localStorage');
+  await shot(page, `${tag}-2b-media-grid`);
+  await page.click('[data-mview="list"]'); await settle(page);
+  ok(!(await page.evaluate(() => document.getElementById('edMList').classList.contains('grid'))), '切回列表');
   const ids = await page.evaluate(() => Object.fromEntries(QPTEdit.render.media.list().map(m => [m.name, m.id])));
   const M = k => ids[FILES[k]];
   const pickMedia = async k => { await page.click(`.ed-mitem[data-media="${M(k)}"]`); await settle(page); };
@@ -1264,23 +1275,24 @@ async function runStageTests(browser, base, [W, H]) {
   await settle(page);
   const tpos = () => proj(page, p => { const c = Object.values(p.clips).find(x => x.type === 'title'); return [Math.round(c.title.x * 1000) / 1000, Math.round(c.title.y * 1000) / 1000]; });
   eq(await tpos(), [0.5, 0.5], '新增的靜態字幕在畫面正中央');
-  ok(await page.isVisible('#edTitleBox'), '選取的字幕在預覽上有虛線框');
+  ok(await page.isVisible('#edGizmo'), '選取的字幕在預覽上有控制框');
+  ok(await page.evaluate(() => document.getElementById('edGizmo').classList.contains('title')), '字幕的控制框是黃色（.title）');
   const ov = await page.evaluate(() => { const r = document.getElementById('edOverlay').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
   ok(Math.abs(ov.w / ov.h - 1080 / 1920) < 0.01, `疊圖對齊 9:16 的畫面（${Math.round(ov.w)}×${Math.round(ov.h)}）`);
-  const tb = await page.evaluate(() => { const r = document.getElementById('edTitleBox').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-  ok(Math.abs(tb.x - (ov.x + ov.w / 2)) < 2 && Math.abs(tb.y - (ov.y + ov.h / 2)) < 2, '虛線框在畫面中央');
+  const tb = await page.evaluate(() => { const r = document.querySelector('#edGizmo .ed-gz-box').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  ok(Math.abs(tb.x - (ov.x + ov.w / 2)) < 2 && Math.abs(tb.y - (ov.y + ov.h / 2)) < 2, '控制框在畫面中央');
   await page.mouse.move(tb.x, tb.y);
   eq(await page.evaluate(() => document.getElementById('edCanvas').style.cursor), 'move', '游標移到字幕上變成移動');
   await drag(page, tb, { x: tb.x + ov.w * 0.2, y: tb.y - ov.h * 0.25 }, { steps: 10 });
   let pos = await tpos();
   ok(Math.abs(pos[0] - 0.7) < 0.01 && Math.abs(pos[1] - 0.25) < 0.01, `在預覽上拖曳字幕：x／y 改成約 0.7／0.25（${pos}）`);
   ok((await page.textContent('#edUndoLab')).includes('移動字幕'), '復原標籤是「移動字幕」（整次拖曳一筆）');
-  const tb2 = await page.evaluate(() => { const r = document.getElementById('edTitleBox').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-  ok(Math.abs(tb2.x - (ov.x + ov.w * 0.7)) < 3 && Math.abs(tb2.y - (ov.y + ov.h * 0.25)) < 3, '虛線框跟著移動');
+  const tb2 = await page.evaluate(() => { const r = document.querySelector('#edGizmo .ed-gz-box').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  ok(Math.abs(tb2.x - (ov.x + ov.w * 0.7)) < 3 && Math.abs(tb2.y - (ov.y + ov.h * 0.25)) < 3, '控制框跟著移動');
   await drag(page, tb2, { x: ov.x + ov.w * 0.5 + 4, y: tb2.y }, { steps: 6 });
   pos = await tpos();
   eq(pos[0], 0.5, '拖到中線附近會吸附到正中');
-  const tb3 = await page.evaluate(() => { const r = document.getElementById('edTitleBox').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  const tb3 = await page.evaluate(() => { const r = document.querySelector('#edGizmo .ed-gz-box').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
   await drag(page, tb3, { x: tb3.x + 4, y: tb3.y }, { steps: 6, mods: ['Alt'] });
   pos = await tpos();
   ok(pos[0] !== 0.5, `按住 Alt 不吸附（${pos[0]}）`);
@@ -1289,6 +1301,32 @@ async function runStageTests(browser, base, [W, H]) {
   eq(await tpos(), [0.7, 0.25], '復原兩次：回到第一次拖曳後的位置');
   await page.keyboard.press('Control+z'); await settle(page);
   eq(await tpos(), [0.5, 0.5], '再復原：回到中央');
+  // 字型：仙人掌明體（用到才下載）
+  const fontSel = page.locator('.ed-sec[data-sec="fx-title"] select:has(option[value="cactus"])');
+  ok(await fontSel.count() === 1, '字型選單有「仙人掌明體」');
+  ok(!(await page.evaluate(() => QPTEdit.fx.fontIsLoaded('cactus'))), '還沒選之前不下載仙人掌明體');
+  await fontSel.selectOption('cactus');
+  await page.waitForFunction(() => QPTEdit.fx.fontIsLoaded('cactus'), null, { timeout: 30000 });
+  await settle(page);
+  eq(await proj(page, p => Object.values(p.clips).find(c => c.type === 'title').title.font), 'cactus', '字幕字型改成 cactus');
+  ok(await page.evaluate(() => document.fonts.check('40px "Cactus Classical Serif"', '字幕')), '仙人掌明體已載入到 document.fonts');
+  ok((await statusText(page)).includes('仙人掌明體」已載入'), '狀態列提示字型已載入');
+  const diff = await page.evaluate(() => {
+    const Q = QPTEdit, draw = font => {
+      const cv = document.createElement('canvas'); cv.width = 320; cv.height = 180;
+      const g = cv.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, 320, 180);
+      Q.fx.drawTitle(g, { id: 't', type: 'title', duration: 90, title: { ...Q.fx.makeTitle('static', '仙人掌明體'), font }, video: Q.fx.defaultVideo() }, 320, 180, 0, 30);
+      return g.getImageData(0, 0, 320, 180).data;
+    };
+    const a = draw('WHZ-Heavy'), b = draw('cactus');
+    let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) > 60) n++;
+    return n;
+  });
+  ok(diff > 300, `換字型後畫出來的字不一樣（${diff} 個像素不同）`);
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(20)); await settle(page);
+  await shot(page, `${tag}-S0-cactus-font`);
+  await page.keyboard.press('Control+z'); await settle(page);
+  eq(await proj(page, p => Object.values(p.clips).find(c => c.type === 'title').title.font), 'WHZ-Heavy', '復原：字型回到預設');
   // 不在字幕上按：不會動到字幕
   await drag(page, { x: ov.x + 20, y: ov.y + ov.h - 30 }, { x: ov.x + 60, y: ov.y + ov.h - 80 });
   eq(await tpos(), [0.5, 0.5], '在字幕以外的地方拖：字幕不動');
@@ -1309,6 +1347,88 @@ async function runStageTests(browser, base, [W, H]) {
   await page.reload(); await page.click('#funcEditBtn'); await settle(page);
   await page.selectOption('#edAspect', '9:16'); await settle(page);
   ok(await page.isVisible('.ed-safe'), '重新載入後仍記得安全框開關');
+
+  // 預覽控制框：色塊（一般素材）在預覽上點選、移動、縮放、旋轉
+  console.log('預覽控制框：點選、移動、縮放、旋轉、拉桿');
+  await page.click('#edSafe'); await settle(page);
+  const sid = await page.evaluate(() => {
+    const Q = QPTEdit, h = Q.ui.state.history, t = Q.ui.state.project.tracks.find(x => x.kind === 'video');
+    h.run('加色塊', q => Q.core.addClip(q, { type: 'solid', trackId: t.id, start: 0, duration: 90, solidColor: '#e0457b' }));
+    const c = Object.values(Q.ui.state.project.clips).find(x => x.type === 'solid');
+    h.run('縮小', q => Q.core.setClipProps(q, c.id, { video: { transform: { zoomX: 0.5, zoomY: 0.5 } } }));
+    Q.ui.selectClips([]); Q.ui.seekTimeline(10);
+    return c.id;
+  });
+  await settle(page);
+  const stf = () => page.evaluate(id => { const t = QPTEdit.ui.state.project.clips[id].video.transform; return { x: t.posX, y: t.posY, zx: t.zoomX, zy: t.zoomY, r: t.rotation }; }, sid);
+  const gbox = () => page.evaluate(() => { const r = document.querySelector('#edGizmo .ed-gz-box').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; });
+  const ctr = sel => page.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+  ok(!(await page.isVisible('#edGizmo')), '沒有選取：預覽上沒有控制框');
+  const ov2 = await page.evaluate(() => { const r = document.getElementById('edOverlay').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  await page.mouse.move(ov2.x + ov2.w / 2, ov2.y + ov2.h / 2);
+  eq(await page.evaluate(() => document.getElementById('edCanvas').style.cursor), 'move', '游標移到素材上變成移動');
+  await page.mouse.click(ov2.x + ov2.w / 2, ov2.y + ov2.h / 2); await settle(page);
+  eq(await page.evaluate(() => [...QPTEdit.ui.state.selection]), [sid], '在預覽上點素材：時間軸選取該片段');
+  ok(await page.isVisible('#edGizmo'), '選取後出現控制框');
+  let gb = await gbox();
+  ok(Math.abs(gb.w - ov2.w * 0.5) < 3 && Math.abs(gb.h - ov2.h * 0.5) < 3, `控制框大小對應縮放 50%（${Math.round(gb.w)}×${Math.round(gb.h)}）`);
+  await drag(page, gb, { x: gb.x + ov2.w * 0.1, y: gb.y + ov2.h * 0.1 }, { steps: 10 });
+  let t = await stf();
+  ok(Math.abs(t.x - 108) < 3 && Math.abs(t.y - 192) < 3, `拖曳素材：位置改成約 108, 192 px（${t.x}, ${t.y}）`);
+  ok((await page.textContent('#edUndoLab')).includes('移動素材'), '復原標籤是「移動素材」（整次拖曳一筆）');
+  gb = await gbox();
+  ok(Math.abs(gb.x - (ov2.x + ov2.w * 0.6)) < 3, '控制框跟著移動');
+  await drag(page, gb, { x: ov2.x + ov2.w / 2 + 4, y: ov2.y + ov2.h / 2 - 3 }, { steps: 8 });
+  t = await stf();
+  eq([t.x, t.y], [0, 0], '拖到畫面中心附近會吸附到正中');
+  gb = await gbox();
+  await drag(page, gb, { x: gb.x + 40, y: gb.y }, { steps: 6, cancel: true });
+  t = await stf();
+  eq([t.x, t.y], [0, 0], '拖曳中按 Esc：取消，位置不變');
+  // 縮放：拖右下角到離中心兩倍遠
+  const br = await page.evaluate(() => { const r = document.querySelectorAll('#edGizmo .ed-gz-corner')[2].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  gb = await gbox();
+  await page.mouse.move(br.x, br.y);
+  eq(await page.evaluate(() => document.getElementById('edCanvas').style.cursor), 'nwse-resize', '游標移到角點變成縮放');
+  await drag(page, br, { x: gb.x + (br.x - gb.x) * 1.6, y: gb.y + (br.y - gb.y) * 1.6 }, { steps: 10 });
+  t = await stf();
+  ok(Math.abs(t.zx - 0.8) < 0.02 && t.zx === t.zy, `拖角點等比縮放：50% → 約 80%（${t.zx} / ${t.zy}）`);
+  ok((await page.textContent('#edUndoLab')).includes('縮放素材'), '復原標籤是「縮放素材」');
+  // 旋轉：上方圓點繞中心拖 90°，按 Shift 每 15° 一格
+  const rp = await ctr('#edGizmo .ed-gz-rot');
+  gb = await gbox();
+  ok(rp.y < gb.y - gb.h / 2, '旋轉點在控制框上緣外側');
+  const d = gb.y - rp.y;
+  await drag(page, rp, { x: gb.x + d, y: gb.y + 3 }, { steps: 12, mods: ['Shift'] });
+  t = await stf();
+  eq(t.r, 90, '拖旋轉點（Shift）：旋轉 90°');
+  ok((await page.textContent('#edUndoLab')).includes('旋轉素材'), '復原標籤是「旋轉素材」');
+  await shot(page, `${tag}-S2-gizmo`);
+  // 詳細內容的拉桿：縮放、位置
+  const rng = page.locator('.ed-sec[data-sec="fx-transform"] .ed-fx-range');
+  ok(await rng.count() >= 4, `變形區有拉桿（縮放 X／Y、位置 X／Y，共 ${await rng.count()} 個）`);
+  ok(await page.locator('.ed-sec[data-sec="fx-transform"] .ed-fx-numbox').count() >= 4, '拉桿後面保留可輸入數值的框');
+  await page.evaluate(() => { const r = document.querySelector('.ed-sec[data-sec="fx-transform"] .ed-fx-range'); r.value = '1.5'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+  await settle(page);
+  t = await stf();
+  eq([t.zx, t.zy], [1.5, 1.5], '拉縮放拉桿：縮放 X／Y 一起改成 1.5');
+  gb = await gbox();
+  ok(Math.abs(gb.w - ov2.h * 1.5) < 4 && Math.abs(gb.h - ov2.w * 1.5) < 4, `預覽控制框跟著拉桿更新（轉 90° 後 ${Math.round(gb.w)}×${Math.round(gb.h)}）`);
+  const rp2 = await ctr('#edGizmo .ed-gz-rot'), st2 = await page.evaluate(() => { const r = document.getElementById('edStage').getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom }; });
+  ok(rp2.x > st2.x && rp2.x < st2.r && rp2.y > st2.y && rp2.y < st2.b, `素材超出畫面時，旋轉點仍放在預覽區看得到的位置（${Math.round(rp2.x)}, ${Math.round(rp2.y)}）`);
+  for (let i = 0; i < 5; i++) { await page.keyboard.press('Control+z'); await settle(page); }
+  t = await stf();
+  eq([t.x, t.y, t.zx, t.r], [0, 0, 0.5, 0], '復原五次：回到原本的位置／縮放／旋轉');
+  // 疊在上面的字幕優先被點到
+  await page.click('.ed-tab[data-tab="title"]');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(10));
+  await page.click('#edTitleAdd'); await settle(page);
+  await page.evaluate(() => QPTEdit.ui.selectClips([])); await settle(page);
+  await page.mouse.click(ov2.x + ov2.w / 2, ov2.y + ov2.h / 2); await settle(page);
+  const selType = await page.evaluate(() => [...QPTEdit.ui.state.selection].map(id => QPTEdit.ui.state.project.clips[id].type));
+  ok(selType.length === 1 && selType[0] === 'title', `素材和字幕重疊時，點到的是上層的字幕（${selType}）`);
+  await page.mouse.click(ov2.x + ov2.w / 2, ov2.y + ov2.h * 0.25 + 12); await settle(page);
+  eq(await page.evaluate(() => [...QPTEdit.ui.state.selection]), [sid], '點字幕以外、色塊範圍內：改選色塊');
   await ctx.close();
   return problems;
 }
@@ -1516,7 +1636,8 @@ async function runLayoutTests(browser, base, [W, H]) {
   {
     const { ctx, page } = await open();
     await goEdit(page);
-    ok(!(await page.isVisible('#edVert')), '橫式專案：「直式版面」按鈕不顯示');
+    ok(await page.isVisible('#edVert'), '橫式專案：「直式版面」按鈕也一直顯示');
+    eq(await page.getAttribute('#edVert', 'aria-pressed'), 'false', '橫式專案預設關閉');
     ok(!(await isVert(page)), '橫式專案：版面是原本的樣子');
     const normalH = await rect(page, '#edViewer'), app0 = await rect(page, '#editApp');
     ok(normalH.h < app0.h * 0.8, `橫式：檢視器只佔上排（${Math.round(normalH.h)} < ${Math.round(app0.h)}）`);
@@ -1567,7 +1688,8 @@ async function runLayoutTests(browser, base, [W, H]) {
     // 切 16:9：按鈕消失、一般版面；切回 9:16：仍是記住的選擇（關）
     await page.selectOption('#edAspect', '16:9');
     await settle(page);
-    ok(!(await page.isVisible('#edVert')), '切 16:9：按鈕隱藏');
+    ok(await page.isVisible('#edVert'), '切 16:9：按鈕仍顯示');
+    eq(await page.getAttribute('#edVert', 'aria-pressed'), 'false', '切 16:9：顯示橫式自己的選擇（關）');
     ok(!(await isVert(page)), '切 16:9：一般版面');
     await page.selectOption('#edAspect', '9:16');
     await settle(page);
@@ -1578,7 +1700,7 @@ async function runLayoutTests(browser, base, [W, H]) {
     ok(await isVert(page), '重新開啟直式版面');
     await page.selectOption('#edAspect', '16:9');
     await settle(page);
-    ok(!(await isVert(page)), '開啟狀態下切 16:9：自動回到一般版面');
+    ok(!(await isVert(page)), '開啟狀態下切 16:9：用橫式自己的選擇（預設關），回到一般版面');
     ok(Math.abs((await rect(page, '#edViewer')).h - normalH.h) < 3, '回到一般版面：檢視器高度與最初相同');
     await page.selectOption('#edAspect', '4:5');
     await settle(page);
@@ -1593,6 +1715,60 @@ async function runLayoutTests(browser, base, [W, H]) {
     await page.selectOption('#edAspect', '9:16');
     await settle(page);
     ok((await isVert(page)) && (await attr(page)) === 'light', '重新載入：直式版面（開）與淺色都記住');
+    await ctx.close();
+  }
+
+  // ---------------------------------------------------------------- 上排欄寬、橫式也能用直式版面
+  console.log('上排欄寬分隔條、橫式切換直式版面');
+  {
+    const { ctx, page } = await open();
+    await goEdit(page);
+    const m0 = await rect(page, '#edMedia'), i0 = await rect(page, '#edInspector'), v0 = await rect(page, '#edViewer');
+    const L = await rect(page, '#edColL'), Rr = await rect(page, '#edColR');
+    ok(L.x >= m0.r - 1 && L.r <= v0.x + 1 && Rr.x >= v0.r - 1 && Rr.r <= i0.x + 1, '兩條分隔條分別在 媒體庫｜檢視器、檢視器｜詳細內容 之間');
+    const mid = r => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+    await drag(page, mid(L), { x: mid(L).x + 80, y: mid(L).y });
+    const m1 = await rect(page, '#edMedia');
+    ok(Math.abs(m1.w - m0.w - 80) <= 2, `拖左分隔條：媒體庫變寬 80px（${Math.round(m0.w)} → ${Math.round(m1.w)}）`);
+    const R1 = await rect(page, '#edColR');
+    await drag(page, mid(R1), { x: mid(R1).x - 60, y: mid(R1).y });
+    const i1 = await rect(page, '#edInspector');
+    ok(Math.abs(i1.w - i0.w - 60) <= 2, `拖右分隔條：詳細內容變寬 60px（${Math.round(i0.w)} → ${Math.round(i1.w)}）`);
+    ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '調整欄寬後頁面沒有橫向溢出');
+    const cols = await page.evaluate(() => JSON.parse(localStorage.getItem('qpt-edit-cols')));
+    ok(cols.mw > 0 && cols.iw > 0, `欄寬記在 localStorage（${JSON.stringify(cols)}）`);
+    await shot(page, `${tag}-L8-cols-resized`);
+    await page.reload(); await goEdit(page);
+    ok(Math.abs((await rect(page, '#edMedia')).w - m1.w) <= 1 && Math.abs((await rect(page, '#edInspector')).w - i1.w) <= 1, '重新載入：欄寬維持');
+    await page.dblclick('#edColL'); await settle(page);
+    ok(Math.abs((await rect(page, '#edMedia')).w - m0.w) <= 1, '雙擊左分隔條：媒體庫恢復預設寬度');
+    await page.dblclick('#edColR'); await settle(page);
+    ok(Math.abs((await rect(page, '#edInspector')).w - i0.w) <= 1, '雙擊右分隔條：詳細內容恢復預設寬度');
+    // 橫式專案也能切直式版面
+    await page.click('#edVert'); await settle(page);
+    ok(await isVert(page), '16:9 按「直式版面」：檢視器放到左側');
+    eq(await page.evaluate(() => localStorage.getItem('qpt-edit-vert-h')), '1', '橫式的選擇另外記（qpt-edit-vert-h）');
+    const app2 = await rect(page, '#editApp'), vv = await rect(page, '#edViewer');
+    ok(Math.abs(vv.y - app2.y) <= 2 && Math.abs(vv.b - app2.b) <= 2, '橫式直式版面：檢視器從頂端延伸到底部');
+    const VL = await rect(page, '#edColL');
+    ok(VL.x >= vv.r - 1, '直式版面：左分隔條在預覽欄右邊');
+    await drag(page, mid(VL), { x: mid(VL).x + 60, y: mid(VL).y });
+    const vv2 = await rect(page, '#edViewer');
+    ok(Math.abs(vv2.w - vv.w - 60) <= 2, `直式版面拖左分隔條：預覽欄變寬 60px（${Math.round(vv.w)} → ${Math.round(vv2.w)}）`);
+    const VR = await rect(page, '#edColR'), mm = await rect(page, '#edMedia');
+    ok(VR.x >= mm.r - 1, '直式版面：右分隔條在媒體庫和詳細內容之間');
+    await drag(page, mid(VR), { x: mid(VR).x - 40, y: mid(VR).y });
+    const mm2 = await rect(page, '#edMedia');
+    ok(Math.abs(mm.w - mm2.w - 40) <= 2, `直式版面拖右分隔條：媒體庫變窄 40px（${Math.round(mm.w)} → ${Math.round(mm2.w)}）`);
+    await drag(page, mid(await rect(page, '#edColR')), { x: mid(VR).x + 2000, y: mid(VR).y });
+    ok((await rect(page, '#edInspector')).w >= 259, '往右拖到底：詳細內容仍保留最小寬度');
+    ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '直式版面調整欄寬後頁面沒有橫向溢出');
+    await shot(page, `${tag}-L9-landscape-vert`);
+    await page.selectOption('#edAspect', '9:16'); await settle(page);
+    ok(await isVert(page), '切 9:16：直式的選擇（預設開）');
+    await page.selectOption('#edAspect', '16:9'); await settle(page);
+    await page.click('#edVert'); await settle(page);
+    ok(!(await isVert(page)), '再按一次：16:9 回到一般版面');
     await ctx.close();
   }
   return problems;

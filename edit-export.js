@@ -663,7 +663,8 @@
 
     // 字型要先載入，不然第一格的字幕會用備用字型
     report({ phase: 'prepare', fraction: 0, text: '準備中…' });
-    if (Q.fx && typeof Q.fx.ready === 'function') await withTimeout(Q.fx.ready(), 8000);
+    // 專案用到的字幕字型（大字型是用到才下載）都要等；網路慢時最多等 60 秒，再不行就用備用字型
+    if (Q.fx && typeof Q.fx.ready === 'function') await withTimeout(Q.fx.ready(p), 60000);
     if (root.document && document.fonts && document.fonts.ready) await withTimeout(document.fonts.ready, 8000);
     check();
 

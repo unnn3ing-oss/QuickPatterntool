@@ -134,9 +134,14 @@ html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
 
 /* ---- 上排三欄 ---- */
 .ed-top {
-  display: grid; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr) minmax(270px, 330px); gap: 10px;
+  display: grid; grid-template-columns: var(--ed-mw, minmax(230px, 290px)) 10px minmax(0, 1fr) 10px var(--ed-iw, minmax(270px, 330px)); gap: 0;
   flex: 1 1 0; min-height: 300px;
 }
+/* 上排欄寬分隔條（edit-ui.js 的 wireColSplitters）：左右拖曳，雙擊恢復預設 */
+.ed-colsplit { position: relative; cursor: ew-resize; touch-action: none; z-index: 2; }
+.ed-colsplit::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 44px; margin: -22px 0 0 -1.5px; border-radius: 2px; background: var(--ed-grip); }
+.ed-colsplit:hover::after, .ed-app.colresize .ed-colsplit::after { background: var(--accent); }
+.ed-app.colresize, .ed-app.colresize * { cursor: ew-resize !important; user-select: none; }
 .ed-media, .ed-viewer, .ed-inspector {
   background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px; padding: 10px;
   display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
@@ -194,6 +199,18 @@ html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
 .ed-mdel .ed-ic { width: 11px; height: 11px; }
 .ed-mdel .ed-ic svg { fill: none; }
 .ed-mfoot { flex: none; font-size: 11px; color: var(--muted); line-height: 1.5; }
+/* 媒體庫顯示方式（列表／網格） */
+.ed-mbar { flex: none; display: flex; align-items: center; gap: 6px; }
+.ed-mcount { font-size: 11px; color: var(--muted); }
+.ed-seg.small { padding: 2px; }
+.ed-seg.small .ed-segbtn { padding: 2px 10px; font-size: 11.5px; }
+.ed-mlist.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; align-content: start; }
+.ed-mlist.grid .ed-mitem { flex-direction: column; align-items: stretch; gap: 4px; padding: 5px; }
+.ed-app .ed-mlist.grid .ed-mthumb { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 7px; display: block; }
+.ed-mlist.grid .ed-mname { font-size: 11.5px; }
+.ed-mlist.grid .ed-mmeta span:nth-child(n+3), .ed-mlist.grid .ed-mwarn { display: none; }
+.ed-mlist.grid .ed-mdel { right: 8px; top: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; }
+.ed-mlist.grid .ed-mitem.src::after { right: auto; left: 10px; top: 9px; padding: 1px 6px; border-radius: 6px; background: var(--accent); color: #fff; }
 .ed-glist { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; align-content: start; }
 .ed-gitem {
   display: flex; flex-direction: column; gap: 4px; padding: 5px; border-radius: 12px; border: 1.5px solid transparent;
@@ -231,9 +248,14 @@ html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
 .ed-overlay[hidden] { display: none; }
 .ed-safe { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ed-safe-shade { fill: rgba(128, 128, 128, 0.5); }
-.ed-titlebox { position: absolute; border: 1.5px dashed #ffd23f; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
-.ed-titlebox[hidden] { display: none; }
+.ed-gizmo { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; --gz: #4cc3ff; }
+.ed-gizmo[hidden] { display: none; }
+.ed-gizmo.title { --gz: #ffd23f; }
+.ed-gz-box { fill: none; stroke: var(--gz); stroke-width: 1.5; stroke-dasharray: 5 3; paint-order: stroke; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
+.ed-gz-stem { fill: none; stroke: var(--gz); stroke-width: 1.5; }
+.ed-gz-corner, .ed-gz-rot { fill: #fff; stroke: var(--gz); stroke-width: 2; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
 .ed-app.src-mode .ed-overlay { display: none; }
+#edOverlay { overflow: visible; }
 .ed-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 14px; color: #cfd9ea; pointer-events: none; }
 .ed-empty-box { pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 440px; }
 .ed-empty-box strong { font-size: 15px; color: #fff; }
@@ -497,28 +519,30 @@ html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
 .ed-swatch.on { box-shadow: 0 0 0 2px var(--accent); }
 .ed-swatch:hover { transform: scale(1.12); }
 
-/* ---- 直式版面：直式專案（高 > 寬）可把檢視器放到整頁左側 ----
+/* ---- 直式版面：檢視器放到整頁左側（直式專案預設開，橫式也可以切換） ----
    檢視器從頂端一路延伸到時間軸底部（#edTop 用 display: contents，讓媒體庫／檢視器／詳細內容直接成為 #editApp 這個格線的項目），
-   右側由上而下是「媒體庫｜詳細內容」、分隔條、工具列、時間軸。左欄寬度 --ed-vw 由 edit-ui.js 依畫面比例算出。 */
+   右側由上而下是「媒體庫｜詳細內容」、分隔條、工具列、時間軸。左欄寬度 --ed-vw 由 edit-ui.js 依畫面比例算出（拖過分隔條就用拖的寬度）。 */
 .ed-vertbtn[hidden], .ed-safebtn[hidden] { display: none; }
 .ed-app.ed-vert {
-  display: grid; gap: 8px 10px;
-  grid-template-columns: var(--ed-vw, 420px) minmax(220px, 1fr) minmax(260px, 1.15fr);
+  display: grid; gap: 8px 0;
+  grid-template-columns: var(--ed-vw, 420px) 10px var(--ed-vmw, minmax(200px, 1fr)) 10px minmax(260px, 1.15fr);
   grid-template-rows: minmax(0, 1fr) auto auto auto;
   --ed-tl-h: clamp(250px, 42vh, 420px);      /* 左邊已經用整欄放預覽，右邊多分一點高度給時間軸（可以拖分隔條調整） */
 }
 .ed-app.ed-vert > .ed-top { display: contents; }
 .ed-app.ed-vert .ed-viewer { grid-column: 1; grid-row: 1 / 5; }
-.ed-app.ed-vert .ed-media { grid-column: 2; grid-row: 1; }
-.ed-app.ed-vert .ed-inspector { grid-column: 3; grid-row: 1; }
-.ed-app.ed-vert > .ed-split { grid-column: 2 / 4; grid-row: 2; }
-.ed-app.ed-vert > .ed-toolbar { grid-column: 2 / 4; grid-row: 3; min-width: 0; }
-.ed-app.ed-vert > .ed-timeline { grid-column: 2 / 4; grid-row: 4; min-width: 0; }
+.ed-app.ed-vert #edColL { grid-column: 2; grid-row: 1 / 5; }
+.ed-app.ed-vert .ed-media { grid-column: 3; grid-row: 1; }
+.ed-app.ed-vert #edColR { grid-column: 4; grid-row: 1; }
+.ed-app.ed-vert .ed-inspector { grid-column: 5; grid-row: 1; }
+.ed-app.ed-vert > .ed-split { grid-column: 3 / 6; grid-row: 2; }
+.ed-app.ed-vert > .ed-toolbar { grid-column: 3 / 6; grid-row: 3; min-width: 0; }
+.ed-app.ed-vert > .ed-timeline { grid-column: 3 / 6; grid-row: 4; min-width: 0; }
 .ed-app.ed-vert .ed-vname { display: none; }
 
 /* ---- 窄視窗 ---- */
 @media (max-width: 1280px) {
-  .ed-top { grid-template-columns: minmax(214px, 250px) minmax(0, 1fr) minmax(260px, 300px); }
+  .ed-top { grid-template-columns: var(--ed-mw, minmax(214px, 250px)) 10px minmax(0, 1fr) 10px var(--ed-iw, minmax(260px, 300px)); }
   .ed-keys { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {

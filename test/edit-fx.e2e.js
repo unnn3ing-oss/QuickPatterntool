@@ -204,7 +204,8 @@ body{margin:0;padding:16px;font-family:system-ui,"Noto Sans TC",sans-serif;backg
   ok(lives.length >= 2 && fin.length === 1, `拖曳中 live:true ×${lives.length}，放開 live:false ×${fin.length}`);
   const last = fin[0] && fin[0].p.video.transform;
   ok(last && Math.abs(last.zoomX - 1.2) < 1e-9 && Math.abs(last.zoomY - 1.2) < 1e-9, '連結縮放：X、Y 同步為 1.2 ' + JSON.stringify(last));
-  ok(await page.inputValue('#sec-transform .ed-fx-row:has-text("縮放 X") input') === '1.2', '輸入框顯示跟著更新');
+  ok(await page.inputValue('#sec-transform .ed-fx-row:has-text("縮放 X") input.ed-fx-numbox') === '1.2', '輸入框顯示跟著更新');
+  ok(await page.inputValue('#sec-transform .ed-fx-row:has-text("縮放 X") input.ed-fx-range') === '1.2', '拉桿位置也跟著更新');
   // 重畫同一個對象 = 只更新數值，不重建 DOM
   const stable = await page.evaluate(() => { const a = document.querySelector('#sec-transform input'); __clip.video.transform.zoomX = 1.5; __mount('transform', __clip); return a === document.querySelector('#sec-transform input') && a.value === '1.5'; });
   ok(stable, '同一對象再次 render 只更新值');

@@ -7,7 +7,8 @@
 //   TRANSITIONS                                  轉場：draw(ctx, drawA, drawB, t, opts, outW, outH)
 //   TITLE_PRESETS／makeTitle／wrapText           字幕
 //   inspector.sections                           詳細內容（變形／裁切／字幕／轉場）
-//   ready()                                      等字型載入（Canvas 不會等 @font-face，匯出前請先 await）
+//   ready(project?)                              等字型載入（Canvas 不會等 @font-face，匯出前請先 await；給 project 會等它用到的字型）
+//   FONTS／loadFont(id)／onFontLoad(cb)          字幕字型清單；大字型用到時才下載，載入後通知重畫
 // 這支檔案不讀其他 QPTEdit 模組，載入時也不碰 DOM；詳細內容樣式在第一次 render 或呼叫 ensureStyle() 時插入。
 // =====================================================================================
 (function (root) {
@@ -208,21 +209,55 @@
   // ---------------------------------------------------------------------------------
   // 字型
   // ---------------------------------------------------------------------------------
-  let fontPromise = null, fontLoaded = false;
-  function ready() {
-    if (fontPromise) return fontPromise;
+  // 字幕字型。WHZ-Heavy 由 style.css 的 @font-face 提供（頁面本來就會用到）；其他字型檔很大，
+  // 用到時（選了這個字型、或預覽／匯出畫到它）才用 FontFace 下載。還沒載入好之前先用備用字型畫，載入後通知重畫。
+  const SANS_FALLBACK = '"PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif';
+  const SERIF_FALLBACK = '"Noto Serif TC", "Songti TC", "PMingLiU", "MingLiU", serif';
+  const FONT_FALLBACK = SANS_FALLBACK;
+  const FONTS = {
+    'WHZ-Heavy': { name: '粗體（預設）', family: 'WHZ-Heavy', fallback: SANS_FALLBACK },
+    cactus: { name: '仙人掌明體', family: 'Cactus Classical Serif', url: 'fonts/cactus-classical-serif.woff2', fallback: SERIF_FALLBACK },
+    system: { name: '系統黑體', system: true },
+  };
+  const fontState = {};        // id → { promise, loaded, failed }
+  const fontListeners = new Set();
+  let fontGen = 0;             // 任何字型載入完成就 +1（排版快取的 key 用）
+  function loadFont(id) {
+    const def = FONTS[id];
+    if (!def || def.system) return Promise.resolve(true);
+    let st = fontState[id];
+    if (st) return st.promise;
+    st = fontState[id] = { loaded: false, failed: false };
     const d = root.document;
-    if (!d || !d.fonts || !d.fonts.load) { fontLoaded = true; return (fontPromise = Promise.resolve(true)); }
-    fontPromise = d.fonts.load('80px "WHZ-Heavy"', '字幕測試ABC123').then(() => { fontLoaded = true; return true; }, () => { fontLoaded = true; return false; });
-    return fontPromise;
+    const notify = what => { for (const cb of fontListeners) { try { cb(id, what); } catch (e) { /* 通知失敗不影響其他人 */ } } };
+    const done = ok => { st.loaded = true; st.failed = !ok; fontGen++; notify(ok ? 'loaded' : 'failed'); return ok; };
+    if (def.url) notify('loading');
+    if (!d || !d.fonts || !d.fonts.load) st.promise = Promise.resolve(done(true));
+    else if (!def.url) st.promise = d.fonts.load(`80px "${def.family}"`, '字幕測試ABC123').then(() => done(true), () => done(false));
+    else if (typeof root.FontFace !== 'function') st.promise = Promise.resolve(done(false));
+    else {
+      const ff = new root.FontFace(def.family, `url("${def.url}") format("woff2")`, { display: 'swap' });
+      st.promise = ff.load().then(face => { d.fonts.add(face); return done(true); }, () => done(false));
+    }
+    return st.promise;
   }
-  const FONT_FALLBACK = '"PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif';
+  const fontIsLoaded = id => { const def = FONTS[id]; return !def || !!def.system || !!(fontState[id] && fontState[id].loaded); };
+  // 等字型載入（Canvas 不會等 @font-face）。給 project 時等它所有字幕用到的字型；不給只等預設字型與已經開始下載的
+  function ready(project) {
+    const ids = new Set(['WHZ-Heavy', ...Object.keys(fontState)]);
+    if (project && project.clips) for (const c of Object.values(project.clips)) if (c && c.title) ids.add(c.title.font || 'WHZ-Heavy');
+    return Promise.all([...ids].map(loadFont)).then(r => r.every(Boolean));
+  }
+  // cb(id, 'loading'|'loaded'|'failed')；'loading' 只有需要下載的字型才會發
+  function onFontLoad(cb) { fontListeners.add(cb); return () => fontListeners.delete(cb); }
   function fontString(t, px) {
-    const f = t.font || 'WHZ-Heavy';
-    if (f === 'WHZ-Heavy') return `${px}px "WHZ-Heavy", ${FONT_FALLBACK}`;
-    if (f === 'system' || f === 'sans') return `bold ${px}px system-ui, -apple-system, "Segoe UI", ${FONT_FALLBACK}`;
-    return `${px}px "${f}", ${FONT_FALLBACK}`;
+    const id = t.font || 'WHZ-Heavy', def = FONTS[id];
+    if (id === 'system' || id === 'sans') return `bold ${px}px system-ui, -apple-system, "Segoe UI", ${SANS_FALLBACK}`;
+    if (def) { if (!fontIsLoaded(id)) loadFont(id); return `${px}px "${def.family}", ${def.fallback}`; }
+    return `${px}px "${id}", ${FONT_FALLBACK}`;
   }
+  // 舊的介面相容：fontLoaded＝預設字型載入了沒
+  const defaultFontLoaded = () => fontIsLoaded('WHZ-Heavy');
 
   // ---------------------------------------------------------------------------------
   // 文字換行（中文依寬度、行首不放標點、行尾不放開括號；英數單字不拆，太長才硬拆）
@@ -295,7 +330,7 @@
 
   const layoutCache = new Map();
   function layoutTitle(ctx, t, font, maxW) {
-    const key = font + '|' + Math.round(maxW) + '|' + fontLoaded + '|' + t.text;
+    const key = font + '|' + Math.round(maxW) + '|' + fontGen + '|' + t.text;
     let v = layoutCache.get(key);
     if (v) return v;
     ctx.font = font;
@@ -473,30 +508,53 @@
     },
   };
 
-  // 字幕在輸出畫面上佔的範圍（輸出像素、套用變形後的外接矩形），給預覽拖曳時點選用。
-  // 只算排版位置（x／y 決定的那一塊，含底色內距），不含動畫的位移；捲動＝整欄、跑馬燈＝整列。沒有字幕回 null。
-  function titleBounds(clip, outW, outH, fInClip) {
-    const t = clip && clip.title;
-    if (!t) return null;
-    const tt = { ...BASE_TITLE, ...t };
-    const f = fInClip || 0, k = Math.min(outW, outH) / 1080;
+  // 字幕排版位置（輸出像素、還沒套用片段變形）：[x, y, w, h]。只算 x／y 決定的那一塊（含底色內距），
+  // 不含進出場動畫的位移；捲動＝整欄、跑馬燈＝整列。
+  function titleLocalBox(clip, outW, outH) {
+    const tt = { ...BASE_TITLE, ...clip.title };
+    const k = Math.min(outW, outH) / 1080;
     const px = Math.max(1, num(tt.size, 80) * k), lh = px * num(tt.lineHeight, 1.25);
     const pad = num(tt.bg && tt.bg.padding, 0) * k;
     const ctx = scratch('measure', 1, 1).ctx, font = fontString(tt, px);
-    let box;
     if (tt.preset === 'lowerThird') {
       const left = tt.x * outW, L = layoutTitle(ctx, tt, font, Math.max(40, outW - left - outW * 0.06 - pad));
       const bh = L.lines.length * lh;
-      box = [left - pad, tt.y * outH - bh / 2 - pad, L.w + pad * 2, bh + pad * 2];
-    } else if (tt.preset === 'crawl') {
-      box = [0, tt.y * outH - lh / 2 - pad, outW, lh + pad * 2];
-    } else {
-      const L = layoutTitle(ctx, tt, font, (tt.preset === 'scroll' ? outW * 0.8 : outW * 0.9) - 2 * pad);
-      const bh = L.lines.length * lh;
-      box = tt.preset === 'scroll' ? [tt.x * outW - L.w / 2 - pad, 0, L.w + pad * 2, outH]
-        : [tt.x * outW - L.w / 2 - pad, tt.y * outH - bh / 2 - pad, L.w + pad * 2, bh + pad * 2];
+      return [left - pad, tt.y * outH - bh / 2 - pad, L.w + pad * 2, bh + pad * 2];
     }
-    const m = clipMatrix(clip, outW, outH, outW, outH, f);
+    if (tt.preset === 'crawl') return [0, tt.y * outH - lh / 2 - pad, outW, lh + pad * 2];
+    const L = layoutTitle(ctx, tt, font, (tt.preset === 'scroll' ? outW * 0.8 : outW * 0.9) - 2 * pad);
+    const bh = L.lines.length * lh;
+    return tt.preset === 'scroll' ? [tt.x * outW - L.w / 2 - pad, 0, L.w + pad * 2, outH]
+      : [tt.x * outW - L.w / 2 - pad, tt.y * outH - bh / 2 - pad, L.w + pad * 2, bh + pad * 2];
+  }
+  // 片段在輸出畫面上的四個角（輸出像素，左上、右上、右下、左下，已套用裁切與變形）與變形的軸心 pivot。
+  // 給預覽上直接拖曳／縮放／旋轉用。媒體要 project.mediaInfo 有寬高；音訊或不知道尺寸時回 null。
+  function clipQuad(clip, project, fInClip) {
+    if (!clip || !clip.video || !project) return null;
+    const W = project.width, H = project.height, f = fInClip || 0;
+    let srcW = W, srcH = H, box;
+    if (clip.type === 'title') {
+      if (!clip.title) return null;
+      box = titleLocalBox(clip, W, H);
+    } else {
+      if (clip.type !== 'solid') {
+        const m = project.mediaInfo && project.mediaInfo[clip.mediaId];
+        if (!m || !(m.width > 0 && m.height > 0)) return null;
+        srcW = m.width; srcH = m.height;
+      }
+      const r = cropRect(clip, srcW, srcH, f);
+      box = [r.sx, r.sy, r.sw, r.sh];
+    }
+    const m = clipMatrix(clip, srcW, srcH, W, H, f);
+    const pts = [[box[0], box[1]], [box[0] + box[2], box[1]], [box[0] + box[2], box[1] + box[3]], [box[0], box[1] + box[3]]].map(([x, y]) => applyMatrix(m, x, y));
+    const g = n => num(getParam(clip, 'video.transform.' + n, f), 0);
+    return { pts, m, pivot: [g('anchorX') + W / 2 + g('posX'), g('anchorY') + H / 2 + g('posY')] };
+  }
+  // 字幕在輸出畫面上佔的範圍（套用變形後的外接矩形），給預覽點選用。沒有字幕回 null。
+  function titleBounds(clip, outW, outH, fInClip) {
+    if (!clip || !clip.title) return null;
+    const box = titleLocalBox(clip, outW, outH);
+    const m = clipMatrix(clip, outW, outH, outW, outH, fInClip || 0);
     const pts = [[box[0], box[1]], [box[0] + box[2], box[1]], [box[0], box[1] + box[3]], [box[0] + box[2], box[1] + box[3]]].map(([x, y]) => applyMatrix(m, x, y));
     const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
     const x = Math.min(...xs), y = Math.min(...ys);
@@ -510,7 +568,6 @@
     const f = fInClip || 0;
     const op = clamp(num(getParam(clip, 'video.transform.opacity', f), 1), 0, 1);
     if (op <= 0) return;
-    if (!fontLoaded) ready();
     const k = Math.min(outW, outH) / 1080;
     const px = Math.max(1, num(t.size, 80) * k);
     const o = {
@@ -676,6 +733,8 @@
 .ed-fx input[type=number]::-webkit-outer-spin-button,.ed-fx input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .ed-fx textarea{min-height:64px;resize:vertical;line-height:1.4}
 .ed-fx input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--ed-border,var(--border,rgba(0,74,173,.2)));border-radius:6px;background:none;flex:none}
+.ed-fx-range{flex:1 1 auto;width:auto;min-width:60px;height:18px;margin:0;accent-color:var(--ed-accent,var(--accent,#004aad));cursor:pointer}
+.ed-fx input.ed-fx-numbox{flex:0 0 66px;width:66px}
 .ed-fx-unit{flex:none;color:var(--ed-muted,var(--muted,#6b7890));font-size:11px;min-width:12px}
 .ed-fx-alpha{width:64px!important;flex:none}
 .ed-fx-chk{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:500;cursor:pointer}
@@ -721,11 +780,29 @@
       const l = lab(def.label); l.classList.add('ed-fx-drag');
       const inp = el('input'); inp.type = 'number'; inp.step = def.inputStep || fmtNum(Math.pow(10, -dec), dec);
       const unit = el('span', 'ed-fx-unit', def.unit || '');
+      // slider: [lo, hi]（顯示值）→ 前面加拉桿；數值框留在後面可直接輸入，可以超出拉桿範圍（到 min／max）
+      let rng = null;
+      if (def.slider) {
+        rng = el('input', 'ed-fx-range'); rng.type = 'range';
+        rng.min = def.slider[0]; rng.max = def.slider[1]; rng.step = def.sliderStep || fmtNum(Math.pow(10, -dec), dec);
+        rng.setAttribute('aria-label', def.label);
+        inp.classList.add('ed-fx-numbox');
+        ctl.append(rng);
+      }
       ctl.append(inp, unit);
       const lo = def.min == null ? -Infinity : def.min, hi = def.max == null ? Infinity : def.max;
       const q = v => { const p = Math.pow(10, dec) * scale; return Math.round(clamp(v, lo, hi) * p) / p; };   // 夾範圍並對齊顯示精度
       const cur = () => num(get(), def.def == null ? 0 : def.def);
-      refresh = () => { if (root.document.activeElement !== inp) inp.value = fmtNum(cur() * scale, dec); };
+      refresh = () => {
+        if (root.document.activeElement !== inp) inp.value = fmtNum(cur() * scale, dec);
+        if (rng && root.document.activeElement !== rng) rng.value = String(cur() * scale);
+      };
+      if (rng) {
+        const fromRng = () => q(parseFloat(rng.value) / scale);
+        rng.addEventListener('input', () => { const v = fromRng(); inp.value = fmtNum(v * scale, dec); emit(def.patch(v, st.subject), true); });
+        rng.addEventListener('change', () => { const v = fromRng(); emit(def.patch(v, st.subject), false); rng.blur(); });
+        rng.addEventListener('dblclick', () => { if (def.def == null) return; rng.value = String(def.def * scale); inp.value = fmtNum(def.def * scale, dec); emit(def.patch(def.def, st.subject), false); });
+      }
       inp.addEventListener('change', () => {
         const v = parseFloat(inp.value);
         if (!isFinite(v)) { inp.value = fmtNum(cur() * scale, dec); return; }
@@ -747,6 +824,7 @@
           const mult = ev.shiftKey ? 10 : ev.altKey ? 0.1 : 1;
           last = q(v0 + dx * dpp * mult);
           inp.value = fmtNum(last * scale, dec);
+          if (rng) rng.value = String(last * scale);
           emit(def.patch(last, st.subject), true);
         };
         const up = () => {
@@ -760,6 +838,7 @@
       l.addEventListener('dblclick', () => {
         if (def.def == null) return;
         inp.value = fmtNum(def.def * scale, dec);
+        if (rng) rng.value = String(def.def * scale);
         emit(def.patch(def.def, st.subject), false);
       });
       row.append(l, ctl);
@@ -849,14 +928,14 @@
       render(host, clip, commit) {
         const linked = c => c.video && c.video.transform ? c.video.transform.zoomLinked !== false : true;
         buildSection(host, 'transform:' + clip.id, clip, commit, [
-          { type: 'num', label: '縮放 X', get: c => tf(c, 'zoomX'), def: 1, min: 0.01, max: 20, dpp: 0.005, dec: 3,
+          { type: 'num', label: '縮放 X', get: c => tf(c, 'zoomX'), def: 1, min: 0.01, max: 20, dpp: 0.005, dec: 3, slider: [0.1, 4], sliderStep: 0.01,
             patch: (v, c) => tfPatch(linked(c) ? { zoomX: v, zoomY: v } : { zoomX: v }) },
-          { type: 'num', label: '縮放 Y', get: c => linked(c) ? tf(c, 'zoomX') : tf(c, 'zoomY'), def: 1, min: 0.01, max: 20, dpp: 0.005, dec: 3,
+          { type: 'num', label: '縮放 Y', get: c => linked(c) ? tf(c, 'zoomX') : tf(c, 'zoomY'), def: 1, min: 0.01, max: 20, dpp: 0.005, dec: 3, slider: [0.1, 4], sliderStep: 0.01,
             patch: (v, c) => tfPatch(linked(c) ? { zoomX: v, zoomY: v } : { zoomY: v }) },
           { type: 'check', label: '連結縮放 X／Y', get: linked,
             patch: (v, c) => tfPatch(v ? { zoomLinked: true, zoomY: tf(c, 'zoomX') } : { zoomLinked: false }) },
-          { type: 'num', label: '位置 X', get: c => tf(c, 'posX'), def: 0, min: -20000, max: 20000, dpp: 1, dec: 1, unit: 'px', patch: v => tfPatch({ posX: v }) },
-          { type: 'num', label: '位置 Y', get: c => tf(c, 'posY'), def: 0, min: -20000, max: 20000, dpp: 1, dec: 1, unit: 'px', patch: v => tfPatch({ posY: v }) },
+          { type: 'num', label: '位置 X', get: c => tf(c, 'posX'), def: 0, min: -20000, max: 20000, dpp: 1, dec: 1, unit: 'px', slider: [-2000, 2000], sliderStep: 1, patch: v => tfPatch({ posX: v }) },
+          { type: 'num', label: '位置 Y', get: c => tf(c, 'posY'), def: 0, min: -20000, max: 20000, dpp: 1, dec: 1, unit: 'px', slider: [-2000, 2000], sliderStep: 1, patch: v => tfPatch({ posY: v }) },
           { type: 'num', label: '旋轉', get: c => tf(c, 'rotation'), def: 0, min: -3600, max: 3600, dpp: 0.5, dec: 1, unit: '°', patch: v => tfPatch({ rotation: v }) },
           { type: 'num', label: '錨點 X', get: c => tf(c, 'anchorX'), def: 0, min: -20000, max: 20000, dpp: 1, dec: 1, unit: 'px', patch: v => tfPatch({ anchorX: v }) },
           { type: 'num', label: '錨點 Y', get: c => tf(c, 'anchorY'), def: 0, min: -20000, max: 20000, dpp: 1, dec: 1, unit: 'px', patch: v => tfPatch({ anchorY: v }) },
@@ -865,7 +944,7 @@
           { type: 'check', label: '垂直翻轉', get: c => !!tf(c, 'flipV'), patch: v => tfPatch({ flipV: v }) },
           { type: 'select', label: '畫面符合', options: FIT_OPTIONS, get: c => (c.video && c.video.fit) || 'fit', patch: v => ({ video: { fit: v } }) },
           { type: 'btn', label: '重設變形', patch: () => ({ video: { transform: defaultTransform(), fit: 'fit' } }) },
-          { type: 'hint', label: '提示：在左側標籤上左右拖曳可調整數值（Shift 加速、Alt 微調），雙擊標籤重設。' },
+          { type: 'hint', label: '提示：縮放、位置可拖拉桿或直接輸入數值；也可以在預覽畫面上直接拖曳、拉角落縮放、拉上方圓點旋轉。在左側標籤上左右拖曳可微調（Shift 加速、Alt 微調），雙擊標籤或拉桿重設。' },
         ]);
       },
     },
@@ -891,13 +970,13 @@
           { type: 'text', label: '文字', placeholder: '輸入字幕內容（可換行）', get: c => tt(c, 'text'), patch: v => T({ text: v }) },
           { type: 'select', label: '樣式', options: Object.keys(TITLE_PRESETS).map(k => [k, TITLE_PRESETS[k].name]), get: c => tt(c, 'preset'),
             patch: v => { const d = deepClone(TITLE_PRESETS[v].defaults); delete d.size; return T({ preset: v, ...d }); } },
-          { type: 'select', label: '字型', options: [['WHZ-Heavy', '粗體（預設）'], ['system', '系統黑體']], get: c => tt(c, 'font'), patch: v => T({ font: v }) },
+          { type: 'select', label: '字型', options: Object.keys(FONTS).map(k => [k, FONTS[k].name]), get: c => tt(c, 'font'), patch: v => { loadFont(v); return T({ font: v }); } },
           { type: 'num', label: '字級', get: c => tt(c, 'size'), def: 80, min: 8, max: 600, dpp: 0.5, dec: 0, unit: 'px', patch: v => T({ size: v }) },
           { type: 'color', label: '文字顏色', get: c => tt(c, 'color'), patch: v => T({ color: v }) },
           { type: 'select', label: '對齊', options: ALIGN_OPTIONS, get: c => tt(c, 'align'), show: c => tt(c, 'preset') !== 'lowerThird' && tt(c, 'preset') !== 'crawl', patch: v => T({ align: v }) },
           { type: 'num', label: '行距', get: c => tt(c, 'lineHeight'), def: 1.25, min: 0.8, max: 3, dpp: 0.01, dec: 2, show: isPreset('static', 'lowerThird', 'scroll', 'typewriter', 'fadeUp'), patch: v => T({ lineHeight: v }) },
-          { type: 'num', label: '水平位置', get: c => tt(c, 'x'), def: 0.5, min: -0.5, max: 1.5, scale: 100, dpp: 0.002, dec: 1, unit: '%', show: c => tt(c, 'preset') !== 'crawl', patch: v => T({ x: v }) },
-          { type: 'num', label: '垂直位置', get: c => tt(c, 'y'), def: 0.5, min: -0.5, max: 1.5, scale: 100, dpp: 0.002, dec: 1, unit: '%', show: c => tt(c, 'preset') !== 'scroll', patch: v => T({ y: v }) },
+          { type: 'num', label: '水平位置', get: c => tt(c, 'x'), def: 0.5, min: -0.5, max: 1.5, scale: 100, dpp: 0.002, dec: 1, unit: '%', slider: [0, 100], sliderStep: 0.5, show: c => tt(c, 'preset') !== 'crawl', patch: v => T({ x: v }) },
+          { type: 'num', label: '垂直位置', get: c => tt(c, 'y'), def: 0.5, min: -0.5, max: 1.5, scale: 100, dpp: 0.002, dec: 1, unit: '%', slider: [0, 100], sliderStep: 0.5, show: c => tt(c, 'preset') !== 'scroll', patch: v => T({ y: v }) },
           { type: 'head', label: '描邊' },
           { type: 'color', label: '描邊顏色', get: c => ttSub(c, 'stroke', 'color'), patch: v => T({ stroke: { color: v } }) },
           { type: 'num', label: '描邊粗細', get: c => ttSub(c, 'stroke', 'width'), def: 0, min: 0, max: 60, dpp: 0.1, dec: 1, unit: 'px', patch: v => T({ stroke: { width: v } }) },
@@ -933,9 +1012,9 @@
   const api = {
     DEFAULT_TRANSFORM, DEFAULT_CROP, defaultTransform, defaultCrop, defaultVideo,
     fitRect, clipMatrix, applyMatrix, cropRect, getParam,
-    drawClipVisual, drawSolid, drawTitle, titleBounds,
+    drawClipVisual, drawSolid, drawTitle, titleBounds, clipQuad,
     TRANSITIONS, ease, TITLE_PRESETS, makeTitle, wrapText, parseColor, formatColor,
-    ready, get fontLoaded() { return fontLoaded; },
+    ready, get fontLoaded() { return defaultFontLoaded(); }, FONTS, loadFont, onFontLoad, fontIsLoaded,
     inspector: { sections: SECTIONS },
     ensureStyle,                 // 插入詳細內容樣式（.ed-fx-*）；UI 自己的區段也用這套外觀，啟動時先呼叫一次
     _setCanvasFactory(fn) { canvasFactory = fn; Object.keys(pool).forEach(k => delete pool[k]); },

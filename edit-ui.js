@@ -104,15 +104,21 @@
     importing: false,
     theme: 'dark',                   // 'dark' | 'light'：剪輯分頁的外觀（預設深色，選擇記在 localStorage）
     vertPref: true,                  // 直式專案時是否把檢視器放到整頁左側（預設開，選擇記在 localStorage）
+    vertPrefH: false,                // 橫式（含正方形）專案的同一個選擇，預設關
+    cols: {},                        // 使用者拖過的欄寬（px）：mw 媒體庫、iw 詳細內容、vw 直式版面左欄、vmw 直式版面的媒體庫
+    mediaView: 'list',               // 媒體庫顯示方式：list 列表／grid 網格
   };
   Q.ui = { state, get player() { return player; }, say: (m, k) => say(m, k) };
 
   // ---- 偏好（localStorage）：讀寫都可能丟錯（無痕、被封鎖），一律包 try/catch，讀不到就用預設 ----------
-  const THEME_KEY = 'qpt-edit-theme', VERT_KEY = 'qpt-edit-vert', SAFE_KEY = 'qpt-edit-safe';
+  const THEME_KEY = 'qpt-edit-theme', VERT_KEY = 'qpt-edit-vert', VERT_H_KEY = 'qpt-edit-vert-h', SAFE_KEY = 'qpt-edit-safe', COLS_KEY = 'qpt-edit-cols', MVIEW_KEY = 'qpt-edit-mview';
   const lsGet = k => { try { return root.localStorage.getItem(k); } catch (_) { return null; } };
   const lsSet = (k, v) => { try { root.localStorage.setItem(k, v); } catch (_) { /* 存不了就算了，只是下次不記得 */ } };
   state.theme = lsGet(THEME_KEY) === 'light' ? 'light' : 'dark';
   state.vertPref = lsGet(VERT_KEY) !== '0';
+  state.vertPrefH = lsGet(VERT_H_KEY) === '1';
+  state.cols = (() => { try { const o = JSON.parse(lsGet(COLS_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } })();
+  state.mediaView = lsGet(MVIEW_KEY) === 'grid' ? 'grid' : 'list';
   state.safePref = lsGet(SAFE_KEY) === '1';
   doc.documentElement.setAttribute('data-ed-theme', state.theme);
 
@@ -251,8 +257,18 @@
     input.addEventListener('change', () => { const f = [...input.files]; input.value = ''; importFiles(f); });
     const msgs = el('div', 'ed-msgs'); msgs.id = 'edMsgs'; msgs.setAttribute('aria-live', 'polite');
     const list = el('div', 'ed-mlist'); list.id = 'edMList';
+    // 顯示方式：列表（縮圖＋完整資訊）／網格（大縮圖，資訊只留種類與長度）；選擇記在 localStorage
+    const mbar = el('div', 'ed-mbar');
+    const cnt = el('span', 'ed-mcount'); cnt.id = 'edMCount';
+    const vseg = el('div', 'ed-seg small'); vseg.setAttribute('role', 'group'); vseg.setAttribute('aria-label', '媒體顯示方式');
+    for (const [k, t, tip] of [['list', '列表', '列表顯示'], ['grid', '網格', '網格顯示（大縮圖）']]) {
+      const b = el('button', 'ed-segbtn', t); b.type = 'button'; b.dataset.mview = k; b.title = tip;
+      b.addEventListener('click', () => setMediaView(k));
+      vseg.appendChild(b);
+    }
+    mbar.append(cnt, el('span', 'ed-spacer'), vseg);
     const foot = el('div', 'ed-mfoot', '單擊選取　雙擊在檢視器預覽（可設來源 In／Out）　拖到時間軸放入');
-    pm.append(drop, msgs, list, foot);
+    pm.append(drop, msgs, mbar, list, foot);
 
     const pt = el('div', 'ed-panel'); pt.dataset.panel = 'trans'; pt.hidden = true;
     const tl = el('div', 'ed-glist'); tl.id = 'edTransList';
@@ -277,6 +293,7 @@
     pg.append(gl, ga);
 
     host.append(pm, pt, pg);
+    setMediaView(state.mediaView, true);
     buildGallery();
     setLibTab('media');
   }
@@ -409,10 +426,22 @@
   }
 
   // ---- 媒體清單 --------------------------------------------------------------------
+  function setMediaView(v, quiet) {
+    state.mediaView = v === 'grid' ? 'grid' : 'list';
+    if (!quiet) lsSet(MVIEW_KEY, state.mediaView);
+    const host = $('edMList');
+    if (host) host.classList.toggle('grid', state.mediaView === 'grid');
+    for (const b of doc.querySelectorAll('[data-mview]')) {
+      const on = b.dataset.mview === state.mediaView;
+      b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on));
+    }
+  }
   function renderMedia() {
     const host = $('edMList');
     if (!host) return;
     const list = R.media.list();
+    const cnt = $('edMCount');
+    if (cnt) cnt.textContent = list.length ? `${list.length} 個素材` : '';
     const st = host.scrollTop;
     host.textContent = '';
     if (!list.length) {
@@ -424,7 +453,7 @@
       const it = el('div', 'ed-mitem' + (state.selMedia === m.id ? ' sel' : '') + (state.sourceMedia === m.id && state.mode === 'source' ? ' src' : ''));
       it.dataset.media = m.id;
       it.title = `${m.name}\n單擊選取，雙擊在檢視器預覽，拖到時間軸放入`;
-      const cv = el('canvas', 'ed-mthumb'); cv.width = 96; cv.height = 54;
+      const cv = el('canvas', 'ed-mthumb'); cv.width = 160; cv.height = 90;
       paintMediaThumb(cv, m);
       const info = el('div', 'ed-minfo');
       info.append(el('div', 'ed-mname', m.name));
@@ -577,10 +606,14 @@
       else say(`輸出比例 ${aspectText()}`, 'ok');
     });
     aspLab.appendChild(sel);
-    const vb = el('button', 'ed-btn small ed-vertbtn'); vb.type = 'button'; vb.id = 'edVert'; vb.hidden = true;
-    vb.title = '把預覽放到左側，畫面更大'; vb.setAttribute('aria-pressed', 'true');
+    const vb = el('button', 'ed-btn small ed-vertbtn'); vb.type = 'button'; vb.id = 'edVert';
+    vb.title = '把預覽放到整頁左側，從頂端延伸到時間軸底部（直式、橫式各自記住開關）'; vb.setAttribute('aria-pressed', 'false');
     vb.append(el('span', 'ed-bl', '直式版面'));
-    vb.addEventListener('click', () => { state.vertPref = !state.vertPref; lsSet(VERT_KEY, state.vertPref ? '1' : '0'); applyVertical(true); });
+    vb.addEventListener('click', () => {
+      const portrait = isPortrait(), v = !(portrait ? state.vertPref : state.vertPrefH);
+      if (portrait) { state.vertPref = v; lsSet(VERT_KEY, v ? '1' : '0'); } else { state.vertPrefH = v; lsSet(VERT_H_KEY, v ? '1' : '0'); }
+      applyVertical(true);
+    });
     const sb = el('button', 'ed-btn small ed-safebtn'); sb.type = 'button'; sb.id = 'edSafe'; sb.hidden = true;
     sb.title = '顯示 Reels／短影音介面會蓋住的範圍（灰色區域），只在預覽顯示、不會匯出'; sb.setAttribute('aria-pressed', 'false');
     sb.append(el('span', 'ed-bl', '安全框'));
@@ -651,12 +684,17 @@
     scheduleStage();
   }
 
-  // ---- 直式版面：直式專案（高 > 寬）時，檢視器可以放到整頁左側，從頂端一路延伸到時間軸底部 ----------
+  // ---- 直式版面：檢視器放到整頁左側，從頂端一路延伸到時間軸底部（直式專案預設開、橫式預設關，各自記在 localStorage）----------
   // 只切 class（.ed-vert，版面在 edit.css）與左欄寬度變數 --ed-vw；不碰專案資料、不停播放（畫布是 CSS 縮放，不用重畫）。
+  // 左欄寬度預設依畫面比例算（讓預覽剛好塞滿高度）；使用者拖過分隔條就用拖的寬度（state.cols.vw）。
   let vertSig = '';
+  const isPortrait = () => state.project.height > state.project.width;
+  const vertRange = () => { const minW = 300; return [minW, Math.max(minW, Math.round(app.clientWidth * 0.62))]; };
   function fitVertical() {
     const p = state.project, vw = $('edViewer'), st = $('edStage');
     if (app.hidden || !vw || !st || !app.classList.contains('ed-vert') || !(p.width > 0 && p.height > 0)) return;
+    const [lo, hi] = vertRange();
+    if (state.cols.vw) { app.style.setProperty('--ed-vw', clamp(state.cols.vw, lo, hi) + 'px'); return; }
     const ratio = p.width / p.height, minW = 380, maxW = Math.max(minW, Math.round(app.clientWidth * 0.46));
     let w = parseFloat(app.style.getPropertyValue('--ed-vw')) || minW;
     for (let i = 0; i < 4; i++) {                       // 欄寬 ↔ 工具列換行 ↔ 畫面高度會互相影響，收斂幾次
@@ -668,20 +706,71 @@
     }
   }
   function applyVertical(force) {
-    const p = state.project, portrait = p.height > p.width, btn = $('edVert');
-    if (btn) { btn.hidden = !portrait; btn.setAttribute('aria-pressed', String(state.vertPref)); btn.classList.toggle('active', state.vertPref); }
-    const want = portrait && state.vertPref, sig = want ? `${p.width}x${p.height}` : '';
+    const p = state.project, portrait = isPortrait(), btn = $('edVert'), on = portrait ? state.vertPref : state.vertPrefH;
+    if (btn) { btn.setAttribute('aria-pressed', String(on)); btn.classList.toggle('active', on); }
+    const sig = on ? `${p.width}x${p.height}` : '';
     if (!force && sig === vertSig) return;
     vertSig = sig;
-    app.classList.toggle('ed-vert', want);
-    if (want) fitVertical(); else app.style.removeProperty('--ed-vw');
+    app.classList.toggle('ed-vert', on);
+    applyCols();
+    if (on) fitVertical(); else app.style.removeProperty('--ed-vw');
     scheduleRender('tl');
     if (player && !player.playing) player.refresh();
+    scheduleStage();
   }
 
-  // ---- 預覽框上的疊圖：字幕拖曳框、安全框 ---------------------------------------------------------
+  // ---- 上排欄寬：兩條直的分隔條（#edColL、#edColR），左右拖曳調整，雙擊恢復預設；記在 localStorage --------------
+  // 一般版面：L 調媒體庫寬（--ed-mw）、R 調詳細內容寬（--ed-iw），檢視器吃剩下的。
+  // 直式版面：L 調左側預覽欄寬（--ed-vw），R 調媒體庫寬（--ed-vmw），詳細內容吃剩下的。
+  const COL_VAR = { mw: '--ed-mw', iw: '--ed-iw', vmw: '--ed-vmw' };
+  function applyCols() {
+    for (const [k, v] of Object.entries(COL_VAR)) {
+      if (state.cols[k] > 0) app.style.setProperty(v, state.cols[k] + 'px'); else app.style.removeProperty(v);
+    }
+  }
+  function saveCols() { lsSet(COLS_KEY, JSON.stringify(state.cols)); }
+  function wireColSplitters() {
+    for (const id of ['edColL', 'edColR']) {
+      const sp = $(id);
+      if (!sp) continue;
+      const which = () => app.classList.contains('ed-vert') ? (sp.dataset.col === 'l' ? 'vw' : 'vmw') : (sp.dataset.col === 'l' ? 'mw' : 'iw');
+      const target = k => $(k === 'vw' ? 'edViewer' : k === 'iw' ? 'edInspector' : 'edMedia');
+      sp.addEventListener('dblclick', () => {
+        delete state.cols[which()]; saveCols(); applyCols();
+        if (app.classList.contains('ed-vert')) fitVertical();
+        scheduleRender('tl'); scheduleStage();
+      });
+      sp.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const k = which(), x0 = e.clientX, w0 = target(k).getBoundingClientRect().width;
+        const dir = k === 'iw' ? -1 : 1;          // 詳細內容在右邊：往左拖是變寬
+        const aw = app.getBoundingClientRect().width;
+        // 每欄至少留給其他欄的寬度：一般版面檢視器至少 320，直式版面右側兩欄各至少 220／260
+        const [lo, hi] = k === 'vw' ? vertRange()
+          : k === 'vmw' ? [200, Math.max(200, aw - (state.cols.vw || $('edViewer').getBoundingClientRect().width) - 300)]
+            : [k === 'mw' ? 180 : 240, Math.max(260, aw - 320 - (k === 'mw' ? $('edInspector') : $('edMedia')).getBoundingClientRect().width)];
+        const move = ev => {
+          state.cols[k] = Math.round(clamp(w0 + dir * (ev.clientX - x0), lo, hi));
+          if (k === 'vw') app.style.setProperty('--ed-vw', state.cols.vw + 'px'); else applyCols();
+          scheduleStage();
+        };
+        const up = () => {
+          root.removeEventListener('pointermove', move); root.removeEventListener('pointerup', up);
+          app.classList.remove('resizing', 'colresize'); saveCols(); scheduleRender('tl');
+          if (player && !player.playing) player.refresh();
+        };
+        app.classList.add('resizing', 'colresize');
+        root.addEventListener('pointermove', move); root.addEventListener('pointerup', up);
+      });
+    }
+    applyCols();
+  }
+
+  // ---- 預覽框上的疊圖：選取素材的控制框、安全框 ---------------------------------------------------------
   // 疊圖（#edOverlay）蓋在畫布實際顯示畫面的位置（畫布是 object-fit: contain，四周可能有留黑），只是 DOM，不會被匯出。
-  // 字幕拖曳：時間軸模式下，在預覽上按住播放頭這格的字幕（最上層優先）拖曳，改 title.x／y；整次拖曳只記一筆復原。
+  // 控制框：時間軸模式下，選取的畫面片段在預覽上有外框——拖本體移動、拖四角等比縮放、拖上方圓點旋轉；
+  // 點到沒選取的片段會先選它（最上層優先）。整次拖曳只記一筆復原。
   const SAFE_SVG = (() => {
     // 1080×1920 座標；灰色＝會被介面蓋住的範圍（右側按鈕欄＋下方說明／導覽列）。帳號、文字、數字都換成灰條。
     const ic = (y, d) => `<path transform="translate(1005 ${y})" d="${d}"/>`;
@@ -717,19 +806,59 @@
     const sr = st.getBoundingClientRect(), cr = cv.getBoundingClientRect();
     if (!cr.width || !cr.height) return null;
     const s = Math.min(cr.width / p.width, cr.height / p.height), w = p.width * s, h = p.height * s;
-    return { left: cr.left - sr.left + (cr.width - w) / 2, top: cr.top - sr.top + (cr.height - h) / 2, w, h, s, W: p.width, H: p.height };
+    return { left: cr.left - sr.left + (cr.width - w) / 2, top: cr.top - sr.top + (cr.height - h) / 2, w, h, s, W: p.width, H: p.height, sw: sr.width, sh: sr.height };
   }
   const safeAvailable = () => { const p = state.project; return p.height / p.width >= 1.7; };
-  // 播放頭這格看得到的字幕，最上層在前：[{ clip, b（輸出像素外框）}]
-  function titlesAtPlayhead() {
-    if (state.mode !== 'timeline' || !R || !F || typeof F.titleBounds !== 'function') return [];
+  // 播放頭這格看得到的畫面片段（影片／圖片／純色／字幕），最上層在前：[{ clip, q（clipQuad：輸出像素四角＋樞紐）}]
+  function visualsAtPlayhead() {
+    if (state.mode !== 'timeline' || !R || !F || typeof F.clipQuad !== 'function') return [];
     const p = state.project, f = state.playhead, out = [];
     for (const l of R.layersAt(p, f)) {
-      if (l.kind !== 'clip' || l.clip.type !== 'title') continue;
-      const b = F.titleBounds(l.clip, p.width, p.height, Math.max(0, f - l.clip.start));
-      if (b) out.unshift({ clip: l.clip, b });
+      if (l.kind !== 'clip' || !l.clip.video) continue;
+      const q = F.clipQuad(l.clip, p, Math.max(0, f - l.clip.start));
+      if (q) out.unshift({ clip: l.clip, q });
     }
     return out;
+  }
+  // 控制框對象：選取中、且播放頭這格看得到的片段（主選取優先）
+  function gizmoTarget(vis) {
+    const pr = lastSel();
+    return vis.find(v => v.clip.id === pr) || vis.find(v => state.selection.has(v.clip.id)) || null;
+  }
+  const GZ = { corner: 7, rotGap: 26, rotR: 6, hit: 10 };   // 螢幕像素：角點半徑、旋轉點離上緣距離、點選容許範圍
+  // 控制框各點（overlay 座標＝螢幕像素）：四角、上緣中點、旋轉點
+  function gizmoGeom(t, r) {
+    const pts = t.q.pts.map(([x, y]) => [x * r.s, y * r.s]);
+    const [tl, tr, br, bl] = pts;
+    const top = [(tl[0] + tr[0]) / 2, (tl[1] + tr[1]) / 2], bot = [(bl[0] + br[0]) / 2, (bl[1] + br[1]) / 2];
+    let nx = top[0] - bot[0], ny = top[1] - bot[1];
+    const nl = Math.hypot(nx, ny);
+    if (nl) { nx /= nl; ny /= nl; } else { nx = 0; ny = -1; }
+    // 旋轉點：從樞紐沿「往上緣」的方向，放在上緣外側一點；跑出預覽區（片段滿版或放大時常見）就往樞紐拉回到看得到的地方
+    const pv = [t.q.pivot[0] * r.s, t.q.pivot[1] * r.s];
+    const want = (top[0] - pv[0]) * nx + (top[1] - pv[1]) * ny + GZ.rotGap;
+    const m = GZ.rotR + 4, x0 = m - r.left, y0 = m - r.top, x1 = r.sw - m - r.left, y1 = r.sh - m - r.top;
+    let room = Infinity;   // 樞紐沿 n 方向走多遠還在預覽區內
+    if (nx > 1e-9) room = Math.min(room, (x1 - pv[0]) / nx); else if (nx < -1e-9) room = Math.min(room, (x0 - pv[0]) / nx);
+    if (ny > 1e-9) room = Math.min(room, (y1 - pv[1]) / ny); else if (ny < -1e-9) room = Math.min(room, (y0 - pv[1]) / ny);
+    const inside = pv[0] >= x0 && pv[0] <= x1 && pv[1] >= y0 && pv[1] <= y1;
+    const dist = inside ? Math.max(GZ.rotGap, Math.min(want, room)) : want;
+    const rot = [pv[0] + nx * dist, pv[1] + ny * dist];
+    return { pts, top, rot, pivot: pv };
+  }
+  function inQuad(pts, x, y, pad) {
+    // 凸四邊形（也可能因翻轉而順序相反）：點在每條邊的同一側；pad 讓邊緣好點一點
+    let sign = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i], b = pts[(i + 1) % 4];
+      const ex = b[0] - a[0], ey = b[1] - a[1], len = Math.hypot(ex, ey) || 1;
+      const d = (ex * (y - a[1]) - ey * (x - a[0])) / len;
+      if (Math.abs(d) <= pad) continue;
+      const s = d > 0 ? 1 : -1;
+      if (sign && s !== sign) return false;
+      sign = s;
+    }
+    return true;
   }
   function syncStage() {
     const ov = $('edOverlay'), sb = $('edSafe');
@@ -742,56 +871,128 @@
     Object.assign(ov.style, { left: r.left + 'px', top: r.top + 'px', width: r.w + 'px', height: r.h + 'px' });
     const safe = ov.querySelector('.ed-safe');
     if (safe) safe.style.display = avail && state.safePref && state.mode === 'timeline' ? '' : 'none';
-    const box = $('edTitleBox'), sel = titlesAtPlayhead().find(t => state.selection.has(t.clip.id));
-    box.hidden = !sel;
-    if (sel) Object.assign(box.style, { left: sel.b.x * r.s + 'px', top: sel.b.y * r.s + 'px', width: sel.b.w * r.s + 'px', height: sel.b.h * r.s + 'px' });
+    const gz = $('edGizmo'), t = gizmoTarget(visualsAtPlayhead());
+    gz.toggleAttribute('hidden', !t);   // SVG 元素沒有 .hidden 屬性，要直接改 attribute
+    if (!t) return;
+    const g = gizmoGeom(t, r), P = ([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`;
+    gz.setAttribute('viewBox', `0 0 ${r.w} ${r.h}`);
+    gz.classList.toggle('title', t.clip.type === 'title');
+    gz.dataset.clip = t.clip.id;
+    gz.querySelector('.ed-gz-box').setAttribute('points', g.pts.map(P).join(' '));
+    gz.querySelector('.ed-gz-stem').setAttribute('points', `${P(g.top)} ${P(g.rot)}`);
+    const rc = gz.querySelector('.ed-gz-rot'); rc.setAttribute('cx', g.rot[0]); rc.setAttribute('cy', g.rot[1]);
+    gz.querySelectorAll('.ed-gz-corner').forEach((c, i) => { c.setAttribute('cx', g.pts[i][0]); c.setAttribute('cy', g.pts[i][1]); });
   }
-  function titleHit(e) {
+  // 預覽上按到哪裡：控制框的旋轉點／角點／本體，或沒選取的片段（最上層優先）
+  function stageHit(e) {
     const r = stageRect();
     if (!r) return null;
     const sr = $('edStage').getBoundingClientRect();
-    const x = (e.clientX - sr.left - r.left) / r.s, y = (e.clientY - sr.top - r.top) / r.s;
-    const pad = 6 / r.s;   // 邊緣多給幾個螢幕像素比較好點
-    const hit = titlesAtPlayhead().find(t => x >= t.b.x - pad && x <= t.b.x + t.b.w + pad && y >= t.b.y - pad && y <= t.b.y + t.b.h + pad);
-    return hit ? { clip: hit.clip, r } : null;
+    const x = e.clientX - sr.left - r.left, y = e.clientY - sr.top - r.top;
+    const vis = visualsAtPlayhead(), t = gizmoTarget(vis);
+    if (t) {
+      const g = gizmoGeom(t, r), near = p => Math.hypot(p[0] - x, p[1] - y) <= GZ.hit;
+      if (near(g.rot)) return { kind: 'rotate', t, r, x, y };
+      const ci = g.pts.findIndex(near);
+      if (ci >= 0) return { kind: 'scale', t, r, x, y, corner: ci };
+      if (inQuad(g.pts, x, y, 4)) return { kind: 'move', t, r, x, y };
+    }
+    for (const v of vis) {
+      if (inQuad(v.q.pts.map(([a, b]) => [a * r.s, b * r.s]), x, y, 4)) return { kind: 'move', t: v, r, x, y };
+    }
+    return null;
   }
+  const HIT_CURSOR = { rotate: 'grab', scale: 'nwse-resize', move: 'move' };
+  const tfOf = (c, k, d) => { const v = c.video && c.video.transform ? c.video.transform[k] : undefined; return Number.isFinite(+v) && v !== undefined && v !== null ? +v : d; };
   function wireStage() {
     const st = $('edStage');
     if (!st || $('edOverlay')) return;
     const ov = el('div', 'ed-overlay'); ov.id = 'edOverlay'; ov.hidden = true;
-    ov.innerHTML = SAFE_SVG;
-    const box = el('div', 'ed-titlebox'); box.id = 'edTitleBox'; box.hidden = true;
-    ov.appendChild(box);
+    ov.innerHTML = SAFE_SVG + `<svg class="ed-gizmo" id="edGizmo" hidden aria-hidden="true">
+      <polygon class="ed-gz-box"/><polyline class="ed-gz-stem"/><circle class="ed-gz-rot" r="${GZ.rotR}"/>
+      ${`<circle class="ed-gz-corner" r="${GZ.corner / 1.4}"/>`.repeat(4)}</svg>`;
     st.appendChild(ov);
     const cv = $('edCanvas');
-    cv.addEventListener('pointermove', e => { if (!drag) cv.style.cursor = titleHit(e) ? 'move' : ''; });
+    cv.addEventListener('pointermove', e => { if (!drag) { const h = stageHit(e); cv.style.cursor = h ? HIT_CURSOR[h.kind] : ''; } });
     cv.addEventListener('pointerdown', e => {
       if (e.button !== 0 || drag) return;
-      const h = titleHit(e);
+      const h = stageHit(e);
       if (!h) return;
       e.preventDefault();
       if (player) player.pause();
-      const id = h.clip.id, t0 = h.clip.title, x0 = Number(t0.x) || 0, y0 = Number(t0.y) || 0, W = h.r.W, H = h.r.H, s = h.r.s;
+      const clip = h.t.clip, id = clip.id;
       if (!state.selection.has(id) || state.selection.size > 1) selectClips([id]);
-      // 螢幕位移 → 字幕座標：扣掉片段變形（縮放／旋轉／翻轉）的線性部分
-      const m = F.clipMatrix(h.clip, W, H, W, H, Math.max(0, state.playhead - h.clip.start));
-      const det = m[0] * m[3] - m[2] * m[1] || 1;
-      const snap = (v, px) => (Math.abs(v - 0.5) * px < 8 ? 0.5 : v);
+      const W = h.r.W, H = h.r.H, s = h.r.s;
+      if (h.kind === 'move' && clip.type === 'title') return dragTitle(e, clip, W, H, s);
+      const z0x = tfOf(clip, 'zoomX', 1), linked = !(clip.video.transform && clip.video.transform.zoomLinked === false);
+      const z0y = linked ? z0x : tfOf(clip, 'zoomY', 1);
+      const px0 = tfOf(clip, 'posX', 0), py0 = tfOf(clip, 'posY', 0), rot0 = tfOf(clip, 'rotation', 0);
+      const pv = [h.t.q.pivot[0] * s, h.t.q.pivot[1] * s];   // 樞紐（螢幕像素，overlay 座標）
+      const cx0 = h.t.q.pts.reduce((a, p) => a + p[0], 0) / 4, cy0 = h.t.q.pts.reduce((a, p) => a + p[1], 0) / 4;
+      const LABEL = { move: '移動素材', scale: '縮放素材', rotate: '旋轉素材' };
+      const apply = tf => {
+        const r = live.run(LABEL[h.kind], q => C.setClipProps(q, id, { video: { transform: tf } }));
+        if (r && !r.ok) say(r.reason, 'error');
+        scheduleStage();
+      };
+      let last = '';
       beginDrag(e, {
         move(ev, dx, dy) {
-          const ox = dx / s, oy = dy / s;
-          const ux = (m[3] * ox - m[2] * oy) / det, uy = (-m[1] * ox + m[0] * oy) / det;
-          let x = clamp(x0 + ux / W, 0, 1), y = clamp(y0 + uy / H, 0, 1);
-          if (!ev.altKey) { x = snap(x, W * s); y = snap(y, H * s); }
-          const r = live.run('移動字幕', q => C.setClipProps(q, id, { title: { x, y } }));
-          if (r && !r.ok) say(r.reason, 'error');
-          scheduleStage();
+          if (h.kind === 'move') {
+            let x = px0 + dx / s, y = py0 + dy / s;
+            if (!ev.altKey) {   // 片段中心靠近畫面中線 8 個螢幕像素內就吸附
+              const cx = cx0 + x - px0, cy = cy0 + y - py0;
+              if (Math.abs(cx - W / 2) * s < 8) x += W / 2 - cx;
+              if (Math.abs(cy - H / 2) * s < 8) y += H / 2 - cy;
+            }
+            x = Math.round(x * 10) / 10; y = Math.round(y * 10) / 10;
+            apply({ posX: x, posY: y });
+            last = `位置 ${Math.round(x)}, ${Math.round(y)} px`;
+          } else if (h.kind === 'scale') {
+            const d0 = Math.hypot(h.x - pv[0], h.y - pv[1]) || 1, d1 = Math.hypot(h.x + dx - pv[0], h.y + dy - pv[1]);
+            const k = d1 / d0, zx = clamp(Math.round(z0x * k * 1000) / 1000, 0.01, 20), zy = clamp(Math.round(z0y * k * 1000) / 1000, 0.01, 20);
+            apply(linked ? { zoomX: zx, zoomY: zx } : { zoomX: zx, zoomY: zy });
+            last = `縮放 ${Math.round(zx * 100)}%`;
+          } else {
+            const a0 = Math.atan2(h.y - pv[1], h.x - pv[0]), a1 = Math.atan2(h.y + dy - pv[1], h.x + dx - pv[0]);
+            let d = (a1 - a0) * 180 / Math.PI;
+            d = ((d + 540) % 360) - 180;
+            let rot = rot0 + d;
+            rot = ev.shiftKey ? Math.round(rot / 15) * 15 : Math.round(rot * 10) / 10;
+            apply({ rotation: rot });
+            last = `旋轉 ${rot}°`;
+          }
         },
-        up(ev, moved) { if (moved) { live.end(); say('已移動字幕（Alt＝不吸附到中線）', 'ok'); } },
+        up(ev, moved) {
+          if (!moved) return;
+          live.end();
+          say(`${last}（${h.kind === 'move' ? 'Alt＝不吸附到中線' : h.kind === 'rotate' ? 'Shift＝每 15° 一格' : '按住角點等比縮放'}）`, 'ok');
+        },
         cancel() { live.abort(); scheduleStage(); },
       });
     });
     if (typeof root.ResizeObserver === 'function') new root.ResizeObserver(() => scheduleStage()).observe(st);
+  }
+  // 字幕拖曳：改 title.x／y（0~1），不是 posX／posY，這樣字幕的位置欄位和預設動畫才會跟著走
+  function dragTitle(e, clip, W, H, s) {
+    const id = clip.id, t0 = clip.title, x0 = Number(t0.x) || 0, y0 = Number(t0.y) || 0;
+    // 螢幕位移 → 字幕座標：扣掉片段變形（縮放／旋轉／翻轉）的線性部分
+    const m = F.clipMatrix(clip, W, H, W, H, Math.max(0, state.playhead - clip.start));
+    const det = m[0] * m[3] - m[2] * m[1] || 1;
+    const snap = (v, px) => (Math.abs(v - 0.5) * px < 8 ? 0.5 : v);
+    beginDrag(e, {
+      move(ev, dx, dy) {
+        const ox = dx / s, oy = dy / s;
+        const ux = (m[3] * ox - m[2] * oy) / det, uy = (-m[1] * ox + m[0] * oy) / det;
+        let x = clamp(x0 + ux / W, -0.5, 1.5), y = clamp(y0 + uy / H, -0.5, 1.5);
+        if (!ev.altKey) { x = snap(x, W * s); y = snap(y, H * s); }
+        const r = live.run('移動字幕', q => C.setClipProps(q, id, { title: { x, y } }));
+        if (r && !r.ok) say(r.reason, 'error');
+        scheduleStage();
+      },
+      up(ev, moved) { if (moved) { live.end(); say('已移動字幕（Alt＝不吸附到中線）', 'ok'); } },
+      cancel() { live.abort(); scheduleStage(); },
+    });
   }
 
   // ---- 深色／淺色（edit.css 用 html[data-ed-theme] 配合 :has(#editApp:not([hidden])) 只在剪輯分頁生效）-------
@@ -2909,7 +3110,7 @@
     // fx 的詳細內容樣式（.ed-fx-*）：音訊／速度區段也用同一套外觀，啟動時就插入
     if (typeof F.ensureStyle === 'function') F.ensureStyle();
     buildMediaPanel(); buildViewer(); buildToolbar(); buildTimeline(); buildInspector();
-    wireFileDrop(); wireSplitter();
+    wireFileDrop(); wireSplitter(); wireColSplitters();
     readColors(); syncThemeBtn();
     const tbtn = $('edThemeBtn');
     if (tbtn) tbtn.addEventListener('click', () => applyTheme(state.theme === 'dark' ? 'light' : 'dark', true));
@@ -2922,6 +3123,14 @@
     tl.scroll.addEventListener('contextmenu', onTlContext);
 
     C.bus.addEventListener('change', onCoreChange);
+    // 字幕字型是用到才下載：下載中提示一下，好了就重畫預覽、拖曳框與字幕縮圖
+    if (F.onFontLoad) F.onFontLoad((id, what) => {
+      const nm = F.FONTS && F.FONTS[id] ? F.FONTS[id].name : id;
+      if (what === 'loading') { say(`正在下載字型「${nm}」（檔案較大，第一次需要一點時間）…`); return; }
+      if (id !== 'WHZ-Heavy') say(what === 'loaded' ? `字型「${nm}」已載入` : `字型「${nm}」載入失敗，先用系統字型顯示`, what === 'loaded' ? 'ok' : 'error');
+      if (player && !player.playing) player.refresh();
+      scheduleStage();
+    });
     C.bus.addEventListener('exported', () => { state.dirty = false; say('已匯出', 'ok'); });
     doc.addEventListener('qpt:func', e => { if (e.detail === 'edit') onShow(); else onHide(); });
     doc.addEventListener('keydown', onKeyDown);
