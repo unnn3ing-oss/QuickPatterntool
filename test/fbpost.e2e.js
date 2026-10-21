@@ -16,6 +16,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 const URL_PAGE = 'https://www.facebook.com/tvbsnews';
 
 // opts：lang 'zh'|'en'｜flow 'direct'|'next'（按鈕叫「下一步」）|'continue'（叫「繼續」，真實 Facebook 的樣子）｜close 'ok'|'never'
+//       click 'normal'|'strict'（按鈕只認「有座標且按下」的真人式點擊）|'keyOnly'（只認鍵盤 Enter）|'dead'（點了沒反應）
 //       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）
 function mock(opts = {}) {
   const L = opts.lang === 'en'
@@ -74,7 +75,7 @@ function openDialog() {
         setTimeout(() => { files.forEach(() => { const im = document.createElement('img'); im.className='thumb'; im.src='${PNG}'; d.querySelector('#media').append(im); }); bar.remove(); sync(); }, 400);
       });
     });
-    go.addEventListener('click', () => {
+    function activate() {
       if (go.getAttribute('aria-disabled') === 'true') return;
       if ((opts.flow === 'next' || opts.flow === 'continue') && go.getAttribute('aria-label') === NEXT) {
         d.querySelector('#box').remove(); go.setAttribute('aria-label', L.post); go.textContent = L.post; return;
@@ -86,7 +87,16 @@ function openDialog() {
         window.__posted = { text: box ? box.innerText : '(第二畫面)', images: d.querySelectorAll('img.thumb').length };
         d.remove();
       }, 500);
-    });
+    }
+    let armed = false;
+    if (opts.click === 'strict') {
+      go.addEventListener('mousedown', e => { const r = go.getBoundingClientRect(); armed = e.buttons === 1 && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+      go.addEventListener('click', () => { if (armed) { armed = false; activate(); } });
+    } else if (opts.click === 'keyOnly') {
+      go.addEventListener('keydown', e => { if (e.key === 'Enter') activate(); });
+    } else if (opts.click !== 'dead') {
+      go.addEventListener('click', activate);
+    }
   }, 250);
 }
 const trg = document.getElementById('trigger'); if (trg) trg.addEventListener('click', openDialog);
@@ -111,7 +121,7 @@ async function open(t, opts) {
     window.chrome = { runtime: { id: 'me', sendMessage: m => { window.__sent.push(m); return Promise.resolve(); }, onMessage: { addListener: f => { window.__listener = f; } } } };
   });
   await page.addScriptTag({ content: SCRIPT });
-  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, dialog: 1500, input: 1500, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, poll: 50 }));
+  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, poll: 50 }));
   // 沒有回應（忽略訊息）時回傳 undefined
   const send = (job, sender = { id: 'me' }) => page.evaluate(([j, s]) => new Promise(res => {
     window.__listener({ type: 'fbpost:run', job: j }, s, res);
@@ -263,4 +273,50 @@ test('單行文字不受換行檢查影響', { skip }, async t => {
   const { result: r } = await result();
   assert.equal(r.ok, true, r.error);
   assert.equal((await page.evaluate(() => window.__posted)).text.trim(), '只有一行 #標籤');
+});
+
+test('「繼續」只認真人式點擊（要有座標、按下去）：第一種方式就成功，只發一次', { skip }, async t => {
+  const { page, send, result } = await open(t, { flow: 'continue', click: 'strict' });
+  await send(job());
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal((await page.evaluate(() => window.__events.filter(e => e === 'publish'))).length, 1);
+});
+
+test('按鈕只認鍵盤 Enter：前面的點擊方式沒反應就換成鍵盤，仍然成功、只發一次', { skip }, async t => {
+  const { page, send, result } = await open(t, { flow: 'continue', click: 'keyOnly' });
+  await send(job());
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal((await page.evaluate(() => window.__events.filter(e => e === 'publish'))).length, 1);
+});
+
+test('「繼續」怎麼點都沒反應：報錯、列出視窗裡的按鈕，不發佈', { skip }, async t => {
+  const { page, send, result } = await open(t, { flow: 'continue', click: 'dead' });
+  await send(job());
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /按「繼續」沒有反應（試過 4 種點擊方式）/);
+  assert.match(r.error, /視窗裡的按鈕：.*繼續/);
+  assert.ok(!(await page.evaluate(() => window.__events)).includes('publish'));
+});
+
+test('「發佈」只點一次：點了沒關視窗也不會再點第二次（避免重複發文）；點不動時報錯並提醒到粉專確認', { skip }, async t => {
+  for (const click of ['normal', 'dead']) {
+    const { page, send, result } = await open(t, { flow: 'direct', close: 'never', click });
+    await send(job({ images: [] }));
+    const { result: r } = await result();
+    assert.equal(r.ok, false, click);
+    assert.equal(r.step, 'publishing');
+    assert.match(r.error, /沒有關閉.*請到粉專確認/);
+    assert.equal((await page.evaluate(() => window.__events.filter(e => e === 'publish'))).length, click === 'normal' ? 1 : 0, click);
+  }
+});
+
+test('發佈沿用前面步驟證明有效的點擊方式（鍵盤 Enter 的按鈕，發佈也用 Enter 一次發出）', { skip }, async t => {
+  const { page, send, result } = await open(t, { flow: 'continue', click: 'keyOnly' });
+  await send(job({ images: [] }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal((await page.evaluate(() => window.__events.filter(e => e === 'publish'))).length, 1);
 });

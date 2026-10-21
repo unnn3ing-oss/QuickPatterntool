@@ -17,7 +17,7 @@
   const TEXTBOX = '[contenteditable="true"][role="textbox"]';
   const MAX_LABEL = 60;
   // 各步驟等待上限（毫秒）；測試時會調小
-  const T = { trigger: 30000, dialog: 20000, input: 15000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, poll: 250 };
+  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 1200, poll: 250 };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   async function waitFor(fn, timeout) {
@@ -62,14 +62,56 @@
   const findLooseDialog = () => findDialog(false);
   const findTrigger = () => findButton(document, LABELS.trigger, { outsideDialog: true });
 
-  // 點擊：依序送出完整的滑鼠事件，React 才認得
-  function press(el) {
+  // ---- 點擊 ------------------------------------------------------------
+  // Facebook 的按鈕常檢查滑鼠座標與按鍵狀態，所以第一種做法送出「像真人」的完整事件（有座標、按下時 buttons=1）；
+  // 不行再換 el.click()、鍵盤 Enter、鍵盤空白鍵。每種做完都要檢查畫面真的有變化（見 pressUntil），沒反應才換下一種。
+  function pressMouse(el) {
     el.scrollIntoView({ block: 'center' });
-    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-      const Ev = type.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
-      el.dispatchEvent(new Ev(type, { bubbles: true, cancelable: true, view: window }));
+    const r = el.getBoundingClientRect();
+    const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+    const init = (buttons, extra) => Object.assign({
+      bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, screenX: x, screenY: y,
+      button: 0, buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true
+    }, extra);
+    const Pointer = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+    [['pointerover', Pointer, 0], ['mouseover', MouseEvent, 0], ['pointermove', Pointer, 0], ['mousemove', MouseEvent, 0],
+      ['pointerdown', Pointer, 1], ['mousedown', MouseEvent, 1], ['pointerup', Pointer, 0], ['mouseup', MouseEvent, 0],
+      ['click', MouseEvent, 0, { detail: 1 }]
+    ].forEach(([type, Ev, buttons, extra]) => el.dispatchEvent(new Ev(type, init(buttons, extra))));
+  }
+  function pressKey(el, key) {
+    if (el.focus) el.focus();
+    const code = key === ' ' ? 'Space' : 'Enter', kc = key === ' ' ? 32 : 13;
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+      el.dispatchEvent(new KeyboardEvent(type, { key, code, keyCode: kc, which: kc, bubbles: true, cancelable: true }));
     }
   }
+  const METHODS = [pressMouse, el => el.click(), el => pressKey(el, 'Enter'), el => pressKey(el, ' ')];
+  // 依序用各種方式點 el，每種之後等 effect() 成立；成立就停（不會重複點），並記住這種方式。全部沒反應回 false。
+  // 只能用在「重複點也沒副作用」的按鈕（開發文框、相片／影片、繼續）。
+  let preferred = 0;
+  async function pressUntil(el, effect, ms) {
+    const order = METHODS.map((m, i) => i).sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a - b));
+    for (const i of order) {
+      if (!el.isConnected) return !!effect();
+      METHODS[i](el);
+      if (await waitFor(effect, ms)) { preferred = i; return true; }
+    }
+    return false;
+  }
+  // 「發佈」只點一次：就算第一次已經發出、畫面卻沒變，也絕不再點，否則會重複發文。
+  // 用前面步驟證明有效的點擊方式；有沒有成功由「視窗是否關閉」判斷。
+  function pressOnce(el) { METHODS[preferred](el); }
+  // 失敗時附上畫面上有哪些按鈕，方便判斷是改版還是別的原因
+  function visibleButtons(scope) {
+    const seen = [];
+    for (const el of (scope || document).querySelectorAll('[role="button"], button')) {
+      const l = isVisible(el) ? labelOf(el) : '';
+      if (l && l.length <= 24 && !seen.includes(l)) seen.push(l);
+    }
+    return seen.slice(0, 14).join('、');
+  }
+  const shown = () => { const d = findLooseDialog(); return d ? `（視窗裡的按鈕：${visibleButtons(d) || '無'}）` : '（找不到發文視窗）'; };
 
   // ---- 文字 ------------------------------------------------------------
   const squash = s => s.replace(/\s+/g, '');
@@ -160,9 +202,8 @@
         const d = findLooseDialog();
         const btn = d && findButton(d, LABELS.photo);
         if (!btn) fail('找不到「相片／影片」按鈕');
-        press(btn);
-        input = await waitFor(findFileInput, T.input);
-        if (!input) fail('找不到上傳圖片的欄位');
+        if (!await pressUntil(btn, findFileInput, T.pressWait)) fail('點了「相片／影片」，但沒有出現上傳圖片的欄位' + shown());
+        input = findFileInput();
       }
       const batch = input.multiple ? remaining.splice(0) : remaining.splice(0, 1);
       const dt = new DataTransfer();
@@ -178,18 +219,28 @@
   }
 
   // ---- 發佈 ------------------------------------------------------------
-  async function publish(onPublishing) {
+  async function publish(onNext, onPublishing) {
+    // 按下「繼續」之後的反應：按鈕消失或出現「發佈」
+    const nextEffect = () => { const d = findLooseDialog(); return !d || !findButton(d, LABELS.next, { enabled: true }) || !!findButton(d, LABELS.publish, { enabled: true }); };
     let pressed = false;
     for (let hop = 0; hop < 4 && !pressed; hop++) {
       const btn = await waitFor(() => {
         const d = findLooseDialog();
         return d && (findButton(d, LABELS.publish, { enabled: true }) || findButton(d, LABELS.next, { enabled: true }));
       }, T.enabled);
-      if (!btn) fail('找不到可以按的「發佈」按鈕（內容可能不符規定，或圖片還在處理）');
-      if (matches(labelOf(btn), LABELS.publish)) { onPublishing(); press(btn); pressed = true; }
-      else { press(btn); await sleep(1200); }   // 「下一步」：進入第二個畫面
+      if (!btn) fail('找不到可以按的「發佈」按鈕（內容可能不符規定，或圖片還在處理）' + shown());
+      if (matches(labelOf(btn), LABELS.publish)) {
+        onPublishing();
+        pressOnce(btn);
+        pressed = true;
+      } else {
+        onNext();
+        const name = labelOf(btn);
+        if (!await pressUntil(btn, nextEffect, T.pressWait)) fail(`按「${name}」沒有反應（試過 ${METHODS.length} 種點擊方式）` + shown());
+        await sleep(T.hop);   // 等第二個畫面出現
+      }
     }
-    if (!pressed) fail('按了「下一步」之後仍然沒有出現「發佈」按鈕');
+    if (!pressed) fail('按了「繼續」之後仍然沒有出現「發佈」按鈕' + shown());
     // 發佈成功＝編輯視窗關掉。多等一下確認不是短暫消失
     const closed = await waitFor(() => !findLooseDialog(), T.closed);
     if (closed) await sleep(Math.min(1500, T.closed));
@@ -206,14 +257,13 @@
       if (!findDialog()) {
         const trigger = await waitFor(findTrigger, T.trigger);
         if (!trigger) fail('找不到發文框（請確認已登入，並已在 Facebook 切換成粉專身分）');
-        press(trigger);
-        if (!await waitFor(findDialog, T.dialog)) fail('點了發文框，但沒有跳出編輯視窗');
+        if (!await pressUntil(trigger, findDialog, T.pressWait)) fail('點了發文框，但沒有跳出編輯視窗');
       }
       go('text');
       if (job.text.trim()) await setText(job.text);
       if (job.images.length) { go('images'); await attachImages(job.images); }
       go('ready');
-      if (!job.dryRun) await publish(() => go('publishing'));
+      if (!job.dryRun) await publish(() => go('next'), () => go('publishing'));
       return step;
     } catch (e) {
       e.step = step;
@@ -248,6 +298,6 @@
   }
   if (typeof document !== 'undefined' && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id && chrome.runtime.onMessage) listen();
 
-  root.QptFbPost = { run, T, LABELS, findDialog, findTrigger, dataUrlToFile, validJob };
+  root.QptFbPost = { run, T, LABELS, METHODS, findDialog, findTrigger, dataUrlToFile, validJob };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.QptFbPost;
 })(typeof self !== 'undefined' ? self : this);
