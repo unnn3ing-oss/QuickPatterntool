@@ -1,0 +1,188 @@
+// 側邊欄「FB 粉專排程」在真的 Chromium 裡的流程測試：用假的 chrome（記憶體 storage），驗證建立、顯示、刪除、試跑／立即發佈送出的訊息。
+// 到點自動發佈由背景（poster.js，見 test/poster.test.js）負責；真的擴充功能環境仍需 Chrome 實機。
+// 需要 playwright：NODE_PATH=<有 playwright 的 node_modules> node --test test/schedpanel.e2e.js
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+
+let chromium = null;
+try { ({ chromium } = require('playwright')); } catch (e) { /* 沒裝 playwright：整檔略過 */ }
+const skip = chromium ? false : '找不到 playwright（設 NODE_PATH 指到有 playwright 的 node_modules）';
+
+const PAGE = 'file://' + path.join(__dirname, '..', 'sidepanel.html');
+const FB = 'https://www.facebook.com/tvbsnews';
+const PNG_BYTES = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+let browser;
+test.before(async () => { if (chromium) browser = await chromium.launch(); });
+test.after(async () => { if (browser) await browser.close(); });
+
+async function open(t, { queue = [] } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 420, height: 1100 } });
+  t.after(() => ctx.close());
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('https://api.github.com/**', r => r.abort());
+  await page.route('https://raw.githubusercontent.com/**', r => r.abort());
+  await page.addInitScript(initial => {
+    const data = { fbQueue: initial };
+    const listeners = [];
+    window.__data = data;
+    window.__sent = [];
+    window.chrome = {
+      runtime: {
+        id: 'me', getManifest: () => ({ name: '圖片套版產生器', version: '5.00' }), getURL: p => p, reload() {},
+        sendMessage: async m => { window.__sent.push(m); return { ok: true }; }
+      },
+      tabs: { create() {} },
+      action: { getBadgeText: async () => '', setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
+      storage: {
+        local: {
+          get: async k => (k in data ? { [k]: JSON.parse(JSON.stringify(data[k])) } : {}),
+          set: async o => {
+            const changes = {};
+            for (const k of Object.keys(o)) { changes[k] = { newValue: o[k] }; data[k] = JSON.parse(JSON.stringify(o[k])); }
+            listeners.forEach(fn => fn(changes, 'local'));
+          }
+        },
+        session: { get: async () => ({}), remove: async () => {}, set: async () => {} },
+        onChanged: { addListener: fn => listeners.push(fn) }
+      }
+    };
+  }, queue);
+  await page.goto(PAGE);
+  return { page, errors };
+}
+const queued = page => page.evaluate(() => window.__data.fbQueue);
+const future = (min = 30) => { const d = new Date(Date.now() + min * 60000); d.setSeconds(0, 0); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const item = over => Object.assign({ id: 'x1', text: '既有的貼文', images: [], pageUrl: FB, at: Date.now() + 3600000, status: 'pending', createdAt: Date.now() }, over);
+
+test('預設時間是未來的整點／半點；加入排程：存入佇列、清空表單、記住粉專網址', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const def = new Date(await page.inputValue('#schAt')).getTime();
+  assert.ok(def > Date.now() + 9 * 60000 && new Date(def).getMinutes() % 30 === 0);
+  await page.fill('#schPage', 'facebook.com/tvbsnews');
+  await page.click('#schAddBtn');
+  assert.match(await page.locator('#schStatus').textContent(), /粉專網址/);   // 網址格式錯的提示
+  await page.fill('#schPage', FB);
+  await page.click('#schAddBtn');
+  assert.match(await page.locator('#schStatus').textContent(), /文字和圖片至少要有一樣/);
+  await page.fill('#schText', '第一行\n第二行');
+  await page.fill('#schAt', future(45));
+  await page.click('#schAddBtn');
+  await page.waitForFunction(() => window.__data.fbQueue.length === 1);
+  const q = await queued(page);
+  assert.equal(q.length, 1);
+  assert.equal(q[0].text, '第一行\n第二行');
+  assert.equal(q[0].status, 'pending');
+  assert.equal(q[0].pageUrl, FB);
+  assert.equal(await page.inputValue('#schText'), '');
+  assert.equal(await page.evaluate(() => window.__data.fbPageUrl), FB);
+  assert.equal(await page.locator('.sch-item').count(), 1);
+  assert.match(await page.locator('.sch-chip').textContent(), /等待中/);
+  assert.deepEqual(errors, []);
+});
+
+test('時間不能是過去或不到一分鐘後', { skip }, async t => {
+  const { page } = await open(t);
+  await page.fill('#schPage', FB);
+  await page.fill('#schText', 'x');
+  await page.fill('#schAt', future(-30));
+  await page.click('#schAddBtn');
+  assert.match(await page.locator('#schStatus').textContent(), /一分鐘以後/);
+  assert.equal((await queued(page)).length, 0);
+});
+
+test('加入圖片：縮圖可移除；圖片隨排程存入；不支援的格式會提示', { skip }, async t => {
+  const { page } = await open(t);
+  await page.setInputFiles('#schFile', [
+    { name: 'a.png', mimeType: 'image/png', buffer: PNG_BYTES },
+    { name: 'b.png', mimeType: 'image/png', buffer: PNG_BYTES },
+    { name: 'c.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') }
+  ]);
+  await page.waitForFunction(() => document.querySelectorAll('.sch-thumb').length === 2);
+  assert.match(await page.locator('#schStatus').textContent(), /只支援/);
+  await page.locator('.sch-thumb-x').first().click();
+  assert.equal(await page.locator('.sch-thumb').count(), 1);
+  await page.fill('#schPage', FB);
+  await page.fill('#schAt', future());
+  await page.click('#schAddBtn');
+  await page.waitForFunction(() => window.__data.fbQueue.length === 1);
+  const q = await queued(page);
+  assert.equal(q[0].images.length, 1);
+  assert.match(q[0].images[0].dataUrl, /^data:image\/png;base64,/);
+  assert.equal(q[0].images[0].name, 'b.png');
+  assert.equal(await page.locator('.sch-thumb').count(), 0);
+});
+
+test('帶入目前圖文：複製框的文字進來；沒有預覽圖時只帶文字並說明', { skip }, async t => {
+  const { page } = await open(t);
+  await page.fill('#qfCopyText', '【標題】\n（圖／A攝影）\n#標籤');
+  await page.click('#schFillBtn');
+  assert.equal(await page.inputValue('#schText'), '【標題】\n（圖／A攝影）\n#標籤');
+  assert.equal(await page.locator('.sch-thumb').count(), 0);
+  assert.match(await page.locator('#schStatus').textContent(), /沒有圖片/);
+});
+
+test('帶入目前圖文：預覽有圖時，成品圖（1080×1080 PNG）一起帶入並隨排程存入', { skip }, async t => {
+  const { page } = await open(t);
+  await page.setInputFiles('#singleBgPicker input[type=file]', { name: 'bg.png', mimeType: 'image/png', buffer: PNG_BYTES });
+  await page.evaluate(() => { const el = document.getElementById('title'); el.value = '標題'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.waitForFunction(() => !document.getElementById('downloadBtn').disabled);
+  await page.fill('#qfCopyText', '【標題】');
+  await page.click('#schFillBtn');
+  await page.waitForFunction(() => document.querySelectorAll('.sch-thumb').length === 1);
+  await page.fill('#schPage', FB);
+  await page.fill('#schAt', future());
+  await page.click('#schAddBtn');
+  await page.waitForFunction(() => window.__data.fbQueue.length === 1);
+  const [im] = (await queued(page))[0].images;
+  assert.match(im.dataUrl, /^data:image\/png;base64,/);
+  const size = await page.evaluate(src => new Promise(res => { const i = new Image(); i.onload = () => res([i.width, i.height]); i.src = src; }), im.dataUrl);
+  assert.deepEqual(size, [1080, 1080]);
+});
+
+test('清單：依時間排序；各狀態顯示原因；刪除；試跑直接送、立即發佈要先確認', { skip }, async t => {
+  const now = Date.now();
+  const { page } = await open(t, { queue: [
+    item({ id: 'late', text: '晚的', at: now + 7200000 }),
+    item({ id: 'soon', text: '早的', at: now + 3600000, images: [{ name: 'a', dataUrl: 'data:image/png;base64,AA' }] }),
+    item({ id: 'bad', text: '失敗的', status: 'failed', error: '文字沒有輸入成功', step: 'text', at: now - 100000 }),
+    item({ id: 'gone', text: '錯過的', status: 'missed', error: '排定…沒有補發', at: now - 3600000 }),
+    item({ id: 'ok', text: '發好的', status: 'done', finishedAt: now - 1000, at: now - 200000 }),
+    item({ id: 'run', text: '跑中', status: 'running', step: 'images', at: now - 50000 })
+  ] });
+  const texts = await page.locator('.sch-text').allTextContents();
+  assert.deepEqual(texts.map(s => s.replace(/　.*/, '')), ['錯過的', '發好的', '失敗的', '跑中', '早的', '晚的']);
+  assert.match(await page.locator('.sch-failed .sch-detail').textContent(), /文字沒有輸入成功/);
+  assert.match(await page.locator('.sch-running .sch-detail').textContent(), /上傳圖片/);
+  assert.equal(await page.locator('.sch-running button').count(), 0);          // 執行中不能操作
+  assert.equal(await page.locator('.sch-done button').count(), 1);             // 已發佈只能刪除
+  assert.match(await page.locator('.sch-pending .sch-text').first().textContent(), /🖼 1/);
+
+  const soon = page.locator('.sch-item', { hasText: '早的' });
+  await soon.getByRole('button', { name: '試跑' }).click();
+  await page.waitForFunction(() => window.__sent.length === 1);
+  assert.deepEqual(await page.evaluate(() => window.__sent[0]), { type: 'poster:start', id: 'soon', dryRun: true });
+
+  await soon.getByRole('button', { name: '立即發佈' }).click();
+  assert.equal(await page.locator('#confirmOverlay.open').count(), 1);
+  assert.equal(await page.evaluate(() => window.__sent.length), 1);            // 還沒確認就沒送
+  await page.click('#confirmCancelBtn');
+  assert.equal(await page.evaluate(() => window.__sent.length), 1);
+  await soon.getByRole('button', { name: '立即發佈' }).click();
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => window.__sent.length === 2);
+  assert.deepEqual(await page.evaluate(() => window.__sent[1]), { type: 'poster:start', id: 'soon', dryRun: false });
+
+  await soon.getByRole('button', { name: '刪除' }).click();
+  await page.waitForFunction(() => window.__data.fbQueue.length === 5);
+  assert.ok(!(await queued(page)).some(i => i.id === 'soon'));
+});
+
+test('「失敗：可能已經發出」重新發佈前，確認視窗會先警告可能重複發文', { skip }, async t => {
+  const { page } = await open(t, { queue: [item({ id: 'u', status: 'failed', step: 'publishing', error: '已按下發佈但沒收到結果，貼文可能已經發出', at: Date.now() - 1000 })] });
+  await page.getByRole('button', { name: '重新發佈' }).click();
+  assert.match(await page.locator('#confirmMessage').textContent(), /可能已經發出去了/);
+});
