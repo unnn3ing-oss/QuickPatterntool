@@ -1,0 +1,43 @@
+/* 網頁版專用：右側「排程」隱藏式抽屜（schedweb.js）。裡面的排程介面樣式在 sched.css（和外掛側邊欄共用）。
+   z-index：高於右下角「其他工具」按鈕（90），低於確認視窗（100），所以「立即發佈？」的確認會蓋在抽屜上面。 */
+.sched-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 95; width: min(440px, 100vw);
+  transform: translateX(100%); transition: transform .24s cubic-bezier(.2, .8, .2, 1);
+}
+.sched-drawer.open { transform: none; }
+/* 右邊緣的頁籤：跟著抽屜一起移動，關閉時露在螢幕右緣 */
+.sched-tab {
+  position: absolute; left: -38px; top: 34vh; width: 38px; padding: 14px 0 12px; border: none; cursor: pointer;
+  border-radius: 14px 0 0 14px; background: var(--accent, #004aad); color: #fff; font: 700 14px/1 var(--ui-font, system-ui, sans-serif);
+  writing-mode: vertical-rl; letter-spacing: .18em; display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: -8px 8px 22px -10px rgba(0, 43, 102, .6);
+}
+.sched-tab:hover { background: var(--accent-dark, #003a87); }
+.sched-tab:focus-visible { outline: 3px solid var(--accent-soft, #e8f0fc); outline-offset: 2px; }
+.sched-tab-badge {
+  writing-mode: horizontal-tb; letter-spacing: 0; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+  background: #d92d20; color: #fff; font-size: 12px; line-height: 20px; text-align: center;
+}
+.sched-tab-badge[hidden] { display: none; }
+.sched-panel {
+  height: 100%; display: flex; flex-direction: column; box-sizing: border-box; visibility: hidden;
+  background: var(--bg, #f2f6fc); color: var(--text, #1f2a3d); border-left: 1px solid var(--border, rgba(0, 74, 173, .12));
+  box-shadow: -18px 0 40px -24px rgba(0, 30, 80, .5); transition: visibility 0s .24s;
+}
+.sched-drawer.open .sched-panel { visibility: visible; transition-delay: 0s; }
+.sched-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; font-size: 16px; }
+.sched-close { padding: 4px 10px; border-radius: 999px; font-size: 14px; line-height: 1.2; }
+.sched-body { flex: 1; overflow-y: auto; padding: 4px 16px 28px; }
+.sched-ext-note { margin: 8px 16px; padding: 12px 14px; border-radius: 14px; background: #fff7e6; color: #8a5a00; font-size: 13px; line-height: 1.6; }
+.sched-ext-note[hidden] { display: none; }
+.sched-retry { margin-left: 6px; padding: 3px 12px; font-size: 12.5px; }
+/* 抽屜自己的標題已經寫了「FB 粉專排程」，裡面的重複標題不顯示（「帶入目前圖文」按鈕仍在） */
+.sched-body .sch-head { justify-content: flex-end; margin-bottom: 0; }
+.sched-body .sch-head h2 { display: none; }
+.sched-body textarea { font: inherit; font-size: 14px; padding: 10px 12px; border-radius: 16px; border: 1px solid var(--border, rgba(0, 74, 173, .12)); background: var(--field-bg, #fff); color: var(--text, #1f2a3d); box-sizing: border-box; resize: vertical; }
+.sched-body .qf-status { margin-top: 8px; font-size: 12.5px; color: var(--muted, #6b7890); min-height: 1em; }
+.sched-body .qf-status.ok { color: var(--success, #16a34a); }
+.sched-body .qf-status.warn { color: #b45309; }
+.sched-body .qf-status.err { color: #d92d20; }
+.sched-body .hint { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { .sched-drawer, .sched-panel { transition: none; } }

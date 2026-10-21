@@ -33,7 +33,7 @@
 - **只改網頁版專用檔案時不升版**、不動 `manifest.json`／`changelog.json`，外掛才不會跳更新通知。
 
 ### 哪些檔案算「外掛會用到」
-- 網頁版專用（不升版）：`index.html`、`deploy.js/css`、`watermark.js/css`、`collage.js/css`、`resize.js/css`、`favicon*`、`apple-touch-icon*`、`README.md`、`CLAUDE.md`、`DESIGN.md`、`examples/`、`test/`、`.github/`。
+- 網頁版專用（不升版）：`index.html`、`deploy.js/css`、`watermark.js/css`、`collage.js/css`、`resize.js/css`、`schedweb.js/css`、`favicon*`、`apple-touch-icon*`、`README.md`、`CLAUDE.md`、`DESIGN.md`、`examples/`、`test/`、`.github/`。
 - 清單寫在 `updater.js` 和 `deploy.js` 的 `SKIP`，**兩邊必須一致**。新增網頁版專用檔案時要加進去（這會動到 `updater.js`，所以那次要升個位數版號）。
 - 推之前用 `git diff --stat origin/main` 檢查有沒有動到外掛檔案。
 - `icons/*.png` **不在**略過清單，改圖示會觸發外掛更新。

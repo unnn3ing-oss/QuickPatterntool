@@ -17,7 +17,8 @@ const URL_PAGE = 'https://www.facebook.com/tvbsnews';
 
 // opts：lang 'zh'|'en'｜flow 'direct'|'next'（按鈕叫「下一步」）|'continue'（叫「繼續」，真實 Facebook 的樣子）｜close 'ok'|'never'
 //       click 'normal'|'strict'（按鈕只認「有座標且按下」的真人式點擊）|'keyOnly'（只認鍵盤 Enter）|'dead'（點了沒反應）
-//       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）|'stubborn'（不能換行、清空會被還原）|'dup'（第一次輸入後內容莫名重複一份）
+//       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）|'stubborn'（不能換行、清空會被還原）|'dup'（第一次輸入後內容莫名重複一份）|'dupLate'（輸入驗證通過之後才重複一份）
+//       comment 'normal'（留言框按 Enter 送出）|'sendBtn'（Enter 沒用，要按送出鈕）|'noSubmit'（怎麼都送不出）｜noArticle 發佈後動態牆沒有出現新貼文｜oldText 動態牆本來就有一則同文字的舊貼文
 function mock(opts = {}) {
   const L = opts.lang === 'en'
     ? { trigger: "What's on your mind?", photo: 'Photo/video', post: 'Post', next: 'Next', title: 'Create post' }
@@ -27,12 +28,37 @@ function mock(opts = {}) {
 img.thumb{width:100px;height:100px;display:inline-block} [aria-disabled=true]{opacity:.4} div[role=button]{display:inline-block;margin:4px;padding:4px;border:1px solid #aaa}</style>
 <div role="navigation"><div role="button" aria-label="建立" id="nav">＋</div></div>
 ${opts.noTrigger ? '<p>這不是粉專頁面</p>' : `<div id="feed"><div role="button" id="trigger"><span>${L.trigger}</span></div></div>`}
+<div id="posts"></div>
 <script>
-window.__posted = null; window.__events = [];
+window.__posted = null; window.__events = []; window.__comments = [];
 document.getElementById('nav').addEventListener('click', () => window.__events.push('nav-click'));
 const opts = ${JSON.stringify(opts)}, L = ${JSON.stringify(L)};
 const NEXT = opts.flow === 'continue' ? '繼續' : L.next;
 const btn = (label, extra='') => '<div role="button" aria-label="'+label+'" '+extra+'>'+label+'</div>';
+function makeArticle(text, imgs) {
+  const a = document.createElement('div'); a.setAttribute('role', 'article');
+  a.innerHTML = '<div>粉專名稱</div><div class="body"></div><div class="actions">' + btn('讚') + btn('留言') + btn('分享') + '</div><div class="cbox"></div>';
+  a.querySelector('.body').textContent = text;
+  for (let i = 0; i < imgs; i++) { const im = document.createElement('img'); im.className = 'thumb'; im.src = '${PNG}'; a.querySelector('.body').append(im); }
+  a.querySelector('[aria-label="留言"]').addEventListener('click', () => openComment(a));
+  return a;
+}
+function openComment(a) {
+  const holder = a.querySelector('.cbox');
+  if (holder.querySelector('[role=textbox]')) return;
+  holder.innerHTML = '<div contenteditable="true" role="textbox" aria-label="留言為 粉專" class="cinput"></div>' + (opts.comment === 'sendBtn' ? '<div role="button" aria-label="留言" class="send">➤</div>' : '');
+  const cb = holder.querySelector('.cinput'); cb.style.whiteSpace = 'pre-wrap';
+  function submit() {
+    const text = cb.innerText.trim(); if (!text) return;
+    window.__comments.push(text);
+    const c = document.createElement('div'); c.setAttribute('role', 'article'); c.setAttribute('aria-label', '留言由 小編'); c.textContent = text; a.append(c);
+    cb.innerHTML = '';
+  }
+  cb.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.__events.push('comment-enter'); if (!opts.comment || opts.comment === 'normal') submit(); } });
+  const send = holder.querySelector('.send'); if (send) send.addEventListener('click', submit);
+}
+if (opts.oldText) document.getElementById('posts').append(makeArticle(opts.oldText, 0));
+document.getElementById('posts').append(makeArticle('更早的一則貼文', 0));
 function openDialog() {
   setTimeout(() => {
     const d = document.createElement('div'); d.setAttribute('role','dialog'); d.id = 'dlg';
@@ -67,6 +93,7 @@ function openDialog() {
     box.addEventListener('input', () => {
       if (box.textContent.trim()) last = box.innerHTML;
       if (opts.editor === 'dup' && !dupDone) { clearTimeout(dupTimer); dupTimer = setTimeout(() => { dupDone = true; box.innerHTML += box.innerHTML; }, 20); }
+      if (opts.editor === 'dupLate' && !dupDone) { dupDone = true; setTimeout(() => { box.innerHTML += box.innerHTML; }, 250); }
     });
     if (opts.editor === 'stubborn') new MutationObserver(() => { if (!box.textContent.trim() && last) box.innerHTML = last; }).observe(box, { childList: true, subtree: true });
     box.addEventListener('input', sync);
@@ -84,6 +111,7 @@ function openDialog() {
     function activate() {
       if (go.getAttribute('aria-disabled') === 'true') return;
       if ((opts.flow === 'next' || opts.flow === 'continue') && go.getAttribute('aria-label') === NEXT) {
+        d.dataset.text = d.querySelector('#box').innerText; d.dataset.imgs = d.querySelectorAll('img.thumb').length;
         d.querySelector('#box').remove(); go.setAttribute('aria-label', L.post); go.textContent = L.post; return;
       }
       window.__events.push('publish');
@@ -91,7 +119,10 @@ function openDialog() {
       setTimeout(() => {
         const box = d.querySelector('#box');
         window.__posted = { text: box ? box.innerText : '(第二畫面)', images: d.querySelectorAll('img.thumb').length };
+        const articleText = d.dataset.text !== undefined ? d.dataset.text : (box ? box.innerText : '');
+        const articleImgs = d.dataset.imgs !== undefined ? +d.dataset.imgs : d.querySelectorAll('img.thumb').length;
         d.remove();
+        if (!opts.noArticle) setTimeout(() => document.getElementById('posts').prepend(makeArticle(articleText.trim(), articleImgs)), 300);
       }, 500);
     }
     let armed = false;
@@ -127,7 +158,7 @@ async function open(t, opts) {
     window.chrome = { runtime: { id: 'me', sendMessage: m => { window.__sent.push(m); return Promise.resolve(); }, onMessage: { addListener: f => { window.__listener = f; } } } };
   });
   await page.addScriptTag({ content: SCRIPT });
-  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, poll: 50 }));
+  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, article: 2500, commentSent: 700, poll: 50 }));
   // 沒有回應（忽略訊息）時回傳 undefined
   const send = (job, sender = { id: 'me' }) => page.evaluate(([j, s]) => new Promise(res => {
     window.__listener({ type: 'fbpost:run', job: j }, s, res);
@@ -139,7 +170,7 @@ async function open(t, opts) {
   };
   return { page, errors, send, result };
 }
-const job = (over = {}) => Object.assign({ id: 'j1', text: '第一行\n第二行 #標籤', images: [{ name: 'a.png', dataUrl: PNG }, { name: '圖 2.jpg', dataUrl: PNG.replace('image/png', 'image/jpeg') }], dryRun: false }, over);
+const job = (over = {}) => Object.assign({ id: 'j1', comment: '', text: '第一行\n第二行 #標籤', images: [{ name: 'a.png', dataUrl: PNG }, { name: '圖 2.jpg', dataUrl: PNG.replace('image/png', 'image/jpeg') }], dryRun: false }, over);
 
 test('正常發佈：多行文字、2 張圖 → 貼文內容正確、依序回報各步驟、最後回報成功', { skip }, async t => {
   const { page, errors, send, result } = await open(t, {});
@@ -357,4 +388,160 @@ test('文字框原本就有內容（例如 Facebook 自動帶出的草稿）：�
   const { result: r } = await result();
   assert.equal(r.ok, true, r.error);
   assert.ok(!(await page.locator('#box').innerText()).includes('草稿'));
+});
+
+// ---- 發佈後自動留言 ------------------------------------------------------
+const COMMENT = '你也這樣覺得嗎？👀\nhttps://news.tvbs.com.tw/politics/4039103?&utm_source=facebook&utm_medium=tvbsteatimenewscomments';
+const comments = page => page.evaluate(() => window.__comments);
+const publishes = page => page.evaluate(() => window.__events.filter(e => e === 'publish').length);
+
+test('發佈後在剛發的貼文留言：內容與換行完全一致、只留一次、貼文不受影響', { skip }, async t => {
+  const { page, send, result } = await open(t, {});
+  await send(job({ comment: COMMENT }));
+  const { result: r, steps } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done');
+  assert.deepEqual(steps.slice(-3), ['publishing', 'finding', 'commenting']);
+  assert.deepEqual(await comments(page), [COMMENT]);
+  assert.equal(await publishes(page), 1);
+  assert.equal(await page.evaluate(() => window.__events.filter(e => e === 'comment-enter').length), 1);
+  // 留言在「新貼文」（最上面那則）底下
+  assert.equal(await page.locator('#posts > [role=article]').first().locator('[role=article]').count(), 1);
+});
+
+test('留言框按 Enter 沒反應時，改按「送出」鈕一次（動作列那顆「留言」不能當成送出鈕）', { skip }, async t => {
+  const { page, send, result } = await open(t, { comment: 'sendBtn' });
+  await send(job({ comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done');
+  assert.deepEqual(await comments(page), [COMMENT]);
+});
+
+test('留言怎麼都送不出：貼文仍算發佈成功，留言標成失敗並說明，沒有留言被送出', { skip }, async t => {
+  const { page, send, result } = await open(t, { comment: 'noSubmit' });
+  await send(job({ comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, '貼文已經發佈，不能因為留言失敗就整筆算失敗');
+  assert.equal(r.commentState, 'failed');
+  assert.match(r.commentError, /找不到送出按鈕/);
+  assert.deepEqual(await comments(page), []);
+  assert.equal(await publishes(page), 1);
+});
+
+test('發佈後動態牆一直沒出現新貼文：不亂留言到別的貼文，留言標成失敗', { skip }, async t => {
+  const { page, send, result } = await open(t, { noArticle: true });
+  await send(job({ comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true);
+  assert.equal(r.commentState, 'failed');
+  assert.match(r.commentError, /找不到剛發佈的貼文/);
+  assert.deepEqual(await comments(page), []);
+});
+
+test('動態牆本來就有「同文字」的舊貼文：留言留在新貼文，不是舊的', { skip }, async t => {
+  const text = '第一行\n第二行 #標籤';
+  const { page, send, result } = await open(t, { oldText: '第一行 第二行 #標籤' });
+  await send(job({ comment: COMMENT, text, images: [] }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done', r.commentError);
+  assert.equal(await page.locator('#posts > [role=article]').count(), 3);
+  assert.equal(await page.locator('#posts > [role=article]').nth(0).locator('[role=article]').count(), 1);
+  assert.equal(await page.locator('#posts > [role=article]').nth(1).locator('[role=article]').count(), 0);
+});
+
+test('只有圖片的貼文也能找到並留言', { skip }, async t => {
+  const { page, send, result } = await open(t, {});
+  await send(job({ text: '', comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done', r.commentError);
+  assert.deepEqual(await comments(page), [COMMENT]);
+});
+
+test('試跑：不發佈、也不留言', { skip }, async t => {
+  const { page, send, result } = await open(t, {});
+  await send(job({ comment: COMMENT, dryRun: true }));
+  const { result: r, steps } = await result();
+  assert.equal(r.ok, true);
+  assert.equal(r.commentState, 'none');
+  assert.ok(!steps.includes('commenting'));
+  assert.deepEqual(await comments(page), []);
+  assert.equal(await publishes(page), 0);
+});
+
+test('沒有小編文與網址（comment 是空的）：發佈完就結束，不留言', { skip }, async t => {
+  const { page, send, result } = await open(t, {});
+  await send(job({ comment: '' }));
+  const { result: r, steps } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'none');
+  assert.ok(!steps.includes('finding'));
+  assert.deepEqual(await comments(page), []);
+});
+
+test('補留言（mode:comment）：貼文已發佈，只做留言，不開發文框、不發佈', { skip }, async t => {
+  const text = '第一行 第二行 #標籤';
+  const { page, send, result } = await open(t, { oldText: text });
+  await send({ id: 'c1', mode: 'comment', text, images: [], comment: COMMENT, dryRun: false });
+  const { result: r, steps } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done');
+  assert.deepEqual(steps, ['finding', 'commenting']);
+  assert.deepEqual(await comments(page), [COMMENT]);
+  assert.equal(await publishes(page), 0);
+  assert.equal(await page.locator('[role=dialog]').count(), 0);
+});
+
+test('試跑留言（mode:comment＋dryRun）：留言打好了但沒有送出', { skip }, async t => {
+  const text = '第一行 第二行 #標籤';
+  const { page, send, result } = await open(t, { oldText: text });
+  await send({ id: 'c2', mode: 'comment', text, images: [], comment: COMMENT, dryRun: true });
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'dry-ok');
+  assert.deepEqual(await comments(page), []);
+  assert.equal((await page.locator('.cinput').innerText()).split('\n').map(l => l.trim()).filter(Boolean).length, 2);
+});
+
+test('補留言：貼文下已經有同樣的留言就不重複留', { skip }, async t => {
+  const text = '第一行 第二行 #標籤';
+  const { page, send, result } = await open(t, { oldText: text });
+  await send({ id: 'c3', mode: 'comment', text, images: [], comment: COMMENT, dryRun: false });
+  await result();
+  const again = await page.evaluate(async ([t0, c]) => {
+    const out = await QptFbPost.run({ id: 'c4', mode: 'comment', text: t0, images: [], comment: c, dryRun: false }, () => {});
+    return out;
+  }, [text, COMMENT]);
+  assert.equal(again.commentState, 'done');
+  assert.match(again.commentNote, /沒有重複留言/);
+  assert.deepEqual(await comments(page), [COMMENT]);
+});
+
+test('補留言但沒有留言內容：直接報錯', { skip }, async t => {
+  const { send, result } = await open(t, { oldText: '第一行 第二行 #標籤' });
+  await send({ id: 'c5', mode: 'comment', text: '第一行 第二行 #標籤', images: [], comment: '', dryRun: false });
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /沒有要留言的內容/);
+});
+
+test('補留言找不到貼文：報錯，不留言到別則貼文', { skip }, async t => {
+  const { page, send, result } = await open(t, {});
+  await send({ id: 'c6', mode: 'comment', text: '一則根本不存在的貼文內容', images: [], comment: COMMENT, dryRun: false });
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /找不到剛發佈的貼文/);
+  assert.deepEqual(await comments(page), []);
+});
+
+test('發佈前守門：驗證通過後內容才莫名重複 → 發佈前抓到、清掉重打，貼文只有一份', { skip }, async t => {
+  const { page, send, result } = await open(t, { editor: 'dupLate' });
+  await send(job({ text: '【標題】\n（圖／TVBS）\n#霸凌 #宮廟' }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  const posted = await page.evaluate(() => window.__posted);
+  assert.equal(posted.text.replace(/\s+/g, ''), '【標題】（圖／TVBS）#霸凌#宮廟');
+  assert.equal(await publishes(page), 1);
 });

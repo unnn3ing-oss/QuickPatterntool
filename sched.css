@@ -1,0 +1,52 @@
+/* FB 粉專排程（側邊欄與網頁版的排程抽屜共用，介面見 schedui.js）。
+   --sp／--fs 是側邊欄的尺寸與字級倍率（見 sidepanel.css）；網頁版沒有定義，用預設 1。 */
+.sch-root { --_sp: var(--sp, 1); --_fs: var(--fs, 1); }
+.sch-field { margin-top: calc(10px * var(--_sp)); }
+.sch-field label { display: block; margin-bottom: calc(4px * var(--_sp)); font-size: calc(13px * var(--_fs)); color: var(--muted, #6b7890); }
+.sch-input {
+  flex: 1; min-width: 0; width: 100%; padding: calc(10px * var(--_sp)) calc(14px * var(--_sp)); font: inherit; font-size: calc(14px * var(--_fs));
+  border: none; border-radius: 999px; background: var(--field-bg, #fff);
+  box-shadow: inset 0 0 0 1px var(--border, rgba(0, 74, 173, 0.12)); color: var(--text, #1f2a3d);
+}
+.sch-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent, #004aad), 0 0 0 4px rgba(0, 74, 173, 0.12); }
+.sch-select { flex: 0 0 auto; width: auto; max-width: 42%; padding-right: calc(10px * var(--_sp)); cursor: pointer; }
+.sch-row { display: flex; gap: calc(8px * var(--_sp)); margin-top: calc(8px * var(--_sp)); align-items: center; }
+.sch-field .sch-row { margin-top: 0; }
+.sch-row button { flex: 0 0 auto; font-size: calc(14px * var(--_fs)); padding: calc(10px * var(--_sp)) calc(16px * var(--_sp)); white-space: nowrap; }
+.sch-root textarea { width: 100%; }
+.sch-thumbs { display: flex; flex-wrap: wrap; gap: calc(8px * var(--_sp)); margin-top: calc(8px * var(--_sp)); }
+.sch-thumbs[hidden], .sch-list[hidden], .sch-preview[hidden], .sch-editbar[hidden] { display: none; }
+.sch-thumb { position: relative; width: calc(64px * var(--_sp) / 0.85); height: calc(64px * var(--_sp) / 0.85); }
+.sch-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; border: 1px solid var(--border, rgba(0, 74, 173, 0.12)); display: block; }
+.sch-thumb-x {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  font-size: 11px; line-height: 20px; background: #22324d; border-color: #22324d; color: #fff;
+}
+/* 留言預覽：小編文＋網址（含追蹤碼） */
+.sch-preview {
+  margin-top: calc(8px * var(--_sp)); padding: calc(8px * var(--_sp)) calc(12px * var(--_sp)); border-radius: calc(14px * var(--_sp));
+  background: var(--accent-soft, #e8f0fc); color: #3a4a66; font-size: calc(12px * var(--_fs)); line-height: 1.55;
+  white-space: pre-wrap; word-break: break-all;
+}
+.sch-preview.warn { background: #fef3f2; color: #d92d20; white-space: normal; }
+/* 編輯中提示列 */
+.sch-editbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: calc(6px * var(--_sp));
+  padding: calc(6px * var(--_sp)) calc(12px * var(--_sp)); border-radius: calc(14px * var(--_sp)); background: #fff7e6; color: #8a5a00; font-size: calc(12.5px * var(--_fs));
+}
+.sch-editbar button { padding: calc(4px * var(--_sp)) calc(12px * var(--_sp)); font-size: calc(12px * var(--_fs)); }
+.sch-list { margin-top: calc(10px * var(--_sp)); display: flex; flex-direction: column; gap: calc(8px * var(--_sp)); }
+.sch-item { padding: calc(10px * var(--_sp)) calc(12px * var(--_sp)); border-radius: calc(16px * var(--_sp)); background: var(--accent-soft, #e8f0fc); }
+.sch-item.sch-editing { box-shadow: 0 0 0 2px #f5a623; }
+.sch-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sch-time { font-size: calc(13px * var(--_fs)); font-weight: 700; color: #22324d; }
+.sch-chip { padding: 1px 8px; border-radius: 999px; font-size: 11px; background: #fff; color: var(--accent, #004aad); white-space: nowrap; }
+.sch-running .sch-chip { background: var(--accent, #004aad); color: #fff; }
+.sch-done .sch-chip { background: var(--success, #16a34a); color: #fff; }
+.sch-failed .sch-chip, .sch-missed .sch-chip { background: #d92d20; color: #fff; }
+.sch-text { margin-top: 4px; font-size: calc(13px * var(--_fs)); color: #3a4a66; word-break: break-word; }
+.sch-note { margin-top: 2px; font-size: calc(12px * var(--_fs)); color: #5b6b86; word-break: break-word; }
+.sch-detail { margin-top: 4px; font-size: calc(12px * var(--_fs)); color: var(--muted, #6b7890); line-height: 1.5; word-break: break-word; }
+.sch-detail.err { color: #d92d20; }
+.sch-actions { display: flex; gap: calc(6px * var(--_sp)); margin-top: calc(8px * var(--_sp)); flex-wrap: wrap; }
+.sch-actions button { padding: calc(5px * var(--_sp)) calc(12px * var(--_sp)); font-size: calc(12.5px * var(--_fs)); }
