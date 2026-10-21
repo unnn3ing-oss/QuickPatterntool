@@ -106,8 +106,9 @@
     for (const kid of kids) if (kid) el.append(kid);
     return el;
   };
-  const tab = h('button', { type: 'button', class: 'sched-tab', id: 'schedTab', 'aria-expanded': 'false', 'aria-controls': 'schedDrawerPanel', title: 'FB 粉專排程' },
-    h('span', { text: '排程' }));
+  // 「排程」兩個字上下堆疊（不用直排 writing-mode：button＋flex＋直排在 Chrome 會把高度壓成幾像素，字疊成一團）
+  const tab = h('button', { type: 'button', class: 'sched-tab', id: 'schedTab', 'aria-expanded': 'false', 'aria-controls': 'schedDrawerPanel', 'aria-label': 'FB 粉專排程', title: 'FB 粉專排程' },
+    h('span', { class: 'sched-tab-label', 'aria-hidden': 'true' }, h('span', { text: '排' }), h('span', { text: '程' })));
   badge = h('span', { class: 'sched-tab-badge', hidden: true, 'aria-hidden': 'true' });
   tab.append(badge);
   const close = h('button', { type: 'button', class: 'sched-close', 'aria-label': '關閉排程', text: '✕' });

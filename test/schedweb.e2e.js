@@ -234,3 +234,31 @@ test('網頁版也能中止執行中（卡住）的排程：經橋接請外掛�
   await page.waitForSelector('.sch-failed');
   assert.match(await page.locator('.sch-failed .sch-detail').textContent(), /已手動中止/);
 });
+
+// 回報過「排程頁籤只有圖片套版才看得到」：每個功能分頁（圖片套版／浮水印／拼圖／尺寸／剪輯）都要看得到、點得到、而且看得清楚
+test('每個功能分頁都看得到「排程」頁籤（夠大、兩個字清楚不重疊、沒有被蓋住），點了抽屜都能彈出', { skip }, async t => {
+  const { page, errors } = await open(t);
+  for (const [id, name] of [['funcLayoutBtn', '圖片套版'], ['funcWatermarkBtn', '浮水印'], ['funcCollageBtn', '拼圖'], ['funcResizeBtn', '尺寸'], ['funcEditBtn', '剪輯']]) {
+    await page.click('#' + id);
+    await page.waitForFunction(i => document.getElementById(i).getAttribute('aria-pressed') === 'true', id);
+    const info = await page.evaluate(() => {
+      const tab = document.getElementById('schedTab'), r = tab.getBoundingClientRect();
+      const chars = [...tab.querySelectorAll('.sched-tab-label > span')].map(s => s.getBoundingClientRect());
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { rect: r.toJSON(), chars: chars.map(c => [c.top, c.height]), onTop: !!top && tab.contains(top), vw: innerWidth, vh: innerHeight, text: tab.querySelector('.sched-tab-label').textContent };
+    });
+    assert.equal(info.text, '排程', name);
+    assert.ok(info.rect.height >= 60 && info.rect.width >= 36, `${name}：頁籤太小 ${info.rect.width}×${info.rect.height}`);
+    assert.ok(info.rect.left >= 0 && info.rect.right <= info.vw + 1 && info.rect.top >= 0 && info.rect.bottom <= info.vh, `${name}：頁籤跑出畫面`);
+    assert.ok(info.chars[1][0] >= info.chars[0][0] + info.chars[0][1] - 1, `${name}：兩個字重疊了 ${JSON.stringify(info.chars)}`);
+    assert.equal(info.onTop, true, `${name}：頁籤被別的東西蓋住`);
+    await page.click('#schedTab');
+    await page.waitForSelector('#schPage', { state: 'visible' });
+    await page.waitForFunction(() => document.getElementById('schedDrawerPanel').getBoundingClientRect().left <= innerWidth - 439);   // 等彈出動畫跑完
+    const covered = await page.evaluate(() => { const p = document.getElementById('schedDrawerPanel').getBoundingClientRect(); const e = document.elementFromPoint(p.left + 200, 300); return !document.getElementById('schedDrawerPanel').contains(e); });
+    assert.equal(covered, false, `${name}：抽屜被蓋住`);
+    await page.click('#schedTab');
+    await page.waitForFunction(() => !document.querySelector('#schedDrawer.open'));
+  }
+  assert.deepEqual(errors, []);
+});
