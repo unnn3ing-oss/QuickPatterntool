@@ -15,6 +15,7 @@
   const FB_ORIGIN = 'https://www.facebook.com';
   const DELIVER_TRIES = 60;          // 等內容腳本就緒：最多 60 次 × 1.5 秒
   const DELIVER_EVERY_MS = 1500;
+  const RELOAD_WAIT_MS = 30 * 1000;  // 重新整理後等頁面載入的上限
   const BUSY_RETRY_MS = 60 * 1000;   // 前一筆還在跑，等 1 分鐘再試
 
   const c = () => root.chrome;
@@ -26,7 +27,7 @@
     catch (e) { /* 沒有通知權限：狀態仍會顯示在側邊欄 */ }
   }
   const preview = item => ((item.text || '').trim().split('\n')[0] || `${item.images.length} 張圖片`).slice(0, 30);
-  const isCommentStep = step => step === 'finding' || step === 'commenting';
+  const isCommentStep = step => step === 'reloading' || step === 'finding' || step === 'commenting';
 
   async function clearWatchers(id) {
     for (const name of [WATCH + id, BEAT + id]) { try { await c().alarms.clear(name); } catch (e) { /* ignore */ } }
@@ -156,7 +157,11 @@
     const m = mode === 'comment' ? 'comment' : 'post';
     const job = {
       type: 'fbpost:run',
-      job: { id: item.id, mode: m, text: item.text, images: m === 'comment' ? [] : item.images, comment: S.commentOf(item), dryRun }
+      job: {
+        id: item.id, mode: m, text: item.text, images: m === 'comment' ? [] : item.images, comment: S.commentOf(item), dryRun,
+        reload: m === 'post' && !dryRun,          // 發佈完成後先重新整理頁面，再找剛發的貼文留言（動態牆不會即時長出新貼文）
+        fresh: m === 'comment' && !!item.resume   // 接手留言：剛發佈的貼文，不是很久以前的
+      }
     };
     for (let i = 0; i < DELIVER_TRIES; i++) {
       try {
@@ -169,6 +174,30 @@
       await sleep(DELIVER_EVERY_MS);
     }
     throw new Error('Facebook 頁面沒有準備好（沒載入完成，或網址不是粉專頁面）');
+  }
+
+  // 重新整理分頁並等它載入完（最多 30 秒；逾時也繼續，交付時會再等內容腳本就緒）
+  function reloadTab(tabId) {
+    return new Promise((resolve, reject) => {
+      const tabs = c().tabs;
+      let timer;
+      const done = err => { clearTimeout(timer); try { tabs.onUpdated.removeListener(on); } catch (e) { /* ignore */ } if (err) reject(err); else resolve(); };
+      const on = (id, info) => { if (id === tabId && info && info.status === 'complete') done(); };
+      tabs.onUpdated.addListener(on);
+      timer = setTimeout(() => done(), RELOAD_WAIT_MS);
+      Promise.resolve(tabs.reload(tabId)).catch(done);
+    });
+  }
+  // 貼文發佈後，Facebook 不會即時把新貼文長到「目前這個頁面」的動態牆上，所以內容腳本請背景把分頁重新整理，
+  // 載入完再交付一次「只留言」的工作（resume：留言失敗只算留言失敗，貼文早就發出去了）
+  async function reloadThenComment(item) {
+    await S.update(item.id, { resume: true, beat: Date.now(), step: 'reloading' });
+    try { await reloadTab(item.tabId); }
+    catch (e) { await failRunning(item.id, '貼文已發佈，但重新整理頁面失敗：' + (e.message || e), 'reloading'); return; }
+    const now = (await S.list()).find(i => i.id === item.id);
+    if (!now || now.status !== 'running') return;   // 重整途中被中止或分頁被關掉了
+    await S.update(item.id, { beat: Date.now(), step: 'finding' });
+    deliver(item.tabId, now, false, 'comment').catch(err => failRunning(item.id, err.message || String(err), 'finding'));
   }
 
   async function markMissed(item) {
@@ -356,12 +385,16 @@
       }
 
       // 來自 Facebook 分頁的內容腳本：進度與結果。只信任「我們開的那個分頁」回報的。
-      if (msg.type === 'fbpost:progress' || msg.type === 'fbpost:result') {
+      if (msg.type === 'fbpost:progress' || msg.type === 'fbpost:result' || msg.type === 'fbpost:reload') {
         if (!sender.tab || typeof msg.id !== 'string' || typeof sender.url !== 'string' || !sender.url.startsWith(FB_ORIGIN + '/')) return;
         (async () => {
           const item = (await S.list()).find(i => i.id === msg.id);
           if (!item || item.status !== 'running' || item.tabId !== sender.tab.id) return;
           if (msg.type === 'fbpost:progress') { await S.update(item.id, { step: String(msg.step || '').slice(0, 20), beat: Date.now() }); return; }
+          if (msg.type === 'fbpost:reload') {
+            if (item.mode !== 'comment' && !item.dryRun && !item.resume) await reloadThenComment(item);
+            return;
+          }
           // 接手繼續留言（resume）失敗：貼文早就發佈了，只能算「留言失敗」，不能把整筆標成失敗
           if (item.resume && !msg.ok) {
             await finish(item, { ok: true, step: String(msg.step || item.step || '').slice(0, 20), commentState: 'failed', commentError: String(msg.error || '留言失敗').slice(0, 300) });

@@ -283,7 +283,7 @@
       const ok = await confirm({
         title: '中止這次執行？',
         message: publishing ? '已經按下發佈了，貼文可能已經發出去。中止後請先到粉專確認，再決定要不要重發。'
-          : (item.step === 'finding' || item.step === 'commenting') ? '貼文已經發佈，只會中止留言（之後可以按「補留言」）。'
+          : (item.step === 'reloading' || item.step === 'finding' || item.step === 'commenting') ? '貼文已經發佈，只會中止留言（之後可以按「補留言」）。'
             : '會停止這次執行，貼文不會發佈。',
         okText: '中止'
       });

@@ -11,11 +11,11 @@ const PAGE = 'https://www.facebook.com/tvbsnews';
 const clone = v => JSON.parse(JSON.stringify(v));
 const tick = async (n = 12) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 
-function load({ send, fast, fetchImpl } = {}) {
-  const log = { notify: [], removed: [], updated: [], created: [], sent: [] };
+function load({ send, fast, fetchImpl, reloadFails } = {}) {
+  const log = { notify: [], removed: [], updated: [], created: [], sent: [], reloaded: [] };
   const data = {};
   const alarms = new Map();
-  const handlers = { storage: [], alarm: [], message: [], removed: [] };
+  const handlers = { storage: [], alarm: [], message: [], removed: [], updated: [] };
   let tabSeq = 100;
   const chrome = {
     runtime: { id: 'me', getManifest: () => ({ version: '9.99' }), onMessage: { addListener: f => handlers.message.push(f) }, onInstalled: { addListener() {} }, onStartup: { addListener() {} } },
@@ -38,6 +38,8 @@ function load({ send, fast, fetchImpl } = {}) {
       sendMessage: async (id, m) => { log.sent.push([id, m]); return send ? send(id, m) : { started: true }; },
       remove: async id => { log.removed.push(id); },
       update: async (id, o) => { log.updated.push([id, o]); },
+      reload: async id => { log.reloaded.push(id); if (reloadFails) throw new Error('No tab with id'); },
+      onUpdated: { addListener: f => handlers.updated.push(f), removeListener: f => { handlers.updated = handlers.updated.filter(x => x !== f); } },
       onRemoved: { addListener: f => handlers.removed.push(f) }
     },
     notifications: { create: async (id, o) => { log.notify.push(o); } }
@@ -74,7 +76,8 @@ function load({ send, fast, fetchImpl } = {}) {
     handlers.message.forEach(f => { if (f({ type: 'sched:api', op, payload }, sender, v => { handled = true; res(clone(v)); }) === true) handled = true; });
     if (!handled) res(undefined);
   });
-  return { S, data, alarms, log, handlers, item, get, fire, report, fromPanel, fromWeb, chrome, fetchLog };
+  const loaded = tabId => handlers.updated.slice().forEach(f => f(tabId, { status: 'complete' }));   // 分頁重新整理完成
+  return { S, data, alarms, log, handlers, item, get, fire, report, fromPanel, fromWeb, chrome, fetchLog, loaded };
 }
 
 test('到點：開粉專分頁、把文字與圖片交給內容腳本；回報成功 → done、關分頁、回到原分頁、發通知', async () => {
@@ -86,7 +89,7 @@ test('到點：開粉專分頁、把文字與圖片交給內容腳本；回報�
   const [tabId, msg] = t.log.sent[0];
   assert.strictEqual(tabId, 101);
   assert.strictEqual(msg.type, 'fbpost:run');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(msg.job)), { id: 'i1', mode: 'post', text: '貼文', images: [{ name: 'a.png', dataUrl: PNG }], comment: '', dryRun: false });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(msg.job)), { id: 'i1', mode: 'post', text: '貼文', images: [{ name: 'a.png', dataUrl: PNG }], comment: '', dryRun: false, reload: true, fresh: false });
   assert.strictEqual((await t.get('i1')).status, 'running');
   assert.ok(t.alarms.has('post-watch:i1'));
 
@@ -705,4 +708,93 @@ test('手動中止：沒在執行的回錯誤；網頁版也能中止（同一�
   assert.strictEqual((await t.get('i1')).status, 'running');
   assert.deepStrictEqual(await t.fromWeb('cancel', { id: 'i1' }), { ok: true });
   assert.strictEqual((await t.get('i1')).status, 'failed');
+});
+
+test('發佈完成後請背景重新整理：重整 → 等載入完 → 重新交付「只留言」的工作（fresh）；成功 → 已發佈＋留言完成、關分頁', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  assert.strictEqual(t.log.sent[0][1].job.reload, true);
+  t.report({ type: 'fbpost:progress', id: 'i1', step: 'reloading' });
+  t.report({ type: 'fbpost:reload', id: 'i1' });
+  await tick();
+  assert.deepStrictEqual(clone(t.log.reloaded), [101]);
+  let it = await t.get('i1');
+  assert.strictEqual(it.step, 'reloading');
+  assert.strictEqual(it.status, 'running');
+  assert.strictEqual(t.log.sent.length, 1, '頁面還沒載入完，不能先交付');
+  t.loaded(999);   // 別的分頁載入完不算
+  await tick();
+  assert.strictEqual(t.log.sent.length, 1);
+  t.loaded(101);
+  await tick();
+  assert.strictEqual(t.log.sent.length, 2);
+  const job = t.log.sent[1][1].job;
+  assert.deepStrictEqual(clone({ mode: job.mode, images: job.images, dryRun: job.dryRun, reload: job.reload, fresh: job.fresh }), { mode: 'comment', images: [], dryRun: false, reload: false, fresh: true });
+  assert.match(job.comment, /utm_medium=/);
+  assert.strictEqual(t.handlers.updated.length, 0, '監聽要拆掉');
+  it = await t.get('i1');
+  assert.strictEqual(it.step, 'finding');
+  assert.strictEqual(it.resume, true);
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'commenting', commentState: 'done' });
+  await tick();
+  const done = await t.get('i1');
+  assert.strictEqual(done.status, 'done');
+  assert.strictEqual(done.commentState, 'done');
+  assert.deepStrictEqual(clone(t.log.removed), [101]);
+});
+
+test('重新整理失敗（分頁不見了）→ 貼文早已發佈：算「已發佈＋留言失敗」，不標成失敗', async () => {
+  const t = load({ reloadFails: true });
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:reload', id: 'i1' });
+  await tick();
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.commentState, 'failed');
+  assert.match(it.commentError, /重新整理頁面失敗/);
+  assert.strictEqual(t.log.sent.length, 1);
+});
+
+test('重新整理途中按「中止」：不再交付留言工作', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:reload', id: 'i1' });
+  await tick();
+  await t.fromPanel({ type: 'poster:cancel', id: 'i1' });
+  await tick();
+  t.loaded(101);
+  await tick();
+  assert.strictEqual(t.log.sent.filter(([, m]) => m.type === 'fbpost:run').length, 1);
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.commentState, 'failed');
+});
+
+test('重新整理的請求只有「發貼文」的正式執行才接受：試跑、補留言、重複請求、別的分頁都忽略', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:reload', id: 'i1' }, 555);                 // 不是我們開的分頁
+  await tick();
+  assert.deepStrictEqual(t.log.reloaded, []);
+  t.report({ type: 'fbpost:reload', id: 'i1' });
+  await tick();
+  t.report({ type: 'fbpost:reload', id: 'i1' });                       // 重複
+  await tick();
+  assert.deepStrictEqual(clone(t.log.reloaded), [101]);
+
+  const d = load();
+  await d.S.add(d.item(NOTE_ITEM));
+  await d.fromPanel({ type: 'poster:start', id: 'i1', dryRun: true });
+  await tick();
+  d.report({ type: 'fbpost:reload', id: 'i1' });
+  await tick();
+  assert.deepStrictEqual(d.log.reloaded, [], '試跑不會發佈，不重整');
 });

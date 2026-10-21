@@ -20,7 +20,7 @@
   const TEXTBOX = '[contenteditable="true"][role="textbox"]';
   const MAX_LABEL = 60;
   // 各步驟等待上限（毫秒）；測試時會調小
-  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 1200, article: 30000, articleOld: 60000, scrollAfter: 5000, scrollWait: 700, commentSent: 6000, heartbeat: 4000, deadline: 300000, poll: 250 };
+  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 1200, article: 30000, articleOld: 60000, scrollAfter: 5000, afterPublish: 3000, scrollWait: 700, commentSent: 6000, heartbeat: 4000, deadline: 300000, poll: 250 };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   // 逾時中止後，原本的流程不能還在背景繼續動作（例如已經回報失敗了卻又按下發佈）：所有等待立刻結束、所有點擊與換步驟都拒絕
@@ -372,6 +372,7 @@
     const head = headOf(text);
     if (head) { const units = findUnits(head); return units.length > before.units ? units[0] : null; }
     const list = topArticles(), now = countSigs(list);
+    if (before.fresh) return list.find(a => RECENT.test(collapse(a).slice(0, 400))) || null;   // 重新整理後沒有快照可比：只認最上面帶「剛剛」之類時間標記的
     return list.find(a => now[articleSig(a)] > (before.sigs[articleSig(a)] || 0) && RECENT.test(collapse(a).slice(0, 400))) || null;
   }
   // 找不到貼文時回報頁面實際長什麼樣子（數量與最上面幾則的開頭），不含別人的完整內容
@@ -442,7 +443,7 @@
   async function postComment(job, before, go, submit) {
     const text = job.comment.trim();
     go('finding');
-    if (job.mode === 'comment' && !headOf(job.text)) fail('這則貼文只有圖片、沒有文字可以用來找到它，沒辦法自動補留言，請手動留言');
+    if (job.mode === 'comment' && !job.fresh && !headOf(job.text)) fail('這則貼文只有圖片、沒有文字可以用來找到它，沒辦法自動補留言，請手動留言');
     const getArticle = () => findPostArticle(job.text, before);
     const article = await waitForPost(getArticle, job.mode === 'comment' ? T.articleOld : T.article);
     if (!article) fail('找不到' + (job.mode === 'comment' ? '這則貼文' : '剛發佈的貼文') + '，沒辦法留言' + describePage(job.text));
@@ -470,7 +471,7 @@
     const go = s => { stopped(); step = s; report('progress', { step: s }); };
     const out = { commentState: 'none' };
     try {
-      let before = { units: 0, sigs: {} };
+      let before = { units: 0, sigs: {}, fresh: !!job.fresh };
       if (mode === 'post') {
         go('open');
         if (!findDialog()) {
@@ -486,6 +487,13 @@
         if (job.dryRun) { out.step = step; return out; }
         before = snapshot(job.text);
         await publish(() => go('next'), () => go('publishing'));
+        if (comment && job.reload) {
+          // 發佈完成：新貼文不會即時出現在目前頁面，要先重新整理再找。交給背景重整分頁，再重新交付「只留言」的工作
+          go('reloading');
+          await sleep(T.afterPublish);
+          out.reload = true; out.step = step;
+          return out;
+        }
       }
       if (comment) {
         try {
@@ -512,6 +520,7 @@
     return !!j && typeof j.id === 'string' && typeof j.text === 'string' && Array.isArray(j.images) && typeof j.dryRun === 'boolean'
       && (j.comment === undefined || (typeof j.comment === 'string' && j.comment.length <= 5000))
       && (j.mode === undefined || j.mode === 'post' || j.mode === 'comment')
+      && (j.reload === undefined || typeof j.reload === 'boolean') && (j.fresh === undefined || typeof j.fresh === 'boolean')
       && j.images.every(im => im && typeof im.dataUrl === 'string' && /^data:image\//.test(im.dataUrl));
   }
 
@@ -541,7 +550,7 @@
         deadlineTimer = setTimeout(() => { aborted = true; reject(Object.assign(new Error(`這次執行超過 ${Math.round(T.deadline / 60000)} 分鐘還沒完成，已中止`), { step: lastStep })); }, T.deadline);
       });
       Promise.race([run(job, report), deadline]).then(
-        out => report('result', Object.assign({ ok: true }, out)),
+        out => (out.reload ? report('reload', {}) : report('result', Object.assign({ ok: true }, out))),
         e => report('result', { ok: false, step: e.step || lastStep, error: e.message || String(e) })
       ).finally(() => { clearInterval(beat); clearTimeout(deadlineTimer); });
     });

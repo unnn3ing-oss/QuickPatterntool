@@ -19,7 +19,7 @@ const URL_PAGE = 'https://www.facebook.com/tvbsnews';
 //       click 'normal'|'strict'（按鈕只認「有座標且按下」的真人式點擊）|'keyOnly'（只認鍵盤 Enter）|'dead'（點了沒反應）
 //       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）|'stubborn'（不能換行、清空會被還原）|'dup'（第一次輸入後內容莫名重複一份）|'dupLate'（輸入驗證通過之後才重複一份）
 //       feed 'article'（預設，貼文是 role=article）|'plain'（動態牆完全沒有 role=article）|'wrapper'（整串動態被包在同一個 role=article 裡）｜pinned 動態牆最上面有一則置頂的舊貼文（新貼文出現在它下面）｜lazy 舊貼文在很下面、要捲動才會載入｜noTime 新貼文沒有「剛剛」時間標記
-//       comment 'normal'（留言框按 Enter 送出）|'sendBtn'（Enter 沒用，要按送出鈕）|'noSubmit'（怎麼都送不出）｜noArticle 發佈後動態牆沒有出現新貼文｜oldText 動態牆本來就有一則同文字的舊貼文
+//       comment 'normal'（留言框按 Enter 送出）|'sendBtn'（Enter 沒用，要按送出鈕）|'noSubmit'（怎麼都送不出）｜noArticle 發佈後動態牆沒有出現新貼文｜stale 發佈後新貼文不會即時出現在目前頁面，要重新整理才看得到（真實 Facebook 的樣子）｜oldText 動態牆本來就有一則同文字的舊貼文
 function mock(opts = {}) {
   const L = opts.lang === 'en'
     ? { trigger: "What's on your mind?", photo: 'Photo/video', post: 'Post', next: 'Next', title: 'Create post' }
@@ -137,7 +137,8 @@ function openDialog() {
         const articleText = d.dataset.text !== undefined ? d.dataset.text : (box ? box.innerText : '');
         const articleImgs = d.dataset.imgs !== undefined ? +d.dataset.imgs : d.querySelectorAll('img.thumb').length;
         d.remove();
-        if (!opts.noArticle) setTimeout(() => document.getElementById('posts').prepend(makeArticle(articleText.trim(), articleImgs, true)), 300);
+        if (opts.stale) sessionStorage.setItem('__server', JSON.stringify({ text: articleText.trim(), imgs: articleImgs }));   // 只存在「伺服器」，重新整理才看得到
+        else if (!opts.noArticle) setTimeout(() => document.getElementById('posts').prepend(makeArticle(articleText.trim(), articleImgs, true)), 300);
       }, 500);
     }
     let armed = false;
@@ -151,6 +152,8 @@ function openDialog() {
     }
   }, 250);
 }
+const srv = sessionStorage.getItem('__server');
+if (srv) { const s = JSON.parse(srv); posts.prepend(makeArticle(s.text, s.imgs, true)); }
 const trg = document.getElementById('trigger'); if (trg) trg.addEventListener('click', openDialog);
 </script>`;
 }
@@ -166,14 +169,18 @@ async function open(t, opts) {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route(URL_PAGE, r => r.fulfill({ contentType: 'text/html; charset=utf-8', body: mock(opts) }));
+  // 假的 chrome：記下回報給背景的訊息，並把內容腳本註冊的處理函式留下來（頁面重新整理後要重新注入，和真的內容腳本一樣）
+  const attach = async () => {
+    await page.evaluate(() => {
+      window.__sent = [];
+      window.chrome = { runtime: { id: 'me', sendMessage: m => { window.__sent.push(m); return Promise.resolve(); }, onMessage: { addListener: f => { window.__listener = f; } } } };
+    });
+    await page.addScriptTag({ content: SCRIPT });
+    await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, article: 2500, articleOld: 6000, scrollAfter: 400, scrollWait: 120, commentSent: 700, heartbeat: 150, deadline: 600000, poll: 50, afterPublish: 100 }));
+  };
   await page.goto(URL_PAGE);
-  // 假的 chrome：記下回報給背景的訊息，並把內容腳本註冊的處理函式留下來
-  await page.evaluate(() => {
-    window.__sent = [];
-    window.chrome = { runtime: { id: 'me', sendMessage: m => { window.__sent.push(m); return Promise.resolve(); }, onMessage: { addListener: f => { window.__listener = f; } } } };
-  });
-  await page.addScriptTag({ content: SCRIPT });
-  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, article: 2500, articleOld: 6000, scrollAfter: 400, scrollWait: 120, commentSent: 700, heartbeat: 150, deadline: 600000, poll: 50 }));
+  await attach();
+  const reload = async () => { await page.reload(); await attach(); };
   // 沒有回應（忽略訊息）時回傳 undefined
   const send = (job, sender = { id: 'me' }) => page.evaluate(([j, s]) => new Promise(res => {
     window.__listener({ type: 'fbpost:run', job: j }, s, res);
@@ -183,7 +190,7 @@ async function open(t, opts) {
     await page.waitForFunction(() => window.__sent.some(m => m.type === 'fbpost:result'), null, { timeout: 15000 });
     return page.evaluate(() => ({ result: window.__sent.find(m => m.type === 'fbpost:result'), steps: window.__sent.filter(m => m.type === 'fbpost:progress').map(m => m.step).filter((x, i, a) => i === 0 || x !== a[i - 1]) }));   // 心跳會重複回報同一步，合併連續的
   };
-  return { page, errors, send, result };
+  return { page, errors, send, result, reload };
 }
 const job = (over = {}) => Object.assign({ id: 'j1', comment: '', text: '第一行\n第二行 #標籤', images: [{ name: 'a.png', dataUrl: PNG }, { name: '圖 2.jpg', dataUrl: PNG.replace('image/png', 'image/jpeg') }], dryRun: false }, over);
 
@@ -661,4 +668,69 @@ test('收到「中止」：腳本立刻停手並回報失敗', { skip }, async t
   assert.equal(r.ok, false);
   assert.match(r.error, /已中止|沒有關閉/);
   assert.equal(await publishes(page), 1, '中止不會再多按一次發佈');
+});
+
+// ---- 發佈後新貼文不會即時出現在目前頁面：要重新整理才找得到 ------------------------------------
+const waitReloadAsk = page => page.waitForFunction(() => window.__sent.some(m => m.type === 'fbpost:reload'), null, { timeout: 15000 });
+
+test('【重現實機問題】新貼文不會即時出現在目前頁面：沒重新整理就找不到貼文，留言標成失敗、不亂留言', { skip }, async t => {
+  const { page, send, result } = await open(t, { stale: true });
+  await send(job({ comment: COMMENT }));   // 沒有 reload 旗標＝舊行為
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'failed');
+  assert.match(r.commentError, /找不到剛發佈的貼文/);
+  assert.deepEqual(await comments(page), []);
+});
+
+test('發佈後請背景重新整理（回報 reload、不回報結果）→ 重新整理後交付「只留言」的工作 → 留言到新貼文', { skip }, async t => {
+  const { page, send, result, reload } = await open(t, { stale: true });
+  await send(job({ comment: COMMENT, reload: true }));
+  await waitReloadAsk(page);
+  const first = await page.evaluate(() => ({ results: window.__sent.filter(m => m.type === 'fbpost:result').length, steps: window.__sent.filter(m => m.type === 'fbpost:progress').map(m => m.step).filter((x, i, a) => i === 0 || x !== a[i - 1]) }));
+  assert.equal(first.results, 0, '發佈階段不能先回報結果，否則背景會把它當成完成並關掉分頁');
+  assert.deepEqual(first.steps, ['open', 'text', 'images', 'ready', 'publishing', 'reloading']);
+  assert.equal(await publishes(page), 1);
+  await reload();   // 背景把分頁重新整理，內容腳本重新注入
+  assert.match(await page.locator('#posts > [role=article]').first().innerText(), /第一行/, '重新整理後新貼文出現在最上面');
+  assert.deepEqual(await send({ id: 'j1', mode: 'comment', fresh: true, text: job().text, images: [], comment: COMMENT, dryRun: false }), { started: true });
+  const { result: r, steps } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done');
+  assert.deepEqual(steps, ['finding', 'commenting']);
+  assert.deepEqual(await comments(page), [COMMENT]);
+  assert.equal(await page.locator('#posts > [role=article]').first().locator('[role=article]').count(), 1);
+});
+
+test('重新整理後只有圖片的貼文：認最上面帶「剛剛」標記的新貼文再留言', { skip }, async t => {
+  const { page, send, result, reload } = await open(t, { stale: true });
+  await send(job({ text: '', comment: COMMENT, reload: true }));
+  await waitReloadAsk(page);
+  await reload();
+  await send({ id: 'j1', mode: 'comment', fresh: true, text: '', images: [], comment: COMMENT, dryRun: false });
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done', r.commentError);
+  assert.deepEqual(await comments(page), [COMMENT]);
+});
+
+test('補留言（非 fresh）遇到只有圖片的舊貼文，仍然直接說明、不猜', { skip }, async t => {
+  const { send, result } = await open(t, {});
+  await send({ id: 'c1', mode: 'comment', text: '', images: [], comment: COMMENT, dryRun: false });
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /只有圖片/);
+});
+
+test('沒有留言內容或試跑時，發佈完不會要求重新整理', { skip }, async t => {
+  const a = await open(t, {});
+  await a.send(job({ comment: '', reload: true }));
+  const { result: r1 } = await a.result();
+  assert.equal(r1.ok, true, r1.error);
+  assert.equal(await a.page.evaluate(() => window.__sent.some(m => m.type === 'fbpost:reload')), false);
+  const b = await open(t, {});
+  await b.send(job({ comment: COMMENT, reload: true, dryRun: true }));
+  const { result: r2 } = await b.result();
+  assert.equal(r2.ok, true, r2.error);
+  assert.equal(await b.page.evaluate(() => window.__sent.some(m => m.type === 'fbpost:reload')), false);
 });

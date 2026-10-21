@@ -22,7 +22,7 @@
   const MAX_IMAGE_CHARS = 40 * 1024 * 1024;   // 所有圖片 data URL 加起來的上限（網頁版透過訊息傳給外掛，單則訊息不能超過 64MB）
   const STEP_LABELS = {
     start: '開啟粉專', open: '開啟發文框', text: '輸入文字', images: '上傳圖片',
-    ready: '內容已填好', next: '按「繼續」', publishing: '按下發佈', finding: '找剛發佈的貼文', commenting: '留言',
+    ready: '內容已填好', next: '按「繼續」', publishing: '按下發佈', reloading: '重新整理頁面', finding: '找剛發佈的貼文', commenting: '留言',
     commented: '留言完成', 'dry-ok': '試跑完成'
   };
 
@@ -123,7 +123,7 @@
 
   // 卡住時的錯誤說明。已經按下發佈卻沒收到結果時，不能說「失敗」：貼文有可能已經發出去了。
   function stuckMessage(step) {
-    if (step === 'finding' || step === 'commenting') return '貼文已經發佈，但留言沒有完成，請手動留言（或按「補留言」）';
+    if (step === 'reloading' || step === 'finding' || step === 'commenting') return '貼文已經發佈，但留言沒有完成，請手動留言（或按「補留言」）';
     if (step === 'publishing') return '已按下發佈但沒收到結果，貼文可能已經發出，請先到粉專確認，再決定要不要重發';
     return `卡在「${STEP_LABELS[step] || '開始'}」這一步，沒有發佈`;
   }
