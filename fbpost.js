@@ -12,12 +12,12 @@
     trigger: [/在想些什麼/, /建立貼文/, /What'?s on your mind/i, /Create (a )?post/i, /Write something/i],
     photo: [/^相片\/影片$/, /^相片$/, /^照片\/影片$/, /^照片$/, /^Photo\/video$/i, /^Photo$/i],
     publish: [/^發佈$/, /^發布$/, /^Post$/i, /^Publish$/i],
-    next: [/^下一步$/, /^Next$/i]
+    next: [/^下一步$/, /^繼續$/, /^Next$/i, /^Continue$/i]
   };
   const TEXTBOX = '[contenteditable="true"][role="textbox"]';
   const MAX_LABEL = 60;
   // 各步驟等待上限（毫秒）；測試時會調小
-  const T = { trigger: 30000, dialog: 20000, input: 15000, text: 1500, upload: 120000, enabled: 30000, closed: 120000, poll: 250 };
+  const T = { trigger: 30000, dialog: 20000, input: 15000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, poll: 250 };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   async function waitFor(fn, timeout) {
@@ -76,34 +76,56 @@
   const boxText = box => squash(box ? (box.innerText || box.textContent || '') : '');
   const textBox = () => { const d = findDialog(); return d ? d.querySelector(TEXTBOX) : null; };
 
-  // 用瀏覽器的編輯指令輸入，Facebook 的編輯器（Lexical）才會收到真正的輸入事件
-  function typeWithExec(box, text) {
+  // 換行的幾種做法，依序嘗試：Facebook 的編輯器（Lexical）有時不接受某一種，所以每種都要驗證換行真的出現。
+  const BREAKS = [
+    () => document.execCommand('insertParagraph'),
+    () => document.execCommand('insertLineBreak'),
+    box => box.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertParagraph', bubbles: true, cancelable: true })),
+    box => ['keydown', 'keypress', 'keyup'].forEach(type =>
+      box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })))
+  ];
+  const normLines = s => s.replace(/\r\n?/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
+  function clearBox(box) {
     box.focus();
-    const lines = text.replace(/\r\n?/g, '\n').split('\n');
-    lines.forEach((line, i) => {
-      if (i > 0) document.execCommand('insertParagraph');
+    document.execCommand('selectAll');
+    document.execCommand('delete');
+  }
+  // 用瀏覽器的編輯指令輸入，Facebook 的編輯器才會收到真正的輸入事件
+  function typeWithExec(box, text, brk) {
+    box.focus();
+    text.replace(/\r\n?/g, '\n').split('\n').forEach((line, i) => {
+      if (i > 0) brk(box);
       if (line) document.execCommand('insertText', false, line);
     });
   }
   // 備用：模擬貼上
   function typeWithPaste(box, text) {
-    box.focus();
-    document.execCommand('selectAll');
-    document.execCommand('delete');
+    clearBox(box);
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
     box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
   }
   async function setText(text) {
+    const want = normLines(text);
     const head = squash(text).slice(0, 40);
-    const has = () => boxText(textBox()).includes(head);
-    for (const type of [typeWithExec, typeWithPaste]) {
+    // 文字進去了，而且「有內容的行數」和原本一樣（不能被擠成一行）
+    const good = () => {
+      const box = textBox();
+      if (!box) return false;
+      const got = normLines(box.innerText || box.textContent || '');
+      return boxText(box).includes(head) && got.length === want.length;
+    };
+    const attempts = want.length > 1 ? BREAKS.map(brk => box => typeWithExec(box, text, brk)) : [box => typeWithExec(box, text, BREAKS[0])];
+    attempts.push(box => typeWithPaste(box, text));
+    for (let i = 0; i < attempts.length; i++) {
       const box = textBox();
       if (!box) fail('找不到文字輸入框');
-      type(box, text);
-      if (await waitFor(has, T.text)) return;
+      if (i > 0) clearBox(box);
+      attempts[i](box);
+      await sleep(T.settle);   // 編輯器常在下一個瞬間才整理畫面（可能吃掉換行），等它穩定再驗證
+      if (await waitFor(good, T.text)) return;
     }
-    fail('文字沒有輸入成功（Facebook 編輯器沒有接受輸入）');
+    fail(want.length > 1 ? '文字有輸入但換行沒有成功（Facebook 編輯器不接受換行），已停止以免發出擠成一行的貼文' : '文字沒有輸入成功（Facebook 編輯器沒有接受輸入）');
   }
 
   // ---- 圖片 ------------------------------------------------------------

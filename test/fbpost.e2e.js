@@ -15,7 +15,8 @@ const SCRIPT = fs.readFileSync(path.join(__dirname, '..', 'fbpost.js'), 'utf8');
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const URL_PAGE = 'https://www.facebook.com/tvbsnews';
 
-// opts：lang 'zh'|'en'｜flow 'direct'|'next'｜close 'ok'|'never'｜multiple 是否 multiple｜noTrigger 頁面沒有發文框
+// opts：lang 'zh'|'en'｜flow 'direct'|'next'（按鈕叫「下一步」）|'continue'（叫「繼續」，真實 Facebook 的樣子）｜close 'ok'|'never'
+//       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）
 function mock(opts = {}) {
   const L = opts.lang === 'en'
     ? { trigger: "What's on your mind?", photo: 'Photo/video', post: 'Post', next: 'Next', title: 'Create post' }
@@ -29,14 +30,38 @@ ${opts.noTrigger ? '<p>這不是粉專頁面</p>' : `<div id="feed"><div role="b
 window.__posted = null; window.__events = [];
 document.getElementById('nav').addEventListener('click', () => window.__events.push('nav-click'));
 const opts = ${JSON.stringify(opts)}, L = ${JSON.stringify(L)};
+const NEXT = opts.flow === 'continue' ? '繼續' : L.next;
 const btn = (label, extra='') => '<div role="button" aria-label="'+label+'" '+extra+'>'+label+'</div>';
 function openDialog() {
   setTimeout(() => {
     const d = document.createElement('div'); d.setAttribute('role','dialog'); d.id = 'dlg';
     d.innerHTML = '<h2>'+L.title+'</h2><div contenteditable="true" role="textbox" id="box"></div>'
-      + btn(L.photo) + '<div id="media"></div>' + btn(opts.flow === 'next' ? L.next : L.post, 'id="go" aria-disabled="true"');
+      + btn(L.photo) + '<div id="media"></div>' + btn(opts.flow === 'next' || opts.flow === 'continue' ? NEXT : L.post, 'id="go" aria-disabled="true"');
     document.body.append(d);
     const box = d.querySelector('#box'), go = d.querySelector('#go');
+    box.style.whiteSpace = 'pre-wrap';
+    // 模擬「編輯器不接受瀏覽器的換行指令」：任何新增的段落／換行元素或換行字元都被拿掉（除非是自己的 Enter 處理加的）
+    const allowed = new WeakSet();
+    if (opts.editor === 'enterOnly' || opts.editor === 'noBreak') {
+      new MutationObserver(muts => {
+        for (const m of muts) for (const n of m.addedNodes) {
+          if (allowed.has(n)) continue;
+          if (n.nodeType === 1 && /^(DIV|P|BR)$/.test(n.nodeName)) n.replaceWith(...n.childNodes);
+          else if (n.nodeType === 3 && n.data.includes('\\n')) n.data = n.data.replace(/\\n/g, '');
+        }
+      }).observe(box, { childList: true, subtree: true });
+    }
+    if (opts.editor === 'enterOnly') {
+      box.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        // 像 Lexical：Enter 在最後新增一個段落，游標放進去
+        const sel = getSelection(), line = document.createElement('div'), br = document.createElement('br');
+        line.append(br); allowed.add(line); allowed.add(br); box.append(line);
+        const r = document.createRange(); r.setStart(line, 0); r.collapse(true); sel.removeAllRanges(); sel.addRange(r);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
     box.addEventListener('input', sync);
     function sync(){ go.setAttribute('aria-disabled', (box.innerText.trim() || d.querySelector('img.thumb')) ? 'false' : 'true'); }
     d.querySelector('[aria-label="'+L.photo+'"]').addEventListener('click', () => {
@@ -51,7 +76,7 @@ function openDialog() {
     });
     go.addEventListener('click', () => {
       if (go.getAttribute('aria-disabled') === 'true') return;
-      if (opts.flow === 'next' && go.getAttribute('aria-label') === L.next) {
+      if ((opts.flow === 'next' || opts.flow === 'continue') && go.getAttribute('aria-label') === NEXT) {
         d.querySelector('#box').remove(); go.setAttribute('aria-label', L.post); go.textContent = L.post; return;
       }
       window.__events.push('publish');
@@ -86,7 +111,7 @@ async function open(t, opts) {
     window.chrome = { runtime: { id: 'me', sendMessage: m => { window.__sent.push(m); return Promise.resolve(); }, onMessage: { addListener: f => { window.__listener = f; } } } };
   });
   await page.addScriptTag({ content: SCRIPT });
-  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, dialog: 1500, input: 1500, text: 400, upload: 3000, enabled: 1500, closed: 1500, poll: 50 }));
+  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, dialog: 1500, input: 1500, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, poll: 50 }));
   // 沒有回應（忽略訊息）時回傳 undefined
   const send = (job, sender = { id: 'me' }) => page.evaluate(([j, s]) => new Promise(res => {
     window.__listener({ type: 'fbpost:run', job: j }, s, res);
@@ -203,4 +228,39 @@ test('不會誤點導覽列的「建立」按鈕：只認發文框的文字（�
   await result();
   assert.ok(!(await page.evaluate(() => window.__events)).includes('nav-click'));
   assert.equal(await page.locator('[role=dialog]').count(), 1);
+});
+
+test('真實 Facebook 的第一個按鈕叫「繼續」（不是「下一步」）：要按「繼續」再按「發佈」', { skip }, async t => {
+  const { page, send, result } = await open(t, { flow: 'continue' });
+  await send(job());
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal((await page.evaluate(() => window.__posted)).text, '(第二畫面)');
+});
+
+test('換行：編輯器只認 Enter 鍵時，改用 Enter 事件，三行不會被擠成一行', { skip }, async t => {
+  const { page, send, result } = await open(t, { editor: 'enterOnly', flow: 'direct' });
+  await send(job({ text: '【標題】\n（圖／TVBS）\n#霸凌 #宮廟', images: [], dryRun: true }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  const lines = (await page.locator('#box').innerText()).split('\n').map(l => l.trim()).filter(Boolean);
+  assert.deepEqual(lines, ['【標題】', '（圖／TVBS）', '#霸凌 #宮廟']);
+});
+
+test('換行：每一種方式都不行時，停下來報錯，不發出擠成一行的貼文', { skip }, async t => {
+  const { page, send, result } = await open(t, { editor: 'noBreak' });
+  await send(job({ text: '【標題】\n（圖／TVBS）', images: [] }));
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /換行沒有成功/);
+  assert.equal(await page.evaluate(() => window.__posted), null);
+  assert.ok(!(await page.evaluate(() => window.__events)).includes('publish'));
+});
+
+test('單行文字不受換行檢查影響', { skip }, async t => {
+  const { page, send, result } = await open(t, { editor: 'noBreak' });
+  await send(job({ text: '只有一行 #標籤', images: [] }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal((await page.evaluate(() => window.__posted)).text.trim(), '只有一行 #標籤');
 });
