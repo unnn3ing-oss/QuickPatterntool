@@ -439,6 +439,21 @@
     }
     return fitCues(out);
   }
+  // parseSrt 的反向：[{ start, end（格，不含 end）, text }] → SRT 文字。強調用的星號拿掉、空白的段落略過、序號從 1 重排
+  function formatSrt(cues, fps) {
+    const pad = (n, w) => String(n).padStart(w, '0');
+    const ts = f => {
+      const ms = Math.max(0, Math.round(f * 1000 / fps));
+      return `${pad(Math.floor(ms / 3600000), 2)}:${pad(Math.floor(ms / 60000) % 60, 2)}:${pad(Math.floor(ms / 1000) % 60, 2)},${pad(ms % 1000, 3)}`;
+    };
+    const out = [];
+    for (const c of cues.slice().sort((a, b) => a.start - b.start)) {
+      const text = parseAccent(c.text).text.replace(/\r\n?/g, '\n').split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+      if (!text || !(c.end > c.start)) continue;
+      out.push(`${out.length + 1}\n${ts(c.start)} --> ${ts(c.end)}\n${text}\n`);
+    }
+    return out.join('\n');
+  }
   // 依開始時間排序；跟後一段重疊時，前一段結束在後一段開始的前一格（不含 end，所以 end＝後一段的 start）；同一格開始的只留第一段
   function fitCues(list) {
     const a = list.slice().sort((x, y) => x.start - y.start);
@@ -1344,7 +1359,7 @@
     DEFAULT_TRANSFORM, DEFAULT_CROP, defaultTransform, defaultCrop, defaultVideo,
     fitRect, clipMatrix, applyMatrix, cropRect, getParam,
     drawClipVisual, drawSolid, drawTitle, titleBounds, clipQuad,
-    TRANSITIONS, ease, TITLE_PRESETS, TITLE_STYLES, TEXT_FX, makeTitle, normTitle, parseAccent, buildAccent, parseSrt, fitCues, planSubtitleMark, wrapText, parseColor, formatColor,
+    TRANSITIONS, ease, TITLE_PRESETS, TITLE_STYLES, TEXT_FX, makeTitle, normTitle, parseAccent, buildAccent, parseSrt, formatSrt, fitCues, planSubtitleMark, wrapText, parseColor, formatColor,
     ready, get fontLoaded() { return defaultFontLoaded(); }, FONTS, loadFont, onFontLoad, fontIsLoaded,
     inspector: { sections: SECTIONS },
     ensureStyle,                 // 插入詳細內容樣式（.ed-fx-*）；UI 自己的區段也用這套外觀，啟動時先呼叫一次

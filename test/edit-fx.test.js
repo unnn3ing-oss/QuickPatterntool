@@ -392,6 +392,18 @@ test('SRT 解析：時間碼、多行、標籤、BOM、CRLF、重疊', () => {
   // 同一格開始的只留第一段
   assert.deepEqual(fx.fitCues([{ start: 10, end: 50, text: 'a' }, { start: 10, end: 40, text: 'b' }]).map(x => x.text), ['a']);
 });
+test('SRT 匯出：formatSrt 時間碼、星號、空白段、排序；可以再匯入回來', () => {
+  const cues = [
+    { start: 615, end: 660, text: 'Hello' },
+    { start: 30, end: 90, text: '進行*瘋狂*的\n 第二行 ' },
+    { start: 100, end: 120, text: '   ' },
+    { start: 3600 * 30 + 1, end: 3600 * 30 + 31, text: '一小時後' },
+  ];
+  const s = fx.formatSrt(cues, 30);
+  assert.equal(s, '1\n00:00:01,000 --> 00:00:03,000\n進行瘋狂的\n第二行\n\n2\n00:00:20,500 --> 00:00:22,000\nHello\n\n3\n01:00:00,033 --> 01:00:01,033\n一小時後\n');
+  assert.deepEqual(fx.parseSrt(s, 30).map(c => [c.start, c.end, c.text]), [[30, 90, '進行瘋狂的\n第二行'], [615, 660, 'Hello'], [108001, 108031, '一小時後']]);
+  assert.equal(fx.formatSrt([], 30), '');
+});
 test('V 標記：預設 10 秒、碰到下一段就停、前一段在這格前結束', () => {
   const subs = [{ id: 'a', start: 0, end: 300 }, { id: 'b', start: 400, end: 500 }];
   assert.deepEqual(fx.planSubtitleMark(subs, 90, 30, 10), { start: 90, end: 390, trimPrev: { id: 'a', end: 90 } }, '前一段 a 改成在 89 格結束；新段 10 秒');

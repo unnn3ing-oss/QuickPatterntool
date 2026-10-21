@@ -85,6 +85,8 @@ const laneBox = (page, name) => page.evaluate(name => {
   const e = document.querySelector(`.ed-lane[data-track="${t.id}"]`), r = e.getBoundingClientRect();
   return { x: r.left, y: r.top, w: r.width, h: r.height };
 }, name);
+// 第 f 格的 SRT 時間碼（HH:MM:SS,mmm）
+const srtTc = (f, fps = 30) => { const ms = Math.round(Math.round(f) * 1000 / fps), p = (n, w = 2) => String(n).padStart(w, '0'); return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
 async function drag(page, a, b, o = {}) {
   const mods = o.mods || [];
   for (const m of mods) await page.keyboard.down(m);
@@ -347,6 +349,25 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq(on(cl, 'A1').map(c => [c.s, c.d]), [[0, 70], [90, 90]], '連結的聲音一起修剪');
   await page.keyboard.press('Control+z');
   await settle(page);
+  // 拖頭尾修剪時，拖的那一側邊緣旁顯示目前的時間碼；放開後消失
+  {
+    const fpsE = await proj(page, p => p.fps), tcE = f => { const s = Math.floor(f / fpsE), p2 = n => String(n).padStart(2, '0'); return `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}:${p2(f % fpsE)}`; };
+    const tipE = () => page.evaluate(() => { const e = document.querySelector('.ed-edgetc'); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return { t: e.textContent, l: r.left, r: r.right, y: r.top + r.height / 2 }; });
+    for (const [edge, idx, dx, want] of [['end', 0, -40, 70], ['start', 1, 40, 110]]) {
+      cl = await clips(page);
+      const cb0 = await clipBox(page, on(cl, 'V1')[idx].id), x = edge === 'end' ? cb0.x + cb0.w - 2 : cb0.x + 2, y = cb0.y + cb0.h / 2;
+      await page.mouse.move(x, y); await page.mouse.down();
+      for (let i = 1; i <= 8; i++) { await page.mouse.move(x + dx * i / 8, y); await sleep(8); }
+      await settle(page);
+      const tp = await tipE(), ex = await frameX(page, want);
+      const wantTc = tcE(edge === 'end' ? want - 1 : want);
+      eq(tp && tp.t, wantTc, `拖${edge === 'end' ? '尾端（顯示最後一格）' : '開頭'}：邊緣旁顯示時間碼 ${wantTc}`);
+      ok(tp && (edge === 'end' ? tp.l >= ex - 1 && tp.l - ex < 12 : tp.r <= ex + 1 && ex - tp.r < 12) && Math.abs(tp.y - y) < 4, `時間碼貼在${edge === 'end' ? '右' : '左'}側邊緣外、跟片段同高（${JSON.stringify(tp)}，邊緣 x=${ex.toFixed(1)}）`);
+      await page.mouse.up(); await settle(page);
+      eq(await tipE(), null, '放開後時間碼消失');
+      await page.keyboard.press('Control+z'); await settle(page);
+    }
+  }
 
   // ---------------------------------------------------------------- 修剪工具：滾動／滑移／滑動／波紋
   console.log('修剪工具（T）：滾動、滑移、滑動、波紋');
@@ -804,6 +825,22 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq((await subs()).map(x => [x.s, x.d, x.t, x.tr]), [[Math.round(0.5 * fps), Math.round(1.5 * fps) - Math.round(0.5 * fps), '大家好', '字幕'], [Math.round(1.5 * fps), Math.round(3 * fps) - Math.round(1.5 * fps), '歡迎收看\n第二行', '字幕']], '匯入 SRT：每段一個字幕片段，重疊的前一段結束在下一段前一格');
   eq(await page.evaluate(() => [...document.querySelectorAll('.ed-subrow .ed-subtxt')].map(t => t.value)), ['大家好', '歡迎收看\n第二行'], '匯入後字幕清單列出每一段');
   ok((await page.textContent('#edUndoLab')).includes('匯入 SRT'), '匯入 SRT 一筆復原');
+  // 匯出 SRT：攔下下載，檢查檔名與內容（再匯入會得到一樣的時間）
+  await page.evaluate(() => {
+    window.__dl = [];
+    window.__dlRestore = [URL.createObjectURL, HTMLAnchorElement.prototype.click];
+    const mk = URL.createObjectURL.bind(URL), blobs = new Map();
+    URL.createObjectURL = b => { const u = mk(b); blobs.set(u, b); return u; };
+    HTMLAnchorElement.prototype.click = function () { if (this.download) window.__dl.push({ name: this.download, blob: blobs.get(this.href) }); };
+  });
+  await page.click('.ed-tab[data-tab="title"]');
+  await page.click('#edSrtExport');
+  const srtDl = await page.evaluate(async () => { const d = window.__dl.pop(); return d && { name: d.name, type: d.blob.type, text: await d.blob.text() }; });
+  ok(srtDl && /^字幕_\d{10}\.srt$/.test(srtDl.name), '匯出 SRT：檔名「字幕_日期時間.srt」（' + (srtDl && srtDl.name) + '）');
+  eq(srtDl && srtDl.text, `1\n${srtTc(0.5 * fps, fps)} --> ${srtTc(1.5 * fps, fps)}\n大家好\n\n2\n${srtTc(1.5 * fps, fps)} --> ${srtTc(3 * fps, fps)}\n歡迎收看\n第二行\n`, '匯出 SRT：內容是字幕清單的每一段');
+  await page.click('#edSubsExport');
+  eq(await page.evaluate(() => window.__dl.length), 1, '詳細內容「清單」分頁的匯出 SRT 按鈕也能匯出');
+  await page.evaluate(() => { [URL.createObjectURL, HTMLAnchorElement.prototype.click] = window.__dlRestore; });
   await page.keyboard.press('Control+z');
   await settle(page);
   eq(await proj(page, p => JSON.stringify([p.clips, p.tracks])), baseSnap, '復原匯入');
@@ -1373,6 +1410,34 @@ async function runViewport(browser, base, fix, [W, H]) {
   await page.keyboard.press('Control+a');
   eq(await proj(page, p => Q.ui.state.selection.size), 4, 'Ctrl+A：全選');
   await page.keyboard.press('Escape');
+  // 框選拖到邊緣自動捲動：框的起點跟著內容走，捲進來的片段也選得到
+  const zoom0 = await state(page, 'zoom');
+  await page.evaluate(() => { QPTEdit.ui.setZoom(QPTEdit.ui.state.zoom * 4, false); const sc = document.querySelector('.ed-tl-scroll'); sc.scrollLeft = sc.scrollWidth; });
+  await settle(page);
+  const scr = await page.evaluate(() => { const r = document.querySelector('.ed-tl-scroll').getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; });
+  const lv2b = await laneBox(page, 'V2'), la2b = await laneBox(page, 'A2');
+  ok(await page.evaluate(() => document.querySelector('.ed-tl-scroll').scrollLeft > 0), '放大後時間軸捲到右邊（前段片段在畫面外）');
+  await drag(page, { x: scr.r - 60, y: lv2b.y + 4 }, { x: scr.l + 30, y: la2b.y + la2b.h - 4 }, { steps: 12, hold: 2500 });
+  eq(await page.evaluate(() => document.querySelector('.ed-tl-scroll').scrollLeft), 0, '框選拖到左邊：自動捲到最前面');
+  eq(await proj(page, p => Q.ui.state.selection.size), 4, '框選＋自動捲動：捲進來的片段也選到（4 個）');
+  await page.keyboard.press('Escape');
+  await page.evaluate(z => { QPTEdit.ui.setZoom(z, false); document.querySelector('.ed-tl-scroll').scrollLeft = 0; }, zoom0);
+  await settle(page);
+  // 從軌道下方的空白開始框選
+  const under = await page.evaluate(() => {
+    const sc = document.querySelector('.ed-tl-scroll'), r = sc.getBoundingClientRect(), lanes = [...document.querySelectorAll('.ed-lane')];
+    const lb = Math.max(...lanes.map(l => l.getBoundingClientRect().bottom));
+    return { y: lb + 8, room: r.top + sc.clientHeight - lb };
+  });
+  if (under.room > 16) {   // 視窗矮的時候軌道會填滿，下方沒有空白
+    const lv2c = await laneBox(page, 'V2');
+    await drag(page, { x: await frameX(page, 450), y: under.y }, { x: await frameX(page, 5), y: lv2c.y + 4 }, { steps: 12 });
+    eq(await proj(page, p => Q.ui.state.selection.size), 4, '從軌道下方的空白拖出框：一樣選得到片段');
+    ok(await page.isHidden('.ed-marquee'), '放開後框消失');
+    await page.mouse.click(await frameX(page, 450), under.y);
+    await settle(page);
+    eq(await proj(page, p => Q.ui.state.selection.size), 0, '軌道下方點一下：取消選取');
+  }
   // 片尾淡出轉場（最後一個片段後面沒有片段）
   cl = await clips(page);
   const lastV = on(cl, 'V1')[0];
