@@ -309,20 +309,24 @@ function drawTitle(targetCtx, lines, baseSize, centerY, color = TITLE_LIGHT) {
 
 // source: { type: 'image', image } | { type: 'color', color }
 // frame: 'entertainment' (pink) | 'news' (blue) — only affects the image-mode corner ribbon
-function renderComposite(targetCtx, source, titleText, fontSize, frame) {
+// fx（只有側邊欄的單張用，見 stickers.js）：{ mosaic(ctx) 在背景畫完、邊框與標題之前叫；stickers(ctx) 在最後叫 }
+function renderComposite(targetCtx, source, titleText, fontSize, frame, fx) {
   targetCtx.clearRect(0, 0, SIZE, SIZE);
   targetCtx.canvas.classList.toggle('pannable', !!(source && source.type === 'image' && source.image));
   if (source && source.type === 'color') {
     targetCtx.fillStyle = source.color;
     targetCtx.fillRect(0, 0, SIZE, SIZE);
+    if (fx && fx.mosaic) fx.mosaic(targetCtx);
     drawLogoBottom(targetCtx);
     drawTitle(targetCtx, parseLines(titleText), fontSize, SIZE / 2, usesDarkTitle(source) ? TITLE_DARK : TITLE_LIGHT);
   } else {
     drawImageCover(targetCtx, source.image, source.view);
+    if (fx && fx.mosaic) fx.mosaic(targetCtx);
     drawGradient(targetCtx);
     drawRibbon(targetCtx, frame);
     drawTitle(targetCtx, parseLines(titleText), fontSize, BOX_CENTER);
   }
+  if (fx && fx.stickers) fx.stickers(targetCtx);
 }
 
 // Sizes and positions the on-image edit box with the same geometry drawTitle
@@ -365,6 +369,7 @@ function hasBackground(source) {
 
 let singleBg = { type: 'image', image: null, color: null };
 let singleFrame = 'news';
+let singleFx = null;   // 貼圖／馬賽克（stickers.js 設定；網頁版沒有）
 
 function render() {
   if (document.activeElement !== singlePreviewTitleInput) singlePreviewTitleInput.value = titleEl.value;
@@ -372,7 +377,7 @@ function render() {
   const ready = hasBackground(singleBg);
   ctx.clearRect(0, 0, SIZE, SIZE);
   if (ready) {
-    renderComposite(ctx, singleBg, titleEl.value, getFontSizePx(), singleFrame);
+    renderComposite(ctx, singleBg, titleEl.value, getFontSizePx(), singleFrame, singleFx);
   } else {
     canvas.classList.remove('pannable');
   }
@@ -381,6 +386,7 @@ function render() {
   statusEl.textContent = ready
     ? (titleEl.value.trim() ? '預覽已更新' : '請輸入標題')
     : '請先上傳圖片或選擇純色背景，並輸入標題';
+  if (singleFx && singleFx.onRender) singleFx.onRender();
 }
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)$/i;

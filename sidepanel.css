@@ -164,7 +164,7 @@ body.sidepanel {
 @media (prefers-reduced-motion: reduce) { .qf-btn-wrap > .tip { animation: none; } }
 #quickFill .qf-row { margin-bottom: calc(6px * var(--sp)); }   /* 氣泡垂在按鈕下方，底部多留一點，不要貼著卡片邊 */
 /* 「圖片背景／純色背景」開關：固定在標題列右邊，縮小到剛好放進去 */
-#qfBgSlot { margin-left: auto; flex: 0 0 auto; }
+#qfBgSlot { flex: 0 0 auto; }
 #qfBgSlot .bg-toggle { margin: 0; padding: calc(2px * var(--sp)); gap: calc(2px * var(--sp)); }
 .sidepanel #qfBgSlot .bg-toggle button { flex: 0 0 auto; padding: calc(3px * var(--sp)) calc(10px * var(--sp)); font-size: calc(12px * var(--fs)); }
 
@@ -249,3 +249,48 @@ html.up-lock, html.up-lock body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .qf-colors { animation: none; } }
 /* 氣泡垂在按鈕下方，色票排要讓開，不然氣泡會蓋到最上面一排顏色 */
 #quickFill:has(.qf-btn-wrap > .tip:not([hidden])) .qf-colors { margin-top: calc(24px * var(--sp)); }
+
+/* 標題列的「貼圖」按鈕：在標題與背景開關之間（靠右一起排），大小跟旁邊縮小的開關一致 */
+.sidepanel .qf-fx-btn {
+  margin: 0 0 0 auto; flex: 0 0 auto;
+  padding: calc(5px * var(--sp)) calc(12px * var(--sp)); font-size: calc(12px * var(--fs)); line-height: 1.2;
+  border-radius: 999px; font-weight: 600; white-space: nowrap;
+}
+.sidepanel .qf-fx-btn.open, .sidepanel .qf-fx-btn.has-items { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.sidepanel .qf-fx-btn.has-items:not(.open) { box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* 貼圖／馬賽克：在「快速產圖」下方彈出的一排，和色票排同款（單排、橫向捲動） */
+.qf-fx { margin-top: calc(8px * var(--sp)); animation: qf-pop .16s ease-out; }
+.qf-fx[hidden] { display: none; }
+.qf-fx .fx-row {
+  display: flex; align-items: center; gap: calc(8px * var(--sp)); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  padding: calc(8px * var(--sp)) calc(12px * var(--sp));
+  border: 1px solid rgba(0, 74, 173, 0.18); border-radius: calc(18px * var(--sp)); background: rgba(0, 74, 173, 0.05);
+  scrollbar-width: thin;
+}
+.qf-fx .fx-tile { flex: 0 0 auto; margin: 0; cursor: pointer; border: 1px solid rgba(0, 74, 173, 0.18); background: #fff; border-radius: calc(14px * var(--sp)); }
+.qf-fx .fx-sticker-tile { width: calc(48px * var(--sp)); height: calc(48px * var(--sp)); padding: calc(4px * var(--sp)); }
+.qf-fx .fx-sticker-tile img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.qf-fx .fx-mosaic-tile { display: flex; align-items: center; gap: calc(6px * var(--sp)); height: calc(48px * var(--sp)); padding: 0 calc(12px * var(--sp)); font-size: calc(12px * var(--fs)); font-weight: 600; white-space: nowrap; }
+.qf-fx .fx-mini {   /* 馬賽克的小圖示：幾個灰階方塊 */
+  width: calc(22px * var(--sp)); height: calc(22px * var(--sp)); border-radius: 4px;
+  background: conic-gradient(#8d99ae 25%, #d4dae4 0 50%, #b6c0d0 0 75%, #6c7a96 0) 0 0 / 50% 50%;
+}
+.qf-fx .fx-sep { flex: 0 0 1px; align-self: stretch; background: rgba(0, 74, 173, 0.18); }
+.qf-fx .fx-tile:hover { border-color: var(--accent); }
+.qf-fx .fx-hint { margin-top: calc(5px * var(--sp)); font-size: calc(11.5px * var(--fs)); color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .qf-fx { animation: none; } }
+
+/* 預覽上的操作方框：蓋在畫布上、不會被輸出。方框本身透明（畫面上的貼圖／馬賽克是畫在畫布裡的）。 */
+.canvas-wrap .fx-layer { position: absolute; pointer-events: none; z-index: 4; }
+.canvas-wrap .fx-layer[hidden] { display: none; }
+.fx-item { position: absolute; pointer-events: auto; cursor: move; touch-action: none; box-sizing: border-box; border-radius: 4px; }
+.fx-item:hover { outline: 1px dashed rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.fx-item.selected { outline: 2px dashed #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(0, 74, 173, 0.55); }
+.fx-item .fx-del {
+  display: none; position: absolute; top: -11px; right: -11px; width: 22px; height: 22px; padding: 0; margin: 0;
+  border-radius: 50%; border: 2px solid #fff; background: #22324d; color: #fff; font-size: 14px; line-height: 1; cursor: pointer;
+}
+.fx-item.selected .fx-del { display: block; }
+#quickFill:has(.qf-btn-wrap > .tip:not([hidden])) .qf-fx { margin-top: calc(24px * var(--sp)); }   /* 氣泡垂在按鈕下方，這一排讓開 */
+#quickFill:has(.qf-btn-wrap > .tip:not([hidden])) .qf-colors:not([hidden]) ~ .qf-fx { margin-top: calc(8px * var(--sp)); }

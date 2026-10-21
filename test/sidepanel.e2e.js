@@ -32,7 +32,7 @@ const article = (title, caption, tag) => `<html><head><meta property="og:title" 
 <body><article><h1>${title}</h1><img src="https://img.tvbs.com.tw/a.png"><figcaption>${caption}</figcaption><a href="/tag/${tag}">#${tag}</a></article></body></html>`;
 
 let browser;
-test.before(async () => { if (chromium) browser = await chromium.launch(); });
+test.before(async () => { if (chromium) browser = await chromium.launch({ args: ['--allow-file-access-from-files'] }); });   // 貼圖是 file:// 載入的圖，要這個旗標畫布才讀得到像素
 test.after(async () => { if (browser) await browser.close(); });
 
 async function open(t, { badge = '' } = {}) {
@@ -242,4 +242,144 @@ test('產圖完成後「確認直接下載？」也在按鈕下方，不蓋到�
   assert.ok(!overlap(tip, tg), '不蓋到開關');
   assert.ok(tip.y + tip.height <= card.y + card.height, '氣泡沒有超出卡片');
   assert.deepEqual(errors, []);
+});
+
+// ---- 貼圖與馬賽克（stickers.js）---------------------------------------------------------------------
+// 有細節的背景（直條紋＋圓形），馬賽克才看得出差別
+async function loadStripedBg(page) {
+  const b64 = await page.evaluate(() => {
+    const c = document.createElement('canvas'); c.width = 1200; c.height = 1200; const g = c.getContext('2d');
+    for (let i = 0; i < 120; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#222222'; g.fillRect(i * 10, 0, 10, 1200); }
+    g.fillStyle = '#e33'; g.beginPath(); g.arc(600, 600, 40, 0, 7); g.fill();
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  await page.setInputFiles('#singleBgPicker input[type=file]', { name: 'bg.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') });
+  await page.waitForFunction(() => !!singleBg.image);
+  await page.evaluate(() => { const t = document.getElementById('title'); t.value = '標題'; t.dispatchEvent(new Event('input')); });
+}
+const canvasPixels = (page, x, y, w, h) => page.evaluate(([x, y, w, h]) => Array.from(document.getElementById('canvas').getContext('2d').getImageData(x, y, w, h).data), [x, y, w, h]);
+const canvasUrl = page => page.evaluate(() => document.getElementById('canvas').toDataURL());
+
+test('「貼圖」按鈕在「快速產圖」標題與背景開關之間、同一列；按一下在下方彈出一排，再按收起', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const h2 = await box(page, '#quickFill h2'), fx = await box(page, '#qfFxBtn'), tg = await box(page, '#quickFill .bg-toggle');
+  assert.ok(fx.x > h2.x + h2.width && fx.x + fx.width <= tg.x + 1, '標題 → 貼圖 → 開關');
+  assert.ok(Math.abs((fx.y + fx.height / 2) - (h2.y + h2.height / 2)) < 8, '同一列');
+  assert.equal(await page.locator('#qfFxStrip').isVisible(), false);
+  await page.click('#qfFxBtn');
+  await page.waitForSelector('#qfFxStrip', { state: 'visible' });
+  assert.equal(await page.locator('#qfFxStrip .fx-sticker-tile').count(), 7);
+  assert.equal(await page.locator('#qfFxStrip .fx-mosaic-tile').count(), 1);
+  const row = await box(page, '#quickFill .qf-row'), st = await box(page, '#qfFxStrip'), card = await box(page, '#quickFill');
+  assert.ok(st.y >= row.y + row.height && st.y + st.height <= card.y + card.height + 1, '在卡片裡、輸入列下方');
+  assert.ok(!overlap(await box(page, '#qfTip'), await box(page, '#qfFxStrip .fx-row')), '提示氣泡不蓋到這一排');
+  await page.click('#qfFxBtn');
+  await page.waitForFunction(() => document.getElementById('qfFxStrip').hidden);
+  assert.deepEqual(errors, []);
+});
+
+test('貼圖：加到預覽、拖曳移動、滾輪縮放；滾輪在貼圖外仍是縮放背景照片；× 與 Delete 都能刪', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await loadStripedBg(page);
+  await page.click('#qfFxBtn');
+  const before = await canvasUrl(page);
+  await page.click('.fx-sticker-tile[title="貼圖：大哭"]');
+  const it = page.locator('.fx-item.fx-sticker');
+  await it.waitFor();
+  assert.notEqual(await canvasUrl(page), before, '貼圖畫進畫布');
+  let b = await it.boundingBox();
+  // 移動
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down(); await page.mouse.move(b.x + b.width / 2 + 60, b.y + b.height / 2 + 40, { steps: 5 }); await page.mouse.up();
+  const moved = await it.boundingBox();
+  assert.ok(Math.abs(moved.x - (b.x + 60)) < 4 && Math.abs(moved.y - (b.y + 40)) < 4, `移動 (${moved.x - b.x}, ${moved.y - b.y})`);
+  // 滾輪縮放（往上＝放大、往下＝縮小），等比
+  const zoom0 = await page.evaluate(() => singleBg.view.zoom);
+  await page.mouse.wheel(0, -300);
+  await page.waitForFunction(w => document.querySelector('.fx-item.fx-sticker').getBoundingClientRect().width > w + 3, moved.width);
+  const big = await it.boundingBox();
+  assert.ok(Math.abs(big.width / big.height - moved.width / moved.height) < 0.02, '等比');
+  await page.mouse.wheel(0, 600);
+  await page.waitForFunction(w => document.querySelector('.fx-item.fx-sticker').getBoundingClientRect().width < w - 3, big.width);
+  assert.equal(await page.evaluate(() => singleBg.view.zoom), zoom0, '在貼圖上滾輪不會縮放背景照片');
+  // 貼圖外面的滾輪：還是縮放背景照片
+  const cv = await box(page, '#canvas');
+  await page.mouse.move(cv.x + 6, cv.y + cv.height - 6);
+  await page.mouse.wheel(0, -300);
+  await page.waitForFunction(z => singleBg.view.zoom > z, zoom0);
+  // 刪除：× 與 Delete
+  await it.hover();
+  await page.locator('.fx-item.fx-sticker .fx-del').click();
+  assert.equal(await page.locator('.fx-item').count(), 0);
+  assert.equal(await page.locator('#qfFxBtn').textContent(), '貼圖');
+  await page.click('.fx-sticker-tile[title="貼圖：笑哭"]');
+  await page.locator('.fx-item.fx-sticker').waitFor();
+  await page.keyboard.press('Delete');
+  await page.waitForFunction(() => !document.querySelector('.fx-item'));
+  assert.deepEqual(errors, []);
+});
+
+test('馬賽克：方塊像素、只糊框裡的照片；拖曳移動、滾輪縮放（Shift 只調寬、Alt 只調高）；全部清除會清掉', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await loadStripedBg(page);
+  await page.click('#qfFxBtn');
+  const cv = await box(page, '#canvas');
+  const before = await canvasPixels(page, 0, 0, 1080, 1080);
+  await page.click('.fx-mosaic-tile');
+  const it = page.locator('.fx-item.fx-mosaic');
+  await it.waitFor();
+  const after = await canvasPixels(page, 0, 0, 1080, 1080);
+  const b = await it.boundingBox();
+  const k = 1080 / cv.width;
+  const mx = Math.round((b.x - cv.x) * k), my = Math.round((b.y - cv.y) * k), mw = Math.round(b.width * k), mh = Math.round(b.height * k);
+  const px = (arr, x, y) => arr.slice((y * 1080 + x) * 4, (y * 1080 + x) * 4 + 3).join(',');
+  // 框外不變
+  assert.equal(px(after, 20, 600), px(before, 20, 600));
+  assert.equal(px(after, 1060, 600), px(before, 1060, 600));
+  // 框內：中間一小塊（6×6）顏色一致＝方塊；原圖同一處是直條紋（有黑有白）
+  const patch = (arr, x, y) => { const s = new Set(); for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) s.add(px(arr, x + i, y + j)); return s.size; };
+  const cx = mx + Math.floor(mw / 2) - 3, cy = my + Math.floor(mh / 2) - 3;
+  assert.ok(patch(before, cx, cy) > 1, '原圖是條紋');
+  assert.equal(patch(after, cx, cy), 1, '馬賽克後同一方塊顏色一致');
+  // 移動、縮放
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down(); await page.mouse.move(b.x + b.width / 2 - 30, b.y + b.height / 2 - 20, { steps: 4 }); await page.mouse.up();
+  const m1 = await it.boundingBox();
+  assert.ok(m1.x < b.x - 25 && m1.y < b.y - 15);
+  await page.keyboard.down('Shift'); await page.mouse.wheel(0, -300); await page.keyboard.up('Shift');
+  await page.waitForFunction(w => document.querySelector('.fx-item.fx-mosaic').getBoundingClientRect().width > w + 3, m1.width);
+  const m2 = await it.boundingBox();
+  assert.ok(Math.abs(m2.height - m1.height) < 1.5, '只調寬，高度不變');
+  await page.keyboard.down('Alt'); await page.mouse.wheel(0, -300); await page.keyboard.up('Alt');
+  await page.waitForFunction(h => document.querySelector('.fx-item.fx-mosaic').getBoundingClientRect().height > h + 3, m2.height);
+  const m3 = await it.boundingBox();
+  assert.ok(Math.abs(m3.width - m2.width) < 1.5, '只調高，寬度不變');
+  await page.mouse.wheel(0, -300);
+  await page.waitForFunction(w => document.querySelector('.fx-item.fx-mosaic').getBoundingClientRect().width > w + 3, m3.width);
+  // 全部清除
+  await page.click('#resetBtn');
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => !document.querySelector('.fx-item'));
+  assert.deepEqual(errors, []);
+});
+
+test('貼圖會跟著輸出：按「下載圖片」時畫布內容和預覽一致（畫布讀得到像素、沒被污染）', { skip }, async t => {
+  const { page, downloads, errors } = await open(t);
+  await loadStripedBg(page);
+  await page.click('#qfFxBtn');
+  await page.click('.fx-sticker-tile[title="貼圖：生氣"]');
+  await page.locator('.fx-item.fx-sticker').waitFor();
+  const url = await canvasUrl(page);
+  await page.click('#downloadBtn');
+  const t0 = Date.now();
+  while (!downloads.length && Date.now() - t0 < 5000) await page.waitForTimeout(100);
+  assert.equal(downloads.length, 1, '有下載');
+  assert.equal(await canvasUrl(page), url, '下載時畫布內容與預覽一致');
+  assert.deepEqual(errors, []);
+});
+
+test('網頁版（index.html）不載入貼圖功能', { skip }, async () => {
+  const fs = require('node:fs');
+  assert.ok(!/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')));
+  assert.ok(/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'sidepanel.html'), 'utf8')));
 });

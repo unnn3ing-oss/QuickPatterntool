@@ -171,6 +171,63 @@
 
   window.Deploy = { fetchExtensionFiles, deployToFolder, buildZip, buildZipOfExtension, crc32, REPO, EXT_FOLDER };
 
+  // ---- 「剪輯」分頁的 QuickCut 介紹（步驟精靈，和下面的安裝教學同一種做法，但嵌在分頁裡、不蓋住整個畫面）------------
+  (function qcIntro() {
+    const root = document.getElementById('editApp');
+    if (!root) return;
+    const panes = [...root.querySelectorAll('.ds-pane')];
+    const stepEls = [...root.querySelectorAll('#qcSteps .ds-step')];
+    const prevBtn = document.getElementById('qcPrev');
+    const nextBtn = document.getElementById('qcNext');
+    const countEl = document.getElementById('qcCount');
+    if (!panes.length || !prevBtn || !nextBtn) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const TOTAL = panes.length;
+    let step = 1, timer = null;
+
+    function play(pane) {   // 換到那一步時從頭播，播完停一下再重播；「減少動態效果」就停在做完的畫面
+      clearTimeout(timer); timer = null;
+      panes.forEach(p => p.querySelector('.ds-art').classList.remove('play'));
+      if (reduce.matches || root.hidden) return;
+      const art = pane.querySelector('.ds-art');
+      const cycle = Number(pane.dataset.cycle) || 7000;
+      art.style.setProperty('--end', `${(cycle - 600) / 1000}s`);
+      void art.offsetWidth;
+      art.classList.add('play');
+      timer = setTimeout(() => { if (!root.hidden && panes[step - 1] === pane) play(pane); }, cycle);
+    }
+    function goTo(n, focus) {
+      step = Math.min(TOTAL, Math.max(1, n));
+      panes.forEach((p, i) => { p.hidden = i !== step - 1; });
+      stepEls.forEach((li, i) => {
+        li.classList.toggle('done', i < step - 1);
+        li.classList.toggle('current', i === step - 1);
+        const b = li.querySelector('.ds-step-btn');
+        if (i === step - 1) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+      });
+      prevBtn.disabled = step === 1;
+      nextBtn.disabled = step === TOTAL;
+      countEl.textContent = `${step} / ${TOTAL}`;
+      if (focus) panes[step - 1].querySelector('h3').focus({ preventScroll: true });
+      play(panes[step - 1]);
+    }
+    prevBtn.addEventListener('click', () => goTo(step - 1, true));
+    nextBtn.addEventListener('click', () => goTo(step + 1, true));
+    stepEls.forEach((li, i) => li.querySelector('.ds-step-btn').addEventListener('click', () => { if (i + 1 !== step) goTo(i + 1, true); }));
+    reduce.addEventListener('change', () => play(panes[step - 1]));
+    document.addEventListener('keydown', e => {
+      if (root.hidden || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) return;
+      if (e.key === 'ArrowRight' && step < TOTAL) goTo(step + 1, false);
+      else if (e.key === 'ArrowLeft' && step > 1) goTo(step - 1, false);
+    });
+    // 切到「剪輯」分頁時從第 1 步開始播（watermark.js 的 setFunc 會送出 qpt:func）；離開時停掉計時器
+    document.addEventListener('qpt:func', e => {
+      if (e.detail === 'edit') goTo(1, false); else { clearTimeout(timer); timer = null; }
+    });
+    goTo(1, false);
+  })();
+
   // ---- 全螢幕教學（步驟精靈）------------------------------------------------------------
   const overlay = document.getElementById('deployOverlay');
   if (!overlay) return;

@@ -61,6 +61,7 @@
       <!-- 標題列右邊放「圖片背景／純色背景」開關（sidepanel.js 把共用的背景選擇器裡的開關搬到這個位置） -->
       <div class="sp-card-head">
         <h2>快速產圖</h2>
+        <button type="button" id="qfFxBtn" class="qf-fx-btn" aria-expanded="false" title="貼上 T 寶貼圖或馬賽克">貼圖</button>
         <div id="qfBgSlot"></div>
       </div>
       <div class="qf-row">
@@ -75,6 +76,8 @@
       <div class="qf-status" id="qfStatus" role="status"></div>
       <!-- 純色背景的色票：切到純色背景時在這裡彈出，一排橫向捲動（sidepanel.js 把共用背景選擇器裡的色票搬進來） -->
       <div class="qf-colors" id="qfColorStrip" hidden></div>
+      <!-- 貼圖與馬賽克：按標題列的「貼圖」在這裡彈出一排（stickers.js） -->
+      <div class="qf-fx" id="qfFxStrip" hidden></div>
     </section>
 
     <section class="card sp-card" id="copyFormat">
@@ -188,6 +191,7 @@
       <h3>套版與編輯</h3>
       <ul>
         <li>預覽下方可選新聞（藍框）或娛樂（粉框）；「快速產圖」標題右邊可切換<b>圖片背景／純色背景</b>（切到純色背景會隨機挑一個顏色，色票在「快速產圖」下方，可左右滑動換色）；背景圖可以直接貼上，或把圖片拖曳到預覽上換圖。標題直接在預覽上<b>點兩下</b>就能修改。</li>
+        <li>「快速產圖」標題列的<b>貼圖</b>按鈕：彈出馬賽克與 7 張 T 寶貼圖，點一下加到預覽，拖曳移動、滾輪縮放，按 × 或 Delete 刪除（馬賽克按住 Shift 滾輪只調寬、Alt 只調高）。</li>
         <li>預覽上滾輪縮放、拖曳調整位置，點兩下可直接輸入標題。</li>
         <li>按「下載圖片」存成 1080×1080 的 PNG；按「複製圖片」會把成品圖直接放進剪貼簿，可以直接貼到其他地方。</li>
       </ul>
@@ -220,6 +224,7 @@
 <script src="scheduler.js"></script>
 <script src="app.js"></script>
 <script src="quickfill.js"></script>
+<script src="stickers.js"></script>
 <script src="bridge.js"></script>
 <script src="sidepanel.js"></script>
 <script src="schedui.js"></script>

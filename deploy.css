@@ -286,3 +286,49 @@ html.ds-lock, html.ds-lock body { overflow: hidden; }
 .tools-name { font-size: 14px; font-weight: 700; color: var(--accent); }
 .tools-desc { font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 .tools-go { margin-top: 2px; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+
+/* ---- 「剪輯」分頁：QuickCut 搬家說明＋功能介紹（版型沿用上面的 .ds-* 安裝教學，這裡只加「嵌在分頁裡」需要的部分）---- */
+.qc[hidden] { display: none; }
+.qc { text-align: left; color: var(--text); font-family: var(--ui-font); }
+.qc-card {
+  max-width: 1180px; margin: 0 auto; padding: 22px 30px 0; box-sizing: border-box; border-radius: 28px;
+  background: radial-gradient(900px 420px at 8% -10%, #e1ecff 0, transparent 62%), rgba(255, 255, 255, .72);
+  border: 1px solid var(--border); box-shadow: 0 30px 60px -40px rgba(0, 43, 102, .45);
+}
+.qc-head { display: flex; align-items: center; gap: 16px; margin: 0; padding: 0; text-align: left; flex-wrap: wrap; }   /* header 在 style.css 有置中與下邊距，要蓋掉 */
+.qc-logo { flex: none; border-radius: 12px; box-shadow: 0 8px 18px -10px rgba(0, 43, 102, .55); }
+.qc-title { flex: 1 1 320px; min-width: 0; }
+.qc-title h2 { margin: 0; font-size: 24px; font-weight: 800; }
+.qc-title p { margin: 5px 0 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.qc-go { flex: none; display: inline-block; text-decoration: none; padding: 12px 26px; font-size: 16px; }
+.qc-go:hover { text-decoration: none; }
+.qc .ds-steps { margin-top: 22px; }
+.qc-main { padding: 18px 2px 22px; }
+.qc .ds-pane { min-height: 0; }
+.qc .ds-foot { margin: 0 -30px; padding-left: 30px; padding-right: 30px; }
+.qc .ds-actions { margin-top: 14px; }
+.qc .ds-actions .ds-btn { flex: 0 1 auto; display: inline-block; text-decoration: none; }
+@media (max-width: 900px) {
+  .qc-card { padding: 16px 16px 0; border-radius: 22px; }
+  .qc .ds-foot { margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+  .qc-title h2 { font-size: 20px; }
+  .qc-go { width: 100%; text-align: center; box-sizing: border-box; }
+}
+
+/* 介紹用的示意圖（時間軸片段、轉場、字幕）：顏色只在這裡定義 */
+.sv .qc-lane { fill: #eef2f9; }
+.sv .qc-cv { fill: #6fa1f2; }
+.sv .qc-cv2 { fill: #8bb8f7; }
+.sv .qc-ci { fill: #f2b36f; }
+.sv .qc-ca { fill: #7ccdb0; }
+.sv .qc-play { fill: #b4c0d8; }
+.sv .qc-play.w { fill: #fff; }
+.sv .qc-ph { fill: #e5484d; }
+.sv .qc-sun { fill: #ffe08a; }
+.sv .qc-sub { fill: rgba(20, 34, 64, .82); }
+.sv .qc-tr { fill: var(--accent); stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.sv .qc-srt { fill: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .ds-art.play .x-sweep { animation: qc-sweep 2.4s 1.7s ease-in-out both; }
+}
+@keyframes qc-sweep { from { opacity: 0; transform: translateX(-250px); } 12% { opacity: 1; } to { opacity: 1; transform: none; } }

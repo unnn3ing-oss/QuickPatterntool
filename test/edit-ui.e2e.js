@@ -11,6 +11,10 @@
 //   CHROMIUM=<路徑>          瀏覽器執行檔（沒設時用 /opt/pw-browsers/chromium，再沒有就用 playwright 預設）
 //   EDIT_VIEWPORTS=1600x1000,1280x800   要跑的視窗大小（逗號分隔）
 // =====================================================================================
+// 【停用】剪輯已搬到獨立網站 QuickCut（https://unnn3ing-oss.github.io/quickcut/，有自己的程式與測試），
+// 這個網頁版的「剪輯」分頁現在只有搬家說明，index.html 不再載入 edit-*.js／edit.css，所以這支測試開不到剪輯介面。
+// 要重跑舊版剪輯測試：設環境變數 QPT_EDIT_LEGACY=1，並自己在 index.html 補回 edit.css 與 edit-*.js 的載入。
+if (!process.env.QPT_EDIT_LEGACY) { console.log('略過：剪輯已搬到 QuickCut（設 QPT_EDIT_LEGACY=1 才會執行）'); process.exit(0); }
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

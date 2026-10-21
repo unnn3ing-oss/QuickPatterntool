@@ -7,6 +7,10 @@
 // 對照畫格用 ffmpeg 解出來，比對 seekSource 拿到的是不是那一格。
 // edit-core.js／edit-fx.js 還是佔位時，會注入 EDIT_STUBS 指定的替身（只補缺的函式）。
 // =====================================================================================
+// 【停用】剪輯已搬到獨立網站 QuickCut（https://unnn3ing-oss.github.io/quickcut/，有自己的程式與測試），
+// 這個網頁版的「剪輯」分頁現在只有搬家說明，index.html 不再載入 edit-*.js／edit.css，所以這支測試開不到剪輯介面。
+// 要重跑舊版剪輯測試：設環境變數 QPT_EDIT_LEGACY=1，並自己在 index.html 補回 edit.css 與 edit-*.js 的載入。
+if (!process.env.QPT_EDIT_LEGACY) { console.log('略過：剪輯已搬到 QuickCut（設 QPT_EDIT_LEGACY=1 才會執行）'); process.exit(0); }
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

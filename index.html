@@ -22,7 +22,6 @@
 <link rel="stylesheet" href="sched.css">
 <link rel="stylesheet" href="schedweb.css">
 <link rel="stylesheet" href="qfweb.css">
-<link rel="stylesheet" href="edit.css">
 </head>
 <body>
 <!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印／拼圖）、右側說明與安裝插件按鈕 -->
@@ -37,7 +36,6 @@
       <button type="button" class="func-btn" id="funcEditBtn" aria-pressed="false">剪輯</button>
     </div>
     <div class="topbar-actions">
-      <button type="button" id="edThemeBtn" class="help-btn ed-theme-btn" aria-pressed="true" title="切換深色／淺色（目前：深色）"><span class="ed-theme-ic" aria-hidden="true">☾</span><span class="ed-theme-tx">深色</span></button>
       <button type="button" id="helpBtn" class="help-btn">使用說明</button>
       <button type="button" id="deployBtn" class="help-btn">安裝插件</button>
     </div>
@@ -285,30 +283,172 @@
     </div>
   </div>
 
-  <!-- 剪輯功能（網頁版專用，邏輯在 edit-*.js）：多軌時間軸影片剪輯，匯出 MP4。
-       版面：上排 媒體庫｜檢視器｜詳細內容，中間工具列，下方時間軸。內容由 edit-ui.js 在載入時產生，
-       匯出對話框（#edExportDialog）由 edit-export.js 填入。 -->
-  <div class="ed-app" id="editApp" hidden>
-    <div class="ed-top" id="edTop">
-      <section class="ed-media" id="edMedia" aria-label="媒體庫"></section>
-      <div class="ed-colsplit" id="edColL" data-col="l" role="separator" aria-orientation="vertical" title="左右拖曳可以調整欄寬（雙擊恢復預設）"></div>
-      <section class="ed-viewer" id="edViewer" aria-label="檢視器">
-        <div class="ed-vbar" id="edVBar"></div>
-        <div class="ed-stage" id="edStage">
-          <canvas id="edCanvas" aria-label="預覽畫面"></canvas>
-          <div class="ed-empty" id="edEmpty"></div>
+  <!-- 剪輯：原本的剪輯工具已獨立成專屬網站 QuickCut（https://unnn3ing-oss.github.io/quickcut/），這個分頁只放「搬家說明＋功能介紹」，
+       介紹的版型沿用「安裝插件」全螢幕教學（deploy.css 的 .ds-*；步驟精靈在 deploy.js 的「QuickCut 介紹」）。
+       id 維持 editApp：watermark.js 的分頁切換靠它顯示／隱藏。舊的剪輯程式（edit-*.js、edit.css）仍留在專案裡但不再載入。 -->
+  <section class="qc" id="editApp" aria-labelledby="qcTitle" hidden>
+    <div class="qc-card">
+      <header class="qc-head">
+        <img class="qc-logo" src="favicon.svg" alt="" width="44" height="44">
+        <div class="qc-title">
+          <h2 id="qcTitle">QuickCut 影片剪輯已經搬家了</h2>
+          <p>多軌時間軸剪輯已獨立成專屬網站，這個分頁不再提供剪輯。按右邊的按鈕就能前往（會在新分頁開啟）。</p>
         </div>
-        <div class="ed-scrubwrap" id="edScrubWrap"></div>
-        <div class="ed-transport" id="edTransport"></div>
-      </section>
-      <div class="ed-colsplit" id="edColR" data-col="r" role="separator" aria-orientation="vertical" title="左右拖曳可以調整欄寬（雙擊恢復預設）"></div>
-      <section class="ed-inspector" id="edInspector" aria-label="詳細內容"></section>
+        <a class="ds-btn primary qc-go" id="qcGo" href="https://unnn3ing-oss.github.io/quickcut/" target="_blank" rel="noopener noreferrer">前往 QuickCut <span aria-hidden="true">↗</span></a>
+      </header>
+
+      <ol class="ds-steps" id="qcSteps" aria-label="功能介紹">
+        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 1：多軌時間軸"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">多軌時間軸</span></button></li>
+        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 2：轉場與字幕"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">轉場與字幕</span></button></li>
+        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 3：專案檔"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">專案檔與暫存</span></button></li>
+        <li class="ds-step"><button type="button" class="ds-step-btn" aria-label="介紹 4：匯出 MP4"><span class="ds-dot" aria-hidden="true"></span><span class="ds-lbl">匯出 MP4</span></button></li>
+      </ol>
+
+      <div class="qc-main">
+        <!-- 1：多軌時間軸 -->
+        <section class="ds-pane" data-step="1" data-cycle="7000" aria-labelledby="qch1">
+          <div class="ds-art" aria-hidden="true">
+            <svg class="sv" viewBox="0 0 480 300" focusable="false">
+              <g class="sv-all">
+                <rect class="win" x="30" y="16" width="420" height="268" rx="12"/>
+                <rect class="skel" x="44" y="30" width="86" height="116" rx="8"/>
+                <rect class="card" x="138" y="30" width="204" height="116" rx="8"/>
+                <rect class="skel" x="350" y="30" width="86" height="116" rx="8"/>
+                <text class="t s m" x="87" y="48" text-anchor="middle">媒體庫</text>
+                <text class="t s m" x="393" y="48" text-anchor="middle">詳細內容</text>
+                <polygon class="qc-play" points="226,70 226,106 256,88"/>
+                <text class="t s m" x="240" y="130" text-anchor="middle">檢視器</text>
+                <rect class="qc-lane" x="44" y="158" width="392" height="52" rx="6"/>
+                <rect class="qc-lane" x="44" y="214" width="392" height="52" rx="6"/>
+                <text class="t s b" x="52" y="188">V1</text>
+                <text class="t s b" x="52" y="244">A1</text>
+                <rect class="qc-cv x-pop" style="--d:.4s" x="84" y="164" width="96" height="40" rx="6"/>
+                <rect class="qc-cv2 x-pop" style="--d:.8s" x="184" y="164" width="84" height="40" rx="6"/>
+                <rect class="qc-ci x-pop" style="--d:1.2s" x="272" y="164" width="120" height="40" rx="6"/>
+                <rect class="qc-ca x-pop" style="--d:.7s" x="84" y="220" width="184" height="40" rx="6"/>
+                <rect class="qc-ca x-pop" style="--d:1.5s" x="272" y="220" width="120" height="40" rx="6"/>
+                <g class="x-sweep"><rect class="qc-ph" x="328" y="154" width="2.4" height="116"/><polygon class="qc-ph" points="323,150 335,150 329,160"/></g>
+              </g>
+            </svg>
+          </div>
+          <div class="ds-text">
+            <p class="ds-kicker">功能 1／4</p>
+            <h3 id="qch1" tabindex="-1">多軌時間軸剪輯</h3>
+            <p class="ds-lead">把影片、音訊、圖片排進時間軸，剪成一支影片。版面是左邊媒體庫、中間檢視器、右邊詳細內容，下面是時間軸，操作邏輯照 DaVinci Resolve 的剪輯頁來做。</p>
+            <ol class="ds-do">
+              <li>匯入影片、音訊或圖片，用入點、出點選好要用的範圍，再<b>插入、覆蓋、替換或加到結尾</b>。</li>
+              <li>工具有<b>選取、刀片、修剪</b>（滾動、波紋、滑移、滑動），快捷鍵跟 DaVinci 一致。</li>
+              <li>影片的畫面與聲音會自動連結，可以分開調整。</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- 2：轉場與字幕 -->
+        <section class="ds-pane" data-step="2" data-cycle="7000" aria-labelledby="qch2" hidden>
+          <div class="ds-art" aria-hidden="true">
+            <svg class="sv" viewBox="0 0 480 300" focusable="false">
+              <g class="sv-all">
+                <rect class="win" x="30" y="16" width="420" height="268" rx="12"/>
+                <rect class="qc-cv" x="96" y="32" width="288" height="150" rx="10"/>
+                <rect class="qc-ci x-fade" style="--d:.9s" x="96" y="32" width="288" height="150" rx="10"/>
+                <circle class="qc-sun x-fade" style="--d:.9s" cx="330" cy="76" r="18"/>
+                <g class="x-pop" style="--d:1.8s"><rect class="qc-sub" x="140" y="140" width="200" height="30" rx="8"/><text class="t w" x="240" y="160" text-anchor="middle">字幕也能有出場動畫</text></g>
+                <rect class="qc-lane" x="44" y="198" width="392" height="72" rx="6"/>
+                <rect class="qc-cv x-pop" style="--d:.3s" x="60" y="206" width="164" height="40" rx="6"/>
+                <rect class="qc-ci x-pop" style="--d:.6s" x="232" y="206" width="164" height="40" rx="6"/>
+                <g class="x-pop" style="--d:1.1s"><polygon class="qc-tr" points="228,200 240,226 228,252 216,226"/><text class="t s w" x="228" y="230" text-anchor="middle">×</text></g>
+                <g class="x-pop" style="--d:2.4s"><rect class="qc-srt" x="60" y="250" width="86" height="16" rx="8"/><text class="t s w" x="103" y="262" text-anchor="middle">SRT 字幕</text></g>
+              </g>
+            </svg>
+          </div>
+          <div class="ds-text">
+            <p class="ds-kicker">功能 2／4</p>
+            <h3 id="qch2" tabindex="-1">轉場特效與字幕</h3>
+            <p class="ds-lead">兩段影片中間可以加轉場，字幕可以直接打，也能匯入整份 SRT。</p>
+            <ol class="ds-do">
+              <li><b>8 種轉場</b>：交叉疊化、淡出到黑、擦除、推移等；兩段相接是雙邊轉場，開頭與結尾則是淡入、淡出。</li>
+              <li>相接的兩段影片都有聲音時，轉場會自動做<b>聲音交叉淡化</b>。</li>
+              <li>字幕有<b>彈出、逐行彈出、逐字彈出、跳起</b>等字體特效，可以<b>匯入、匯出 SRT</b>（UTF-8、Big5 都能讀）。</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- 3：專案檔與自動暫存 -->
+        <section class="ds-pane" data-step="3" data-cycle="7000" aria-labelledby="qch3" hidden>
+          <div class="ds-art" aria-hidden="true">
+            <svg class="sv" viewBox="0 0 480 300" focusable="false">
+              <g class="sv-all">
+                <rect class="card" x="36" y="62" width="168" height="170" rx="16"/>
+                <text class="t s m" x="120" y="84" text-anchor="middle">剪輯進度</text>
+                <rect class="qc-cv x-pop" style="--d:.3s" x="52" y="98" width="76" height="22" rx="5"/>
+                <rect class="qc-ci x-pop" style="--d:.6s" x="132" y="98" width="56" height="22" rx="5"/>
+                <rect class="qc-ca x-pop" style="--d:.9s" x="52" y="128" width="136" height="22" rx="5"/>
+                <rect class="qc-cv2 x-pop" style="--d:1.2s" x="52" y="158" width="96" height="22" rx="5"/>
+                <text class="t s m x-fade" style="--d:1.4s" x="120" y="212" text-anchor="middle">影片素材不在裡面</text>
+                <path class="route x-fade" style="--d:1.6s" d="M214 148 C 244 148, 252 148, 282 148"/>
+                <g class="x-pop" style="--d:2.1s">
+                  <use class="fold" href="#ds-file" x="294" y="92" width="64" height="82"/>
+                  <text class="t kt" x="326" y="198" text-anchor="middle">.qcut</text>
+                </g>
+                <g class="x-pop" style="--d:2.6s"><rect class="okpill" x="378" y="108" width="68" height="26" rx="13"/><text class="t w" x="412" y="125" text-anchor="middle">幾 KB</text></g>
+                <g class="x-pop" style="--d:3.2s"><rect class="pill hot" x="268" y="224" width="178" height="32" rx="16"/><text class="t a" x="357" y="244" text-anchor="middle">自動暫存，重開可還原</text></g>
+              </g>
+            </svg>
+          </div>
+          <div class="ds-text">
+            <p class="ds-kicker">功能 3／4</p>
+            <h3 id="qch3" tabindex="-1">專案檔與自動暫存</h3>
+            <p class="ds-lead">剪到一半也不怕：進度可以存成專案檔，隔天接著剪。</p>
+            <ol class="ds-do">
+              <li>「儲存專案」會下載一個 <code>.qcut</code> 檔，只存剪輯資料，<b>不含影片素材</b>，所以只有幾 KB。</li>
+              <li>「開啟專案」（或直接把專案檔拖進畫面）會還原進度，缺的素材可以一鍵接回，或選素材所在的資料夾自動配對。</li>
+              <li>每次改動約 1.5 秒就自動暫存在瀏覽器裡，不小心關掉分頁，下次開啟會問你要不要還原。</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- 4：匯出 MP4 -->
+        <section class="ds-pane" data-step="4" data-cycle="8000" aria-labelledby="qch4" hidden>
+          <div class="ds-art" aria-hidden="true">
+            <svg class="sv" viewBox="0 0 480 300" focusable="false">
+              <g class="sv-all">
+                <rect class="win" x="60" y="40" width="360" height="220" rx="14"/>
+                <rect class="bar" x="60" y="40" width="360" height="34" rx="14"/>
+                <rect class="bar" x="60" y="60" width="360" height="14"/>
+                <text class="t b" x="240" y="62" text-anchor="middle">匯出影片</text>
+                <rect class="qc-cv" x="84" y="94" width="120" height="68" rx="8"/>
+                <polygon class="qc-play w" points="130,114 130,142 154,128"/>
+                <text class="t m" x="224" y="112">H.264 ＋ AAC</text>
+                <text class="t b" x="224" y="134">影片.mp4</text>
+                <text class="t s m" x="224" y="154">1080 × 1920 ・ 30 fps</text>
+                <rect class="track" x="84" y="190" width="312" height="12" rx="6"/>
+                <rect class="prog x-prog" x="84" y="190" width="312" height="12" rx="6"/>
+                <text class="t s m x-out" style="--o:4.9s" x="84" y="226">匯出中…</text>
+                <g class="x-pop" style="--d:4.9s"><rect class="okpill" x="84" y="212" width="120" height="30" rx="15"/><text class="t w" x="144" y="232" text-anchor="middle">✓ 匯出完成</text></g>
+              </g>
+            </svg>
+          </div>
+          <div class="ds-text">
+            <p class="ds-kicker">功能 4／4</p>
+            <h3 id="qch4" tabindex="-1">匯出成 MP4</h3>
+            <p class="ds-lead">剪好就直接匯出 MP4，多數播放器和社群平台都能用。</p>
+            <ol class="ds-do">
+              <li>瀏覽器支援時輸出 <b>H.264 ＋ AAC</b>，否則退為 VP9 ＋ Opus。</li>
+              <li>素材全部在你的瀏覽器裡處理，<b>不會上傳</b>到任何伺服器。</li>
+              <li>建議用最新版 <b>Chrome 或 Edge</b>（匯出用 WebCodecs），桌面瀏覽器專用。</li>
+            </ol>
+            <div class="ds-actions"><a class="ds-btn primary" href="https://unnn3ing-oss.github.io/quickcut/" target="_blank" rel="noopener noreferrer">前往 QuickCut <span aria-hidden="true">↗</span></a></div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="ds-foot">
+        <button type="button" class="ds-btn" id="qcPrev">上一步</button>
+        <span class="ds-count" id="qcCount" aria-live="polite">1 / 4</span>
+        <button type="button" class="ds-btn primary" id="qcNext">下一步</button>
+      </footer>
     </div>
-    <div class="ed-split" id="edSplit" role="separator" aria-orientation="horizontal" title="上下拖曳可以調整時間軸的高度"></div>
-    <div class="ed-toolbar" id="edToolbar" role="toolbar" aria-label="剪輯工具"></div>
-    <section class="ed-timeline" id="edTimeline" aria-label="時間軸"></section>
-    <dialog class="ed-export" id="edExportDialog"></dialog>
-  </div>
+  </section>
 
   <!-- 改尺寸功能（網頁版專用，邏輯在 resize.js）：自訂寬高，批次轉換圖片的長寬尺寸 -->
   <div class="layout" id="resizeApp" hidden>
@@ -893,12 +1033,5 @@
 <script src="schedweb.js"></script>
 <script src="quickfill.js"></script>
 <script src="qfweb.js"></script>
-<!-- 剪輯（網頁版專用）：載入順序有依賴關係，core → fx → render → stab → ui → export -->
-<script src="edit-core.js"></script>
-<script src="edit-fx.js"></script>
-<script src="edit-render.js"></script>
-<script src="edit-stab.js"></script>
-<script src="edit-ui.js"></script>
-<script src="edit-export.js"></script>
 </body>
 </html>

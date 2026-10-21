@@ -3,6 +3,10 @@
 // 沙盒的 Chromium 沒有 H.264／AAC 編碼器，所以這裡走 VP9（或 AV1）＋Opus；H.264＋AAC 的封裝由 test/edit-mp4.test.js 用 ffmpeg 交叉驗證。
 // 需要 playwright 與 ffmpeg：NODE_PATH=<有 playwright 的 node_modules> node --test test/edit-export.e2e.js
 // 匯出的檔案預設放在暫存資料夾、測完刪掉；設 ED_EXPORT_OUT=<資料夾> 會保留檔案和截圖。
+// 【停用】剪輯已搬到獨立網站 QuickCut（https://unnn3ing-oss.github.io/quickcut/，有自己的程式與測試），
+// 這個網頁版的「剪輯」分頁現在只有搬家說明，index.html 不再載入 edit-*.js／edit.css，所以這支測試開不到剪輯介面。
+// 要重跑舊版剪輯測試：設環境變數 QPT_EDIT_LEGACY=1，並自己在 index.html 補回 edit.css 與 edit-*.js 的載入。
+if (!process.env.QPT_EDIT_LEGACY) { console.log('略過：剪輯已搬到 QuickCut（設 QPT_EDIT_LEGACY=1 才會執行）'); process.exit(0); }
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
