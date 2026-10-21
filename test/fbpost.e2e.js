@@ -18,6 +18,7 @@ const URL_PAGE = 'https://www.facebook.com/tvbsnews';
 // opts：lang 'zh'|'en'｜flow 'direct'|'next'（按鈕叫「下一步」）|'continue'（叫「繼續」，真實 Facebook 的樣子）｜close 'ok'|'never'
 //       click 'normal'|'strict'（按鈕只認「有座標且按下」的真人式點擊）|'keyOnly'（只認鍵盤 Enter）|'dead'（點了沒反應）
 //       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）|'stubborn'（不能換行、清空會被還原）|'dup'（第一次輸入後內容莫名重複一份）|'dupLate'（輸入驗證通過之後才重複一份）
+//       feed 'article'（預設，貼文是 role=article）|'plain'（動態牆完全沒有 role=article）|'wrapper'（整串動態被包在同一個 role=article 裡）｜pinned 動態牆最上面有一則置頂的舊貼文（新貼文出現在它下面）｜lazy 舊貼文在很下面、要捲動才會載入｜noTime 新貼文沒有「剛剛」時間標記
 //       comment 'normal'（留言框按 Enter 送出）|'sendBtn'（Enter 沒用，要按送出鈕）|'noSubmit'（怎麼都送不出）｜noArticle 發佈後動態牆沒有出現新貼文｜oldText 動態牆本來就有一則同文字的舊貼文
 function mock(opts = {}) {
   const L = opts.lang === 'en'
@@ -35,9 +36,11 @@ document.getElementById('nav').addEventListener('click', () => window.__events.p
 const opts = ${JSON.stringify(opts)}, L = ${JSON.stringify(L)};
 const NEXT = opts.flow === 'continue' ? '繼續' : L.next;
 const btn = (label, extra='') => '<div role="button" aria-label="'+label+'" '+extra+'>'+label+'</div>';
-function makeArticle(text, imgs) {
-  const a = document.createElement('div'); a.setAttribute('role', 'article');
-  a.innerHTML = '<div>粉專名稱</div><div class="body"></div><div class="actions">' + btn('讚') + btn('留言') + btn('分享') + '</div><div class="cbox"></div>';
+function makeArticle(text, imgs, fresh) {
+  const a = document.createElement('div'); a.className = 'post';
+  if (opts.feed !== 'plain') a.setAttribute('role', 'article');
+  const when = fresh ? (opts.noTime ? '' : '剛剛') : '3 天';
+  a.innerHTML = '<div>粉專名稱 · ' + when + '</div><div class="body"></div><div class="actions">' + btn('讚') + btn('留言') + btn('分享') + '</div><div class="cbox"></div>';
   a.querySelector('.body').textContent = text;
   for (let i = 0; i < imgs; i++) { const im = document.createElement('img'); im.className = 'thumb'; im.src = '${PNG}'; a.querySelector('.body').append(im); }
   a.querySelector('[aria-label="留言"]').addEventListener('click', () => openComment(a));
@@ -51,14 +54,26 @@ function openComment(a) {
   function submit() {
     const text = cb.innerText.trim(); if (!text) return;
     window.__comments.push(text);
-    const c = document.createElement('div'); c.setAttribute('role', 'article'); c.setAttribute('aria-label', '留言由 小編'); c.textContent = text; a.append(c);
+    const c = document.createElement('div'); c.className = 'cmt'; if (opts.feed !== 'plain') { c.setAttribute('role', 'article'); c.setAttribute('aria-label', '留言由 小編'); } c.textContent = text; a.append(c);
     cb.innerHTML = '';
   }
   cb.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.__events.push('comment-enter'); if (!opts.comment || opts.comment === 'normal') submit(); } });
   const send = holder.querySelector('.send'); if (send) send.addEventListener('click', submit);
 }
-if (opts.oldText) document.getElementById('posts').append(makeArticle(opts.oldText, 0));
-document.getElementById('posts').append(makeArticle('更早的一則貼文', 0));
+const posts = document.getElementById('posts');
+if (opts.feed === 'wrapper') { const w = document.createElement('div'); w.setAttribute('role', 'article'); posts.replaceWith(w); w.append(posts); }
+if (opts.pinned) { const pin = makeArticle('置頂的公告貼文', 0, false); posts.parentElement.insertBefore(pin, posts); }
+function fill(n, start) { for (let i = 0; i < n; i++) { const p = makeArticle('更早的第 ' + (start + i) + ' 則貼文內容', 0, false); p.style.height = '260px'; posts.append(p); } }
+if (opts.lazy) {
+  // 動態牆往下捲才載入更多：舊貼文（oldText）在第 21 則
+  let loaded = 0; const BATCH = 7;
+  const more = () => { const start = loaded; fill(BATCH, start); loaded += BATCH; if (opts.oldText && start <= 20 && 20 < loaded) { const old = makeArticle(opts.oldText, 0, false); old.style.height = '260px'; posts.children[20 - start + posts.children.length - BATCH].replaceWith(old); } };
+  more();
+  window.addEventListener('scroll', () => { if (window.scrollY + window.innerHeight > document.body.scrollHeight - 600 && loaded < 42) more(); });
+} else {
+  if (opts.oldText) posts.append(makeArticle(opts.oldText, 0, false));
+  posts.append(makeArticle('更早的一則貼文', 0, false));
+}
 function openDialog() {
   setTimeout(() => {
     const d = document.createElement('div'); d.setAttribute('role','dialog'); d.id = 'dlg';
@@ -122,7 +137,7 @@ function openDialog() {
         const articleText = d.dataset.text !== undefined ? d.dataset.text : (box ? box.innerText : '');
         const articleImgs = d.dataset.imgs !== undefined ? +d.dataset.imgs : d.querySelectorAll('img.thumb').length;
         d.remove();
-        if (!opts.noArticle) setTimeout(() => document.getElementById('posts').prepend(makeArticle(articleText.trim(), articleImgs)), 300);
+        if (!opts.noArticle) setTimeout(() => document.getElementById('posts').prepend(makeArticle(articleText.trim(), articleImgs, true)), 300);
       }, 500);
     }
     let armed = false;
@@ -158,7 +173,7 @@ async function open(t, opts) {
     window.chrome = { runtime: { id: 'me', sendMessage: m => { window.__sent.push(m); return Promise.resolve(); }, onMessage: { addListener: f => { window.__listener = f; } } } };
   });
   await page.addScriptTag({ content: SCRIPT });
-  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, article: 2500, commentSent: 700, poll: 50 }));
+  await page.evaluate(() => Object.assign(QptFbPost.T, { trigger: 800, text: 400, settle: 60, upload: 3000, enabled: 1500, closed: 1500, pressWait: 1200, hop: 100, article: 2500, articleOld: 6000, scrollAfter: 400, scrollWait: 120, commentSent: 700, heartbeat: 150, deadline: 600000, poll: 50 }));
   // 沒有回應（忽略訊息）時回傳 undefined
   const send = (job, sender = { id: 'me' }) => page.evaluate(([j, s]) => new Promise(res => {
     window.__listener({ type: 'fbpost:run', job: j }, s, res);
@@ -166,7 +181,7 @@ async function open(t, opts) {
   }), [job, sender]);
   const result = async () => {
     await page.waitForFunction(() => window.__sent.some(m => m.type === 'fbpost:result'), null, { timeout: 15000 });
-    return page.evaluate(() => ({ result: window.__sent.find(m => m.type === 'fbpost:result'), steps: window.__sent.filter(m => m.type === 'fbpost:progress').map(m => m.step) }));
+    return page.evaluate(() => ({ result: window.__sent.find(m => m.type === 'fbpost:result'), steps: window.__sent.filter(m => m.type === 'fbpost:progress').map(m => m.step).filter((x, i, a) => i === 0 || x !== a[i - 1]) }));   // 心跳會重複回報同一步，合併連續的
   };
   return { page, errors, send, result };
 }
@@ -532,7 +547,8 @@ test('補留言找不到貼文：報錯，不留言到別則貼文', { skip }, a
   await send({ id: 'c6', mode: 'comment', text: '一則根本不存在的貼文內容', images: [], comment: COMMENT, dryRun: false });
   const { result: r } = await result();
   assert.equal(r.ok, false);
-  assert.match(r.error, /找不到剛發佈的貼文/);
+  assert.match(r.error, /找不到這則貼文/);
+  assert.match(r.error, /頁面上：role=article \d+ 個.*「留言」鈕 \d+ 個.*含貼文開頭文字的位置 0 處/);   // 找不到時要把頁面實際長相回報出來
   assert.deepEqual(await comments(page), []);
 });
 
@@ -544,4 +560,105 @@ test('發佈前守門：驗證通過後內容才莫名重複 → 發佈前抓到
   const posted = await page.evaluate(() => window.__posted);
   assert.equal(posted.text.replace(/\s+/g, ''), '【標題】（圖／TVBS）#霸凌#宮廟');
   assert.equal(await publishes(page), 1);
+});
+
+// ---- 找「剛發的貼文」：Facebook 結構不同時也要找得到，找不到要說清楚 ----------------------
+test('動態牆完全沒有 role=article（貼文是一般的 div）：照樣找得到剛發的貼文並留言', { skip }, async t => {
+  const { page, send, result } = await open(t, { feed: 'plain' });
+  assert.equal(await page.locator('[role=article]').count(), 0);
+  await send(job({ comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done', r.commentError);
+  assert.deepEqual(await comments(page), [COMMENT]);
+  assert.equal(await page.locator('#posts > .post').first().locator('.cmt').count(), 1);
+  assert.equal(await page.locator('#posts > .post').nth(1).locator('.cmt').count(), 0);
+});
+
+test('整串動態被包在同一個 role=article 裡、最上面還有置頂的舊貼文、又有同文字的舊貼文：留言只留在新貼文', { skip }, async t => {
+  const { page, send, result } = await open(t, { feed: 'wrapper', pinned: true, oldText: '第一行 第二行 #標籤' });
+  await send(job({ comment: COMMENT, images: [] }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done', r.commentError);
+  assert.deepEqual(await comments(page), [COMMENT]);
+  assert.equal(await page.locator('#posts > .post').count(), 3);
+  assert.equal(await page.locator('#posts > .post').nth(0).locator('.cmt').count(), 1);
+  assert.equal(await page.locator('#posts > .post').nth(1).locator('.cmt').count(), 0);
+  assert.equal(await page.locator('#posts > .post').nth(2).locator('.cmt').count(), 0);
+  assert.equal(await page.locator('.post', { hasText: '置頂的公告貼文' }).locator('.cmt').count(), 0, '不能留到置頂的貼文上');
+});
+
+test('補留言：舊貼文在很下面（動態牆要往下捲才會載入）→ 自動往下捲找到它再留言', { skip }, async t => {
+  const text = '很久以前發的那一則貼文內容';
+  const { page, send, result } = await open(t, { lazy: true, oldText: text });
+  assert.equal(await page.locator('.post', { hasText: text }).count(), 0, '一開始不在畫面上');
+  await send({ id: 'c9', mode: 'comment', text, images: [], comment: COMMENT, dryRun: false });
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.commentState, 'done');
+  assert.deepEqual(await comments(page), [COMMENT]);
+  assert.equal(await page.locator('.post', { hasText: text }).locator('.cmt').count(), 1);
+});
+
+test('找不到貼文時，錯誤訊息會附上頁面實際的結構（role=article 數、留言鈕數、最上面的貼文），方便對照真實畫面', { skip }, async t => {
+  const { send, result } = await open(t, { noArticle: true });
+  await send(job({ comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.commentState, 'failed');
+  assert.match(r.commentError, /找不到剛發佈的貼文/);
+  assert.match(r.commentError, /role=article 1 個（最上層 1 個）、「留言」鈕 1 個、含貼文開頭文字的位置 0 處；最上面的貼文：「粉專名稱 · 3 天更早的一則貼文/);
+});
+
+test('只有圖片的新貼文沒有「剛剛」時間標記：不猜，留言標成失敗（寧可不留言，也不留到別則貼文）', { skip }, async t => {
+  const { page, send, result } = await open(t, { noTime: true });
+  await send(job({ text: '', comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true);
+  assert.equal(r.commentState, 'failed');
+  assert.deepEqual(await comments(page), []);
+});
+
+test('補留言但貼文只有圖片：沒有文字可以找到它，直接說明並請手動留言', { skip }, async t => {
+  const { send, result } = await open(t, {});
+  await send({ id: 'c10', mode: 'comment', text: '', images: [], comment: COMMENT, dryRun: false });
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /只有圖片.*請手動留言/);
+});
+
+// ---- 不能卡住：心跳、期限、中止 ------------------------------------------------------
+test('執行中會持續送「心跳」（同一步重複回報），背景靠它知道分頁的腳本還活著', { skip }, async t => {
+  const { page, send, result } = await open(t, { close: 'never' });
+  await send(job({ images: [] }));
+  await result();
+  const beats = await page.evaluate(() => window.__sent.filter(m => m.type === 'fbpost:progress' && m.step === 'publishing').length);
+  assert.ok(beats >= 4, `心跳只有 ${beats} 次`);
+});
+
+test('整次執行有最後期限：到了就中止並回報；中止後原本的流程不會在背景繼續動作', { skip }, async t => {
+  const { page, send, result } = await open(t, { close: 'never' });
+  await page.evaluate(() => Object.assign(QptFbPost.T, { deadline: 900, closed: 8000 }));
+  await send(job({ images: [], comment: COMMENT }));
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /超過.*分鐘還沒完成，已中止/);
+  const before = await page.evaluate(() => window.__sent.length);
+  await new Promise(res => setTimeout(res, 1500));
+  assert.equal(await page.evaluate(() => window.__sent.filter(m => m.type === 'fbpost:result').length), 1, '只回報一次結果');
+  assert.equal(await page.evaluate(() => window.__sent.length), before, '回報結果之後不能再有任何訊息（心跳停了、流程也沒有繼續動作）');
+  assert.equal(await publishes(page), 1);
+  assert.deepEqual(await comments(page), []);
+});
+
+test('收到「中止」：腳本立刻停手並回報失敗', { skip }, async t => {
+  const { page, send, result } = await open(t, { close: 'never' });
+  await page.evaluate(() => { QptFbPost.T.closed = 8000; });
+  await send(job({ images: [] }));
+  await page.waitForFunction(() => window.__sent.some(m => m.type === 'fbpost:progress' && m.step === 'publishing'));
+  await page.evaluate(() => window.__listener({ type: 'fbpost:cancel', id: 'j1' }, { id: 'me' }, () => {}));
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /已中止|沒有關閉/);
+  assert.equal(await publishes(page), 1, '中止不會再多按一次發佈');
 });

@@ -157,7 +157,8 @@ test('清單：依時間排序；各狀態顯示原因；刪除；試跑直接�
   assert.deepEqual(texts.map(s => s.replace(/　.*/, '')), ['錯過的', '發好的', '失敗的', '跑中', '早的', '晚的']);
   assert.match(await page.locator('.sch-failed .sch-detail').textContent(), /文字沒有輸入成功/);
   assert.match(await page.locator('.sch-running .sch-detail').textContent(), /上傳圖片/);
-  assert.equal(await page.locator('.sch-running button').count(), 0);          // 執行中不能操作
+  assert.deepEqual(await page.locator('.sch-running button').allTextContents(), ['中止']);   // 執行中只能中止，不能編輯、刪除、重複執行
+  assert.match(await page.locator('.sch-running .sch-detail').textContent(), /已 \d+ 秒；卡住的話可以按「中止」/);
   assert.equal(await page.locator('.sch-done button').count(), 1);             // 已發佈只能刪除
   assert.match(await page.locator('.sch-pending .sch-text').first().textContent(), /🖼 1/);
 
@@ -346,4 +347,29 @@ test('已發佈的貼文：顯示留言狀態；有留言內容才有「試跑�
   // 已經留言成功的：按鈕改叫「再留言」，並警告會重複
   await page.locator('.sch-item', { hasText: '留言成功的' }).getByRole('button', { name: '再留言' }).click();
   assert.match(await page.locator('#confirmMessage').textContent(), /重複的留言/);
+});
+
+test('執行中的排程可以「中止」：先確認（已按下發佈／留言階段的提醒不同），確認後請外掛中止', { skip }, async t => {
+  const now = Date.now();
+  const { page } = await open(t, { queue: [item({ id: 'r1', text: '跑中的', status: 'running', step: 'publishing', startedAt: now - 90000, at: now - 100000 })] });
+  assert.match(await page.locator('.sch-running .sch-detail').textContent(), /已 1 分 \d+ 秒/);
+  await page.getByRole('button', { name: '中止' }).click();
+  assert.equal(await page.locator('#confirmOverlay.open').count(), 1);
+  assert.match(await page.locator('#confirmMessage').textContent(), /已經按下發佈.*先到粉專確認/);
+  assert.equal(await page.evaluate(() => window.__sent.length), 0, '確認前不能中止');
+  await page.click('#confirmCancelBtn');
+  assert.equal(await page.evaluate(() => window.__sent.length), 0);
+  await page.getByRole('button', { name: '中止' }).click();
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => window.__sent.length === 1);
+  assert.deepEqual(await page.evaluate(() => window.__sent[0]), { type: 'poster:cancel', id: 'r1' });
+});
+
+test('中止的提醒依階段不同：留言階段說「貼文已經發佈，只會中止留言」，其他階段說「貼文不會發佈」', { skip }, async t => {
+  const now = Date.now();
+  for (const [step, re] of [['commenting', /貼文已經發佈，只會中止留言/], ['text', /貼文不會發佈/]]) {
+    const { page } = await open(t, { queue: [item({ id: 'r2', status: 'running', step, startedAt: now - 5000, at: now - 9000 })] });
+    await page.getByRole('button', { name: '中止' }).click();
+    assert.match(await page.locator('#confirmMessage').textContent(), re, step);
+  }
 });

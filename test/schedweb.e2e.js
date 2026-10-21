@@ -220,3 +220,17 @@ test('帶入目前圖文：多張卡片時以「正在編輯（展開）」的�
   // 帶入沒有把正在編輯的畫面換掉
   assert.equal(await page.locator('.batch-item-block textarea').inputValue(), '第二張的標題');
 });
+
+test('網頁版也能中止執行中（卡住）的排程：經橋接請外掛中止，清單變成失敗並說明', { skip }, async t => {
+  const now = Date.now();
+  const { page } = await open(t, { queue: [item({ id: 'k1', text: '卡住的貼文', status: 'running', step: 'text', startedAt: now - 120000, beat: now, tabId: 7, at: now - 130000 })] });
+  await openDrawer(page);
+  await page.waitForSelector('.sch-running');
+  assert.match(await page.locator('.sch-running .sch-detail').textContent(), /輸入文字…（已 2 分/);
+  await page.getByRole('button', { name: '中止' }).click();
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => window.__data.fbQueue[0].status === 'failed');
+  assert.match((await store(page))[0].error, /已手動中止，沒有發佈/);
+  await page.waitForSelector('.sch-failed');
+  assert.match(await page.locator('.sch-failed .sch-detail').textContent(), /已手動中止/);
+});

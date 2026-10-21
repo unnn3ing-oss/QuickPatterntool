@@ -522,3 +522,187 @@ test('代抓：來源不是網頁版頁面一律拒絕（和排程 API 同一套
   assert.deepStrictEqual(r, { ok: false, error: 'not_allowed' });
   assert.deepStrictEqual(clone(t.fetchLog), []);
 });
+
+// ---- 不能卡住：心跳失聯、接手留言、手動中止 ----------------------------------------------
+const lose = (t, id, step, extra) => t.S.update(id, Object.assign({ step, beat: Date.now() - 60000 }, extra));   // 模擬內容腳本已經 60 秒沒有心跳
+
+test('開始執行會建立「心跳檢查」鬧鐘；進度與心跳更新 beat；結束後兩個鬧鐘都清掉', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  assert.ok(t.alarms.has('post-beat:i1') && t.alarms.has('post-watch:i1'));
+  const first = (await t.get('i1')).beat;
+  assert.ok(first > 0);
+  await new Promise(r => setTimeout(r, 5));
+  t.report({ type: 'fbpost:progress', id: 'i1', step: 'text' });
+  await tick();
+  assert.ok((await t.get('i1')).beat >= first);
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'publishing' });
+  await tick();
+  assert.ok(!t.alarms.has('post-beat:i1') && !t.alarms.has('post-watch:i1'));
+  assert.strictEqual((await t.get('i1')).beat, undefined);
+});
+
+test('心跳正常（最近有回報）→ 檢查不做任何事', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  t.fire('post-beat:i1');
+  await tick();
+  assert.strictEqual((await t.get('i1')).status, 'running');
+});
+
+test('內容腳本失聯（頁面重新載入、分頁當機）：在「輸入文字」等步驟 → 馬上標成失敗並說明，不用等 6 分鐘', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  await lose(t, 'i1', 'text');
+  t.fire('post-beat:i1');
+  await tick();
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'failed');
+  assert.match(it.error, /沒有回應.*停在「輸入文字」.*沒有發佈/);
+  assert.ok(!t.alarms.has('post-beat:i1'));
+});
+
+test('失聯時已經按下發佈 → 失敗訊息說「貼文可能已經發出」', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  await lose(t, 'i1', 'publishing');
+  t.fire('post-beat:i1');
+  await tick();
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'failed');
+  assert.match(it.error, /可能已經發出/);
+});
+
+test('留言階段失聯（發佈後頁面重新載入）：重新交付一次「只留言」的工作；成功 → 已發佈＋留言完成', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  await lose(t, 'i1', 'commenting');
+  t.fire('post-beat:i1');
+  await tick();
+  assert.strictEqual(t.log.sent.length, 2);
+  const job = t.log.sent[1][1].job;
+  assert.deepStrictEqual(clone({ mode: job.mode, images: job.images, dryRun: job.dryRun }), { mode: 'comment', images: [], dryRun: false });
+  assert.match(job.comment, /utm_medium=/);
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'running');
+  assert.strictEqual(it.resume, true);
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'commenting', commentState: 'done' });
+  await tick();
+  const done = await t.get('i1');
+  assert.strictEqual(done.status, 'done');
+  assert.strictEqual(done.commentState, 'done');
+  assert.deepStrictEqual(clone(t.log.removed), [101]);
+});
+
+test('接手留言也失敗 → 貼文早就發佈了，只能算「已發佈＋留言失敗」，絕不標成失敗', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  await lose(t, 'i1', 'commenting');
+  t.fire('post-beat:i1');
+  await tick();
+  t.report({ type: 'fbpost:result', id: 'i1', ok: false, step: 'finding', error: '找不到剛發佈的貼文' });
+  await tick();
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.commentState, 'failed');
+  assert.match(it.commentError, /找不到剛發佈的貼文/);
+});
+
+test('接手只做一次：第二次又失聯 → 不再重送，標成已發佈＋留言失敗', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  await lose(t, 'i1', 'commenting');
+  t.fire('post-beat:i1');
+  await tick();
+  await lose(t, 'i1', 'finding');
+  t.fire('post-beat:i1');
+  await tick();
+  assert.strictEqual(t.log.sent.length, 2, '不能無限重送');
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.commentState, 'failed');
+  assert.match(it.commentError, /貼文已經發佈/);
+});
+
+test('補留言（mode:comment）失聯：不接手，直接記成留言失敗，貼文維持已發佈', async () => {
+  const t = load();
+  await t.S.add(t.item(Object.assign({ status: 'done' }, NOTE_ITEM)));
+  await t.fromPanel({ type: 'poster:start', id: 'i1', mode: 'comment' });
+  await tick();
+  await lose(t, 'i1', 'finding');
+  t.fire('post-beat:i1');
+  await tick();
+  assert.strictEqual(t.log.sent.length, 1);
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.commentState, 'failed');
+});
+
+test('手動中止：還沒發佈 → 標成失敗「沒有發佈」，並叫分頁的腳本停手', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:progress', id: 'i1', step: 'images' });
+  await tick();
+  const r = await t.fromPanel({ type: 'poster:cancel', id: 'i1' });
+  assert.deepStrictEqual(clone(r), { ok: true });
+  await tick();
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'failed');
+  assert.match(it.error, /已手動中止，沒有發佈/);
+  assert.ok(t.log.sent.some(([id, m]) => id === 101 && m.type === 'fbpost:cancel'));
+  assert.ok(!t.alarms.has('post-beat:i1') && !t.alarms.has('post-watch:i1'));
+});
+
+test('手動中止：已按下發佈 → 訊息警告貼文可能已經發出；留言階段 → 已發佈＋留言失敗（可補留言）', async () => {
+  let t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:progress', id: 'i1', step: 'publishing' });
+  await tick();
+  await t.fromPanel({ type: 'poster:cancel', id: 'i1' });
+  await tick();
+  assert.match((await t.get('i1')).error, /可能已經發出/);
+
+  t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:progress', id: 'i1', step: 'commenting' });
+  await tick();
+  await t.fromPanel({ type: 'poster:cancel', id: 'i1' });
+  await tick();
+  const it = await t.get('i1');
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.commentState, 'failed');
+  assert.match(it.commentError, /留言已手動中止/);
+});
+
+test('手動中止：沒在執行的回錯誤；網頁版也能中止（同一套來源驗證）', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  assert.strictEqual((await t.fromPanel({ type: 'poster:cancel', id: 'i1' })).ok, false);
+  assert.strictEqual((await t.fromPanel({ type: 'poster:cancel', id: 'nope' })).ok, false);
+  t.fire('post:i1');
+  await tick();
+  assert.deepStrictEqual(await t.fromWeb('cancel', { id: 'i1' }, { id: 'me', tab: { id: 5 }, url: 'https://evil.example/QuickPatterntool/' }), { ok: false, error: 'not_allowed' });
+  assert.strictEqual((await t.get('i1')).status, 'running');
+  assert.deepStrictEqual(await t.fromWeb('cancel', { id: 'i1' }), { ok: true });
+  assert.strictEqual((await t.get('i1')).status, 'failed');
+});

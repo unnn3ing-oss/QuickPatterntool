@@ -58,6 +58,7 @@
     async edit(id, input) { const r = await call('edit', { id, input }); return { ok: r.ok, error: friendly(r.error) }; },
     async remove(id) { await call('remove', { id }); },
     async start(id, o) { const r = await call('start', { id, dryRun: !!(o && o.dryRun), mode: o && o.mode === 'comment' ? 'comment' : 'post' }); return { ok: r.ok, error: friendly(r.error) }; },
+    async cancel(id) { const r = await call('cancel', { id }); return { ok: r.ok, error: friendly(r.error) }; },
     async loadPrefs() { return { pageUrl: lsGet(PAGE_KEY) || '' }; },
     async savePrefs(p) { lsSet(PAGE_KEY, p.pageUrl || ''); },
     onChange(cb) { changeHandlers.push(cb); }

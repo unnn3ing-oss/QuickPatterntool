@@ -20,12 +20,16 @@
   const TEXTBOX = '[contenteditable="true"][role="textbox"]';
   const MAX_LABEL = 60;
   // 各步驟等待上限（毫秒）；測試時會調小
-  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 1200, article: 30000, commentSent: 6000, poll: 250 };
+  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 1200, article: 30000, articleOld: 60000, scrollAfter: 5000, scrollWait: 700, commentSent: 6000, heartbeat: 4000, deadline: 300000, poll: 250 };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // 逾時中止後，原本的流程不能還在背景繼續動作（例如已經回報失敗了卻又按下發佈）：所有等待立刻結束、所有點擊與換步驟都拒絕
+  let aborted = false;
+  const stopped = () => { if (aborted) throw new Error('已中止'); };
   async function waitFor(fn, timeout) {
     const end = Date.now() + timeout;
     for (;;) {
+      if (aborted) return null;
       let v = null;
       try { v = fn(); } catch (e) { /* 頁面重畫中，下一輪再試 */ }
       if (v) return v;
@@ -94,6 +98,7 @@
   // 只能用在「重複點也沒副作用」的按鈕（開發文框、相片／影片、繼續）。
   let preferred = 0;
   async function pressUntil(el, effect, ms) {
+    stopped();
     const order = METHODS.map((m, i) => i).sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a - b));
     for (const i of order) {
       if (!el.isConnected) return !!effect();
@@ -104,7 +109,7 @@
   }
   // 「發佈」只點一次：就算第一次已經發出、畫面卻沒變，也絕不再點，否則會重複發文。
   // 用前面步驟證明有效的點擊方式；有沒有成功由「視窗是否關閉」判斷。
-  function pressOnce(el) { METHODS[preferred](el); }
+  function pressOnce(el) { stopped(); METHODS[preferred](el); }
   // 失敗時附上畫面上有哪些按鈕，方便判斷是改版還是別的原因
   function visibleButtons(scope) {
     const seen = [];
@@ -191,6 +196,7 @@
   // 把 text 輸入文字框（getBox 每次重新取，因為編輯器會重畫）。每次輸入前文字框都必須是空的：清不掉就停止，
   // 絕不在舊內容上疊加（否則內容會重複好幾份）。換行用 breaks 裡的方式依序試，每種都驗證。
   async function typeInto({ getBox, text, breaks, what }) {
+    stopped();
     const multi = normLines(text).length > 1;
     const attempts = multi ? breaks.map(brk => box => typeWithExec(box, text, brk)) : [box => typeWithExec(box, text, breaks[0])];
     attempts.push(box => typeWithPaste(box, text));
@@ -293,21 +299,110 @@
   }
 
   // ---- 留言 ------------------------------------------------------------
-  // 動態牆最上層的貼文（留言本身也是 role=article，但它們在貼文裡面，要排除）
+  // 找「剛發的那則貼文」不能只靠 role=article：Facebook 的結構常變，貼文不一定是 article，整串動態也可能被包在同一個容器裡。
+  // 所以改成「從文字往上找」：先找到包含貼文開頭文字的元素，再往上爬到「剛好只有一則貼文」的那一層（那一層只有一顆「留言」動作鈕）。
+  // 找不到寧可不留言，也不能留到別則貼文上；找不到時會把頁面實際的結構回報出來，方便對照真實畫面調整。
+  const RECENT = /剛剛|剛才|Just now|^\d+\s*(秒|分鐘|分|s|m|min|mins)\b/i;   // 新貼文的時間標記（只有圖片、沒有文字可比對時用）
+  const BOUNDARY = '[role="main"], [role="feed"], [role="banner"], [role="navigation"], [role="complementary"]';
+  const collapse = el => (el.textContent || '').replace(/\s+/g, ' ').trim();
+  // 動態牆最上層的 role=article（留言本身也是 role=article，但它們在貼文裡面，要排除）
   const topArticles = () => [...document.querySelectorAll('[role="article"]')].filter(a => isVisible(a) && !(a.parentElement && a.parentElement.closest('[role="article"]')));
   const articleSig = a => squash(a.textContent || '').slice(0, 160);
   const countSigs = list => list.reduce((m, a) => { const k = articleSig(a); m[k] = (m[k] || 0) + 1; return m; }, {});
-  // 找「剛發的那則」：有文字就只看包含文字開頭的貼文；而且要是「發佈前沒有的」——同樣特徵的貼文數量比發佈前多，
-  // 最上面那一則就是新的（動態牆本來就有同文字的舊貼文也不會誤認）。找不到就回 null，寧可不留言也不留到別則貼文上。
-  function findPostArticle(text, before) {
-    const head = squash(text || '').slice(0, 24);
-    const list = topArticles();
-    const now = countSigs(list);
-    return list.find(a => (!head || squash(a.textContent || '').includes(head)) && now[articleSig(a)] > (before[articleSig(a)] || 0)) || null;
+  // 貼文開頭：前幾行去掉空白後的前 24 個字（第一行太短就接第二行，免得「好」這種太容易撞到別則）
+  function headOf(text) {
+    let h = '';
+    for (const l of normLines(text || '')) { h += squash(l); if (h.length >= 12) break; }
+    return h.slice(0, 24);
   }
-  const commentBox = a => { const b = a && a.querySelector(TEXTBOX); return b && isVisible(b) ? b : null; };
+  // 動態牆上「看得到的」貼文動作列的「留言」鈕（不含發文視窗；巢狀重複的只算一次）。
+  // 留言框打開後，貼文裡會多一顆也叫「留言」的送出鈕（通常只有圖示、只有 aria-label），不能算成另一則貼文的動作列，
+  // 所以優先只算「有『留言』這個可見文字」的按鈕；一顆有文字的都沒有時，才退回用 aria-label 判斷。
+  function commentButtons(scope) {
+    const all = [...scope.querySelectorAll('[role="button"], button, [aria-label]')].filter(el => {
+      if (!isVisible(el) || el.closest('[role="dialog"]')) return false;
+      const l = labelOf(el);
+      return !!l && l.length <= 20 && matches(l, LABELS.commentBtn);
+    });
+    const uniq = all.filter(el => !all.some(o => o !== el && o.contains(el)));
+    const withText = uniq.filter(el => matches(collapse(el), LABELS.commentBtn));
+    return withText.length ? withText : uniq;
+  }
+  // 包含貼文開頭的「最深元素」們：文字可能被切成好幾個節點，所以從文字節點往上爬，爬到「整段開頭都在裡面」的第一層。
+  // 發文視窗、輸入框裡的字（例如我們剛打的留言）不算。
+  function elementsWithText(head) {
+    const probe = head.slice(0, 4), out = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!squash(n.nodeValue || '').includes(probe)) continue;
+      let el = n.parentElement;
+      while (el && el !== document.body && !squash(el.textContent || '').includes(head)) el = el.parentElement;
+      if (!el || el === document.body || el.closest('[role="dialog"], [contenteditable="true"]') || !isVisible(el) || out.includes(el)) continue;
+      out.push(el);
+    }
+    return out;
+  }
+  // 這段文字所在的「貼文單元」：優先是最上層的 role=article（但裡面只能有一則貼文）；否則從文字往上爬到有「留言」鈕的那一層，
+  // 再往上長到「再往上就會包到第二則貼文」為止。找不到（或裡面有好幾則）就回 null。
+  function unitFor(el) {
+    let art = el.closest('[role="article"]');
+    if (art) {
+      for (let p; (p = art.parentElement && art.parentElement.closest('[role="article"]'));) art = p;
+      if (commentButtons(art).length <= 1) return art;
+    }
+    let u = el;
+    while (u && u !== document.body && commentButtons(u).length === 0) u = u.parentElement;
+    if (!u || u === document.body || commentButtons(u).length > 1) return null;
+    while (u.parentElement && u.parentElement !== document.body && !u.parentElement.matches(BOUNDARY) && commentButtons(u.parentElement).length === 1) u = u.parentElement;
+    return u;
+  }
+  function findUnits(head) {
+    const units = [];
+    for (const el of elementsWithText(head)) { const u = unitFor(el); if (u && !units.includes(u)) units.push(u); }
+    return units;
+  }
+  // 發佈前拍一張快照：之後「比發佈前多出來的那一則」才是新貼文（動態牆本來就有同文字的舊貼文也不會誤認）
+  function snapshot(text) {
+    const head = headOf(text);
+    return { units: head ? findUnits(head).length : 0, sigs: countSigs(topArticles()) };
+  }
+  // 找「剛發的那則」：有文字 → 包含開頭文字的貼文單元，數量比發佈前多，最上面那一則；只有圖片 → role=article 的特徵數量增加，
+  // 而且貼文上有「剛剛」之類的時間標記（沒標記就不猜）。找不到回 null。
+  function findPostArticle(text, before) {
+    const head = headOf(text);
+    if (head) { const units = findUnits(head); return units.length > before.units ? units[0] : null; }
+    const list = topArticles(), now = countSigs(list);
+    return list.find(a => now[articleSig(a)] > (before.sigs[articleSig(a)] || 0) && RECENT.test(collapse(a).slice(0, 400))) || null;
+  }
+  // 找不到貼文時回報頁面實際長什麼樣子（數量與最上面幾則的開頭），不含別人的完整內容
+  function describePage(text) {
+    const head = headOf(text);
+    const arts = topArticles();
+    const tops = arts.slice(0, 3).map(a => `「${collapse(a).slice(0, 24)}」`).join('、');
+    return `（頁面上：role=article ${document.querySelectorAll('[role="article"]').length} 個（最上層 ${arts.length} 個）、「留言」鈕 ${commentButtons(document).length} 個、`
+      + `含貼文開頭文字的位置 ${head ? elementsWithText(head).length : 0} 處${tops ? '；最上面的貼文：' + tops : ''}）`;
+  }
+  // 等貼文出現；等了一陣子還沒有就往下捲（動態牆是捲動時才載入更多，補留言的舊貼文可能不在第一屏）
+  async function waitForPost(getArticle, ms) {
+    const start = Date.now();
+    for (;;) {
+      let a = null;
+      try { a = getArticle(); } catch (e) { /* 頁面重畫中，下一輪再試 */ }
+      if (a) return a;
+      if (Date.now() - start >= ms) return null;
+      if (Date.now() - start >= T.scrollAfter) { window.scrollBy(0, Math.round(window.innerHeight * 0.8)); await sleep(T.scrollWait); }
+      else await sleep(T.poll);
+    }
+  }
+  // 貼文裡的留言框：優先 aria-label 寫著「留言」的
+  function commentBox(unit) {
+    if (!unit) return null;
+    const boxes = [...unit.querySelectorAll(TEXTBOX)].filter(isVisible);
+    return boxes.find(b => /留言|comment/i.test(b.getAttribute('aria-label') || '')) || boxes[0] || null;
+  }
   // 送出鈕：在留言框「後面」的按鈕（貼文動作列也有一顆「留言」，它在留言框前面，不能當成送出鈕）
   function findSendButton(article, box) {
+    if (!box) return null;
     for (const el of article.querySelectorAll('[role="button"], button, [aria-label]')) {
       if (!isVisible(el) || !isEnabled(el) || el.contains(box) || !(box.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
       const label = labelOf(el);
@@ -315,25 +410,23 @@
     }
     return null;
   }
-  const commentExists = (a, tail) => !!a && [...a.querySelectorAll('[role="article"]')].some(c => squash(c.textContent || '').includes(tail));
-  const shownArticle = a => (a ? `（貼文裡的按鈕：${visibleButtons(a) || '無'}）` : '（找不到貼文）');
-
-  // 「送出」鈕：和動作列的「留言」同名，所以只認「在留言框後面」的那顆
-  function findSendButton(a, box) {
-    if (!box) return null;
-    for (const el of a.querySelectorAll('[role="button"], button, [aria-label]')) {
-      if (!isVisible(el) || !isEnabled(el) || !(box.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
-      const label = labelOf(el);
-      if (label && label.length <= MAX_LABEL && matches(label, LABELS.send)) return el;
+  // 貼文下已經有這則留言了嗎：留言是 role=article 的話看它們；不是的話看貼文裡「不在輸入框內」的文字
+  function commentExists(a, tail) {
+    if (!a) return false;
+    if ([...a.querySelectorAll('[role="article"]')].some(c => squash(c.textContent || '').includes(tail))) return true;
+    const walker = document.createTreeWalker(a, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (squash(n.nodeValue || '').includes(tail) && !(n.parentElement && n.parentElement.closest('[contenteditable="true"]'))) return true;
     }
-    return null;
+    return false;
   }
+  const shownArticle = a => (a ? `（貼文裡的按鈕：${visibleButtons(a) || '無'}）` : '（找不到貼文）');
 
   // 送出留言。只送一次：先按 Enter；按完沒反應才改按「送出」鈕一次，之後不再試（再試可能重複留言）。
   // 成功的判準：留言出現在貼文下，或留言框被清空。
   async function submitComment(getArticle, getBox, text) {
     const tail = squash(text).slice(-30);
-    const sent = () => { const a = getArticle(), b = getBox(); return commentExists(a, tail) || !!(a && (!b || boxText(b) === '')); };
+    const sent = () => { const a = getArticle(), b = getBox(); return !!(a && (!b || boxText(b) === '')) || commentExists(a, tail); };
     const box = getBox();
     if (!box) fail('留言框不見了');
     pressKey(box, 'Enter');
@@ -349,14 +442,15 @@
   async function postComment(job, before, go, submit) {
     const text = job.comment.trim();
     go('finding');
+    if (job.mode === 'comment' && !headOf(job.text)) fail('這則貼文只有圖片、沒有文字可以用來找到它，沒辦法自動補留言，請手動留言');
     const getArticle = () => findPostArticle(job.text, before);
-    const article = await waitFor(getArticle, T.article);
-    if (!article) fail('找不到剛發佈的貼文，沒辦法留言' + (topArticles().length ? '' : '（畫面上沒有任何貼文）'));
+    const article = await waitForPost(getArticle, job.mode === 'comment' ? T.articleOld : T.article);
+    if (!article) fail('找不到' + (job.mode === 'comment' ? '這則貼文' : '剛發佈的貼文') + '，沒辦法留言' + describePage(job.text));
     if (commentExists(article, squash(text).slice(-30))) return 'exists';   // 已經留過了，不重複留
     go('commenting');
     const getBox = () => commentBox(getArticle());
     if (!getBox()) {
-      const btn = findButton(article, LABELS.commentBtn);
+      const btn = commentButtons(article)[0];
       if (!btn) fail('找不到貼文的「留言」按鈕或留言輸入框' + shownArticle(article));
       if (!await pressUntil(btn, getBox, T.pressWait)) fail('點了「留言」，但沒有出現留言輸入框' + shownArticle(getArticle()));
     }
@@ -373,10 +467,10 @@
     const mode = job.mode === 'comment' ? 'comment' : 'post';
     const comment = (job.comment || '').trim();
     let step = mode === 'comment' ? 'finding' : 'open';
-    const go = s => { step = s; report('progress', { step: s }); };
+    const go = s => { stopped(); step = s; report('progress', { step: s }); };
     const out = { commentState: 'none' };
     try {
-      let before = {};
+      let before = { units: 0, sigs: {} };
       if (mode === 'post') {
         go('open');
         if (!findDialog()) {
@@ -390,7 +484,7 @@
         go('ready');
         await ensureSingleCopy(job.text);
         if (job.dryRun) { out.step = step; return out; }
-        before = countSigs(topArticles());
+        before = snapshot(job.text);
         await publish(() => go('next'), () => go('publishing'));
       }
       if (comment) {
@@ -425,20 +519,31 @@
   let current = null;   // 正在跑或剛跑完的工作 id：背景重送同一個工作時不會重複執行
   function listen() {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-      if (!msg || msg.type !== 'fbpost:run' || sender.id !== chrome.runtime.id) return;
+      if (!msg || sender.id !== chrome.runtime.id) return;
+      if (msg.type === 'fbpost:cancel') { aborted = true; sendResponse({ ok: true }); return; }   // 使用者在側邊欄／網頁版按了「中止」
+      if (msg.type !== 'fbpost:run') return;
       const job = msg.job;
       if (!validJob(job)) { sendResponse({ started: false }); return; }
       if (current) { sendResponse(current === job.id ? { started: true } : { busy: true }); return; }
       current = job.id;
       sendResponse({ started: true });
+      let lastStep = 'start';
       const report = (type, payload) => {
+        if (type === 'progress' && payload && payload.step) lastStep = payload.step;
         try { Promise.resolve(chrome.runtime.sendMessage(Object.assign({ type: 'fbpost:' + type, id: job.id }, payload))).catch(() => {}); }
         catch (e) { /* 擴充功能重新載入了：背景的卡住監看會收尾 */ }
       };
-      run(job, report).then(
+      // 心跳：背景靠它知道這個分頁的腳本還活著（頁面被重新載入、分頁當機時，腳本會被帶走，不會有人回報結果）
+      const beat = setInterval(() => report('progress', { step: lastStep }), T.heartbeat);
+      // 整次執行的最後期限：不管卡在哪一步，一定會回報結果
+      let deadlineTimer;
+      const deadline = new Promise((_, reject) => {
+        deadlineTimer = setTimeout(() => { aborted = true; reject(Object.assign(new Error(`這次執行超過 ${Math.round(T.deadline / 60000)} 分鐘還沒完成，已中止`), { step: lastStep })); }, T.deadline);
+      });
+      Promise.race([run(job, report), deadline]).then(
         out => report('result', Object.assign({ ok: true }, out)),
-        e => report('result', { ok: false, step: e.step, error: e.message || String(e) })
-      );
+        e => report('result', { ok: false, step: e.step || lastStep, error: e.message || String(e) })
+      ).finally(() => { clearInterval(beat); clearTimeout(deadlineTimer); });
     });
   }
   if (typeof document !== 'undefined' && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id && chrome.runtime.onMessage) listen();
