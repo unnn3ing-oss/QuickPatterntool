@@ -58,14 +58,17 @@
     </div>
 
     <section class="card sp-card" id="quickFill">
+      <!-- 標題列右邊放「圖片背景／純色背景」開關（sidepanel.js 把共用的背景選擇器裡的開關搬到這個位置） -->
       <div class="sp-card-head">
         <h2>快速產圖</h2>
-        <div class="tip" id="qfTip" role="status">貼上連結按Enter可以產圖</div>
+        <div id="qfBgSlot"></div>
       </div>
       <div class="qf-row">
         <input type="url" id="qfUrl" placeholder="貼上文章網址" autocomplete="off" spellcheck="false">
         <div class="qf-btn-wrap">
           <button type="button" class="primary" id="qfBtn">快速產圖</button>
+          <!-- 兩個提示氣泡都在按鈕下方（箭頭朝上）：上方是標題列的開關，放上面會蓋住它 -->
+          <div class="tip qf-hint" id="qfTip" role="status">貼上連結按Enter可以產圖</div>
           <div class="tip qf-confirm" id="qfConfirmTip" role="status" hidden>確認直接下載？</div>
         </div>
       </div>
@@ -182,7 +185,7 @@
       </ul>
       <h3>套版與編輯</h3>
       <ul>
-        <li>預覽下方可選新聞（藍框）或娛樂（粉框）；背景圖可以直接貼上，或把圖片拖曳到預覽上換圖。標題直接在預覽上<b>點兩下</b>就能修改。</li>
+        <li>預覽下方可選新聞（藍框）或娛樂（粉框）；「快速產圖」標題右邊可切換<b>圖片背景／純色背景</b>（純色背景的色票在下方「編輯」卡片）；背景圖可以直接貼上，或把圖片拖曳到預覽上換圖。標題直接在預覽上<b>點兩下</b>就能修改。</li>
         <li>預覽上滾輪縮放、拖曳調整位置，點兩下可直接輸入標題。</li>
         <li>按「下載圖片」存成 1080×1080 的 PNG；按「複製圖片」會把成品圖直接放進剪貼簿，可以直接貼到其他地方。</li>
       </ul>

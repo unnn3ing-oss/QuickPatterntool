@@ -123,3 +123,74 @@ test('改標送來但文章抓失敗：複製框不會混著上一篇的圖說�
   assert.equal(await page.inputValue('#title'), 'B的改標');
   assert.equal(await page.inputValue('#qfCopyText'), '【B的改標】');
 });
+
+// ---- 「圖片背景／純色背景」開關在「快速產圖」標題列右邊；提示氣泡在按鈕下方 ---------------------------
+const box = (page, sel) => page.locator(sel).boundingBox();
+const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+test('開關固定在「快速產圖」標題列右邊（和標題同一列、靠右），編輯卡片裡不再有一份', { skip }, async t => {
+  const { page, errors } = await open(t);
+  assert.equal(await page.locator('#quickFill .sp-card-head .bg-toggle').count(), 1);
+  assert.equal(await page.locator('#singleBgPicker .bg-toggle').count(), 0);
+  const h2 = await box(page, '#quickFill h2'), tg = await box(page, '#quickFill .bg-toggle'), card = await box(page, '#quickFill');
+  assert.ok(Math.abs((tg.y + tg.height / 2) - (h2.y + h2.height / 2)) < 6, '和標題在同一列');
+  assert.ok(tg.x > h2.x + h2.width, '在標題右邊');
+  assert.ok(card.x + card.width - (tg.x + tg.width) < 24, '靠右');
+  assert.ok(tg.width < 175 && tg.height < 36, `縮小版：${tg.width}×${tg.height}`);
+  assert.deepEqual(errors, []);
+});
+
+test('開關照常運作：切到純色背景 → 出現色票；選色、全部清除後回到圖片背景', { skip }, async t => {
+  const { page } = await open(t);
+  const btn = name => page.locator('#qfBgSlot .bg-toggle button', { hasText: name });
+  assert.match(await btn('圖片背景').getAttribute('class'), /active/);
+  await btn('純色背景').click();
+  assert.match(await btn('純色背景').getAttribute('class'), /active/);
+  await page.waitForSelector('#singleBgPicker .color-swatches', { state: 'visible' });
+  await page.locator('#singleBgPicker .color-swatch').first().click();
+  await page.click('#resetBtn');
+  await page.click('#confirmOkBtn');   // 「全部清除」要先確認
+  await page.waitForFunction(() => document.querySelector('#qfBgSlot .bg-toggle button.active').textContent === '圖片背景');
+  assert.equal(await page.locator('#singleBgPicker .color-swatches').isVisible(), false);
+});
+
+test('編輯卡片的「背景」：圖片背景且沒圖片時整塊隱藏；純色背景顯示色票；載入圖片顯示縮圖', { skip }, async t => {
+  const { page } = await open(t);
+  const field = page.locator('#singleFields .field:has(#singleBgPicker)');
+  assert.equal(await field.isVisible(), false);
+  await page.locator('#qfBgSlot .bg-toggle button', { hasText: '純色背景' }).click();
+  await field.waitFor({ state: 'visible' });
+  await page.locator('#qfBgSlot .bg-toggle button', { hasText: '圖片背景' }).click();
+  await page.waitForFunction(() => document.querySelector('#singleFields .field:has(#singleBgPicker)').hidden);
+  await page.setInputFiles('#singleBgPicker input[type=file]', { name: 'bg.png', mimeType: 'image/png', buffer: png(40, 40) });
+  await field.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#singleBgPicker .batch-item-thumb').isVisible(), true);
+  await page.click('#resetBtn');
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => document.querySelector('#singleFields .field:has(#singleBgPicker)').hidden);
+});
+
+test('提示氣泡在按鈕下方：「貼上連結按Enter可以產圖」不蓋到開關；貼上網址後消失', { skip }, async t => {
+  const { page } = await open(t);
+  const tip = await box(page, '#qfTip'), btn = await box(page, '#qfBtn'), tg = await box(page, '#quickFill .bg-toggle'), card = await box(page, '#quickFill');
+  assert.ok(tip.y >= btn.y + btn.height, '氣泡在按鈕下方');
+  assert.ok(!overlap(tip, tg), '不蓋到開關');
+  assert.ok(tip.y + tip.height <= card.y + card.height, '氣泡沒有超出卡片');
+  assert.ok(tip.x + tip.width <= card.x + card.width + 1 && tip.x >= card.x, '氣泡沒有超出卡片左右');
+  await page.fill('#qfUrl', 'https://news.tvbs.com.tw/local/9');
+  assert.equal(await page.locator('#qfTip').isHidden(), true);
+});
+
+test('產圖完成後「確認直接下載？」也在按鈕下方，不蓋到開關', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.fill('#qfUrl', ARTICLE_A);
+  await page.press('#qfUrl', 'Enter');
+  await waitStatus(page, /完成/);
+  await page.waitForSelector('#qfConfirmTip', { state: 'visible' });
+  await page.waitForTimeout(300);   // 等氣泡的彈出動畫
+  const tip = await box(page, '#qfConfirmTip'), btn = await box(page, '#qfBtn'), tg = await box(page, '#quickFill .bg-toggle'), card = await box(page, '#quickFill');
+  assert.ok(tip.y >= btn.y + btn.height, '氣泡在按鈕下方');
+  assert.ok(!overlap(tip, tg), '不蓋到開關');
+  assert.ok(tip.y + tip.height <= card.y + card.height, '氣泡沒有超出卡片');
+  assert.deepEqual(errors, []);
+});

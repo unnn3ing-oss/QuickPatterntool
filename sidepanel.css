@@ -150,16 +150,23 @@ body.sidepanel {
 }
 .up-link:hover:not(:disabled) { background: none; color: var(--accent-dark); }
 
-/* 快速產圖完成後：按鈕變成「直接下載」，上方飄出「確認直接下載？」氣泡（箭頭正對按鈕） */
+/* 快速產圖的提示氣泡：都在按鈕下方（箭頭朝上、對著按鈕）。上方是標題列的「圖片背景／純色背景」開關，放上面會蓋住它。
+   「貼上連結按 Enter 可以產圖」在還沒貼網址時顯示；產圖完成、按鈕變成「直接下載」後改顯示「確認直接下載？」。 */
 .qf-btn-wrap { position: relative; flex: 0 0 auto; display: flex; }
 .qf-btn-wrap > button { flex: 1; }
-.tip.qf-confirm {
-  position: absolute; z-index: 5; bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+.qf-btn-wrap > .tip {
+  position: absolute; z-index: 5; top: calc(100% + 8px); right: 0;
   animation: qf-pop .16s ease-out;
 }
-.tip.qf-confirm::after { right: auto; left: 50%; transform: translateX(-50%); }
-@keyframes qf-pop { from { opacity: 0; transform: translate(-50%, 4px); } to { opacity: 1; transform: translate(-50%, 0); } }
-@media (prefers-reduced-motion: reduce) { .tip.qf-confirm { animation: none; } }
+.qf-btn-wrap > .tip::after { top: auto; bottom: 100%; right: calc(26px * var(--sp)); border-top-color: transparent; border-bottom-color: #22324d; }
+.qf-btn-wrap > .tip.qf-confirm::after { right: 50%; transform: translateX(50%); }   /* 箭頭正對「直接下載」按鈕中間 */
+@keyframes qf-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .qf-btn-wrap > .tip { animation: none; } }
+#quickFill .qf-row { margin-bottom: calc(6px * var(--sp)); }   /* 氣泡垂在按鈕下方，底部多留一點，不要貼著卡片邊 */
+/* 「圖片背景／純色背景」開關：固定在標題列右邊，縮小到剛好放進去 */
+#qfBgSlot { margin-left: auto; flex: 0 0 auto; }
+#qfBgSlot .bg-toggle { margin: 0; padding: calc(2px * var(--sp)); gap: calc(2px * var(--sp)); }
+.sidepanel #qfBgSlot .bg-toggle button { flex: 0 0 auto; padding: calc(3px * var(--sp)) calc(10px * var(--sp)); font-size: calc(12px * var(--fs)); }
 
 /* 功能提示氣泡（深色小氣泡，下方有箭頭指向下面的輸入框／按鈕）。放在卡片的標題列／詢問列裡，
    空間不夠時會自己換行，不會蓋到別的文字。 */

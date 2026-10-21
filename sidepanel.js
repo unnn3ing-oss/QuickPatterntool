@@ -207,3 +207,22 @@ document.getElementById('webBtn').addEventListener('click', () => {
     if (area === 'session' && changes.pending && changes.pending.newValue) consumePending().catch(() => {});
   });
 })();
+
+// 「圖片背景／純色背景」開關：搬到「快速產圖」標題列右邊（縮小版，樣式見 sidepanel.css 的 #qfBgSlot）。
+// 開關本來是共用的背景選擇器（app.js）產生的，這裡只是換位置，按鈕和事件都還是原本那組。
+// 編輯卡片的「背景」區塊：圖片背景而且還沒載入圖片時，裡面沒有東西可以操作（圖片直接貼上或拖到預覽），整塊先隱藏；
+// 切到純色背景（有色票）或載入圖片（有縮圖）就顯示。
+(function () {
+  const slot = document.getElementById('qfBgSlot');
+  const picker = document.getElementById('singleBgPicker');
+  if (!slot || !picker) return;
+  const toggle = picker.querySelector('.bg-toggle');
+  if (toggle) slot.appendChild(toggle);
+  const field = picker.closest('.field');
+  const swatches = picker.querySelector('.color-swatches');
+  const thumb = picker.querySelector('.batch-item-thumb');
+  const shown = el => !!el && el.style.display !== 'none';
+  function sync() { if (field) field.hidden = !(shown(swatches) || shown(thumb)); }
+  new MutationObserver(sync).observe(picker, { attributes: true, subtree: true, attributeFilter: ['style'] });
+  sync();
+})();
