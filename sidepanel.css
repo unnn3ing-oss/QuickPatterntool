@@ -226,3 +226,39 @@ html.up-lock, html.up-lock body { overflow: hidden; }
 .update-note { padding: 9px 12px; background: var(--accent-soft); border-radius: 14px; }
 .update-note-head { font-size: calc(13px * var(--fs)); font-weight: 700; color: #22324d; line-height: 1.5; }
 .update-note ul { margin: 6px 0 0; padding-left: 18px; font-size: calc(12.5px * var(--fs)); color: #3a4a66; line-height: 1.65; }
+
+/* FB 粉專排程 */
+.sch-field { margin-top: calc(10px * var(--sp)); }
+#schedCard .sch-field + textarea, #schedCard textarea { margin-top: 0; }
+.sch-field label { display: block; margin-bottom: calc(4px * var(--sp)); font-size: calc(13px * var(--fs)); color: var(--muted); }
+.sch-input {
+  flex: 1; min-width: 0; width: 100%; padding: calc(10px * var(--sp)) calc(14px * var(--sp)); font: inherit; font-size: calc(14px * var(--fs));
+  border: none; border-radius: 999px; background: var(--field-bg);
+  box-shadow: inset 0 0 0 1px var(--border); color: var(--text);
+}
+.sch-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rgba(0, 74, 173, 0.12); }
+.sch-row { display: flex; gap: calc(8px * var(--sp)); margin-top: calc(8px * var(--sp)); align-items: center; }
+.sch-field .sch-row { margin-top: 0; }
+.sch-row button { flex: 0 0 auto; font-size: calc(14px * var(--fs)); padding: calc(10px * var(--sp)) calc(16px * var(--sp)); white-space: nowrap; }
+.sch-thumbs { display: flex; flex-wrap: wrap; gap: calc(8px * var(--sp)); margin-top: calc(8px * var(--sp)); }
+.sch-thumbs[hidden], .sch-list[hidden] { display: none; }
+.sch-thumb { position: relative; width: calc(64px * var(--sp) / 0.85); height: calc(64px * var(--sp) / 0.85); }
+.sch-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); display: block; }
+.sch-thumb-x {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  font-size: 11px; line-height: 20px; background: #22324d; border-color: #22324d; color: #fff;
+}
+.sch-list { margin-top: calc(10px * var(--sp)); display: flex; flex-direction: column; gap: calc(8px * var(--sp)); }
+.sch-item { padding: calc(10px * var(--sp)) calc(12px * var(--sp)); border-radius: calc(16px * var(--sp)); background: var(--accent-soft); }
+.sch-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sch-time { font-size: calc(13px * var(--fs)); font-weight: 700; color: #22324d; }
+.sch-chip { padding: 1px 8px; border-radius: 999px; font-size: 11px; background: #fff; color: var(--accent); white-space: nowrap; }
+.sch-running .sch-chip { background: var(--accent); color: #fff; }
+.sch-done .sch-chip { background: var(--success); color: #fff; }
+.sch-failed .sch-chip, .sch-missed .sch-chip { background: #d92d20; color: #fff; }
+.sch-text { margin-top: 4px; font-size: calc(13px * var(--fs)); color: #3a4a66; word-break: break-word; }
+.sch-detail { margin-top: 4px; font-size: calc(12px * var(--fs)); color: var(--muted); line-height: 1.5; word-break: break-word; }
+.sch-detail.err { color: #d92d20; }
+.sch-actions { display: flex; gap: calc(6px * var(--sp)); margin-top: calc(8px * var(--sp)); flex-wrap: wrap; }
+.sch-actions button { padding: calc(5px * var(--sp)) calc(12px * var(--sp)); font-size: calc(12.5px * var(--fs)); }
+#schedCard textarea { width: 100%; }
