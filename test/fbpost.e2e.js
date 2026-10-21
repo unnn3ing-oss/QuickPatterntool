@@ -17,7 +17,7 @@ const URL_PAGE = 'https://www.facebook.com/tvbsnews';
 
 // opts：lang 'zh'|'en'｜flow 'direct'|'next'（按鈕叫「下一步」）|'continue'（叫「繼續」，真實 Facebook 的樣子）｜close 'ok'|'never'
 //       click 'normal'|'strict'（按鈕只認「有座標且按下」的真人式點擊）|'keyOnly'（只認鍵盤 Enter）|'dead'（點了沒反應）
-//       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）
+//       multiple 是否 multiple｜noTrigger 頁面沒有發文框｜editor 'normal'|'enterOnly'（只認 Enter 鍵換行）|'noBreak'（完全不能換行）|'stubborn'（不能換行、清空會被還原）|'dup'（第一次輸入後內容莫名重複一份）
 function mock(opts = {}) {
   const L = opts.lang === 'en'
     ? { trigger: "What's on your mind?", photo: 'Photo/video', post: 'Post', next: 'Next', title: 'Create post' }
@@ -43,7 +43,7 @@ function openDialog() {
     box.style.whiteSpace = 'pre-wrap';
     // 模擬「編輯器不接受瀏覽器的換行指令」：任何新增的段落／換行元素或換行字元都被拿掉（除非是自己的 Enter 處理加的）
     const allowed = new WeakSet();
-    if (opts.editor === 'enterOnly' || opts.editor === 'noBreak') {
+    if (opts.editor === 'enterOnly' || opts.editor === 'noBreak' || opts.editor === 'stubborn') {
       new MutationObserver(muts => {
         for (const m of muts) for (const n of m.addedNodes) {
           if (allowed.has(n)) continue;
@@ -63,6 +63,12 @@ function openDialog() {
         box.dispatchEvent(new Event('input', { bubbles: true }));
       });
     }
+    let last = '', dupTimer = null, dupDone = false;
+    box.addEventListener('input', () => {
+      if (box.textContent.trim()) last = box.innerHTML;
+      if (opts.editor === 'dup' && !dupDone) { clearTimeout(dupTimer); dupTimer = setTimeout(() => { dupDone = true; box.innerHTML += box.innerHTML; }, 20); }
+    });
+    if (opts.editor === 'stubborn') new MutationObserver(() => { if (!box.textContent.trim() && last) box.innerHTML = last; }).observe(box, { childList: true, subtree: true });
     box.addEventListener('input', sync);
     function sync(){ go.setAttribute('aria-disabled', (box.innerText.trim() || d.querySelector('img.thumb')) ? 'false' : 'true'); }
     d.querySelector('[aria-label="'+L.photo+'"]').addEventListener('click', () => {
@@ -319,4 +325,36 @@ test('發佈沿用前面步驟證明有效的點擊方式（鍵盤 Enter 的按�
   const { result: r } = await result();
   assert.equal(r.ok, true, r.error);
   assert.equal((await page.evaluate(() => window.__events.filter(e => e === 'publish'))).length, 1);
+});
+
+test('內容莫名重複一份：會被抓到、清空後重新輸入，最後只有一份', { skip }, async t => {
+  const { page, send, result } = await open(t, { editor: 'dup' });
+  await send(job({ text: '【標題】\n（圖／TVBS）\n#霸凌 #宮廟', images: [], dryRun: true }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  const lines = (await page.locator('#box').innerText()).split('\n').map(l => l.trim()).filter(Boolean);
+  assert.deepEqual(lines, ['【標題】', '（圖／TVBS）', '#霸凌 #宮廟']);
+});
+
+test('文字框清不乾淨：停止輸入並報錯，內容絕不會疊成好幾份', { skip }, async t => {
+  const { page, send, result } = await open(t, { editor: 'stubborn' });
+  const text = '【標題】\n（圖／TVBS）\n#霸凌 #宮廟';
+  await send(job({ text, images: [] }));
+  const { result: r } = await result();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /清不乾淨/);
+  const got = (await page.locator('#box').innerText()).replace(/\s+/g, '');
+  assert.ok(got.length <= text.replace(/\s+/g, '').length, '文字框內容超過一份：' + got);
+  assert.ok(!(await page.evaluate(() => window.__events)).includes('publish'));
+});
+
+test('文字框原本就有內容（例如 Facebook 自動帶出的草稿）：先清掉再輸入，不接在後面', { skip }, async t => {
+  const { page, send, result } = await open(t, {});
+  await page.locator('#trigger').click();
+  await page.waitForSelector('#box');
+  await page.evaluate(() => { document.getElementById('box').innerText = '上次沒發完的草稿'; });
+  await send(job({ images: [], dryRun: true }));
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.ok(!(await page.locator('#box').innerText()).includes('草稿'));
 });

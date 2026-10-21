@@ -127,10 +127,25 @@
       box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })))
   ];
   const normLines = s => s.replace(/\r\n?/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
-  function clearBox(box) {
-    box.focus();
-    document.execCommand('selectAll');
-    document.execCommand('delete');
+  // 清空文字框：幾種方式輪流試，每種之後確認真的空了。清不乾淨就回 false（呼叫端必須停下來，不能在舊內容上疊加）
+  const CLEARS = [
+    b => { b.focus(); document.execCommand('selectAll'); document.execCommand('delete'); },
+    b => { b.focus(); getSelection().selectAllChildren(b); document.execCommand('delete'); },
+    b => {
+      b.focus(); document.execCommand('selectAll');
+      ['keydown', 'keyup'].forEach(type => b.dispatchEvent(new KeyboardEvent(type, { key: 'Backspace', code: 'Backspace', keyCode: 8, which: 8, bubbles: true, cancelable: true })));
+    }
+  ];
+  async function emptyBox() {
+    for (const clear of CLEARS) {
+      const box = textBox();
+      if (!box) return false;
+      if (boxText(box) === '') return true;
+      clear(box);
+      await sleep(T.settle);
+      if (boxText(textBox()) === '') return true;
+    }
+    return boxText(textBox()) === '';
   }
   // 用瀏覽器的編輯指令輸入，Facebook 的編輯器才會收到真正的輸入事件
   function typeWithExec(box, text, brk) {
@@ -142,32 +157,38 @@
   }
   // 備用：模擬貼上
   function typeWithPaste(box, text) {
-    clearBox(box);
+    box.focus();
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
     box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
   }
   async function setText(text) {
     const want = normLines(text);
-    const head = squash(text).slice(0, 40);
-    // 文字進去了，而且「有內容的行數」和原本一樣（不能被擠成一行）
-    const good = () => {
+    const wantSq = squash(text);
+    const head = wantSq.slice(0, 40), tail = wantSq.slice(-20);
+    const tolerance = Math.max(4, Math.round(wantSq.length * 0.05));
+    // 判斷文字框內容對不對：頭尾都在、長度和預期相近（內容重複兩份一定超過）、有內容的行數相同（沒被擠成一行）
+    const check = () => {
       const box = textBox();
-      if (!box) return false;
-      const got = normLines(box.innerText || box.textContent || '');
-      return boxText(box).includes(head) && got.length === want.length;
+      if (!box) return { ok: false, why: '找不到文字框' };
+      const got = boxText(box);
+      const lines = normLines(box.innerText || box.textContent || '').length;
+      const ok = got.includes(head) && got.includes(tail) && Math.abs(got.length - wantSq.length) <= tolerance && lines === want.length;
+      return { ok, why: `文字框內容長度 ${got.length}（預期 ${wantSq.length}）、行數 ${lines}（預期 ${want.length}）` };
     };
     const attempts = want.length > 1 ? BREAKS.map(brk => box => typeWithExec(box, text, brk)) : [box => typeWithExec(box, text, BREAKS[0])];
     attempts.push(box => typeWithPaste(box, text));
-    for (let i = 0; i < attempts.length; i++) {
+    let why = '';
+    for (const type of attempts) {
+      // 每次輸入前文字框都必須是空的：清不掉就停止，絕不在舊內容上疊加（否則貼文會重複好幾份）
+      if (!await emptyBox()) fail('文字框清不乾淨，為了避免貼文內容重複已停止輸入。' + (why ? '（' + why + '）' : ''));
       const box = textBox();
       if (!box) fail('找不到文字輸入框');
-      if (i > 0) clearBox(box);
-      attempts[i](box);
+      type(box);
       await sleep(T.settle);   // 編輯器常在下一個瞬間才整理畫面（可能吃掉換行），等它穩定再驗證
-      if (await waitFor(good, T.text)) return;
+      if (await waitFor(() => { const c = check(); why = c.why; return c.ok; }, T.text)) return;
     }
-    fail(want.length > 1 ? '文字有輸入但換行沒有成功（Facebook 編輯器不接受換行），已停止以免發出擠成一行的貼文' : '文字沒有輸入成功（Facebook 編輯器沒有接受輸入）');
+    fail((want.length > 1 ? '文字有輸入但換行沒有成功（Facebook 編輯器不接受換行），已停止以免發出擠成一行的貼文' : '文字沒有輸入成功（Facebook 編輯器沒有接受輸入）') + `（${why}）`);
   }
 
   // ---- 圖片 ------------------------------------------------------------
