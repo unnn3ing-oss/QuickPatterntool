@@ -368,10 +368,94 @@
   // ---------------------------------------------------------------------------------
   // 字幕
   // ---------------------------------------------------------------------------------
+  // 外框（色框）：描邊外面一圈一圈往外加，固定 4 格（on＝有用；1 在最內側）。固定長度是因為 core 的深層合併對陣列是逐格合併
+  const OUTLINE_SLOTS = 4;
+  const outlineOff = () => ({ on: false, color: '#ffffff', width: 6 });
   const BASE_TITLE = {
     text: '輸入字幕', preset: 'static', font: 'WHZ-Heavy', size: 80, color: '#ffffff', align: 'center',
     stroke: { color: '#000000', width: 0 }, shadow: { color: 'rgba(0,0,0,.6)', blur: 8, x: 0, y: 4 },
     bg: { color: 'rgba(0,0,0,0)', padding: 24, radius: 8 }, lineHeight: 1.25, x: 0.5, y: 0.5,
+    outlines: Array.from({ length: OUTLINE_SLOTS }, outlineOff),
+    gradient: { on: false, color: '#8fd8ff' },        // 由上（文字顏色）到下（這個顏色）的漸層
+    extrude: { color: '#3a2386', depth: 0, angle: 45 }, // 立體：往 angle 方向擠出 depth（短邊 1080 時的像素），0＝關
+    skew: 0,                                          // 斜體角度（度，正＝往右傾）
+    accent: '#ff2d2d',                                // 強調色：文字裡用 *…* 包住的字
+    textFx: 'none', textFxDur: 0.5,                   // 字體特效（進場動畫）與每個字（或整塊）的動畫長度（秒）
+  };
+  // 字幕物件補齊預設值（舊專案沒有新欄位、或只合併了一部分）；文字去掉強調用的星號，__mask 記哪些字要強調
+  function normTitle(t) {
+    t = t || {};
+    const n = { ...BASE_TITLE, ...t };
+    for (const k of ['stroke', 'shadow', 'bg', 'gradient', 'extrude']) n[k] = { ...BASE_TITLE[k], ...(t[k] || {}) };
+    n.outlines = BASE_TITLE.outlines.map((b, i) => ({ ...b, ...((Array.isArray(t.outlines) && t.outlines[i]) || {}) }));
+    const a = parseAccent(n.text);
+    n.text = a.text; n.__mask = a.mask;
+    return n;
+  }
+  // 「進行*瘋狂*的編輯」→ 文字「進行瘋狂的編輯」＋每個字是否強調。只認成對的星號，落單的保留原樣
+  function parseAccent(text) {
+    const s = String(text == null ? '' : text);
+    if (s.indexOf('*') < 0) return { text: s, mask: null };
+    const cs = Array.from(s), stars = [];
+    cs.forEach((c, i) => { if (c === '*') stars.push(i); });
+    const pairs = new Set(stars.slice(0, stars.length - stars.length % 2));
+    const out = [], mask = [];
+    let on = false;
+    cs.forEach((c, i) => { if (pairs.has(i)) { on = !on; return; } out.push(c); mask.push(on); });
+    return { text: out.join(''), mask: mask.some(Boolean) ? mask : null };
+  }
+
+  // parseAccent 的反向：純文字＋逐字遮罩 → 用星號包住強調的字。原本就有的星號換成全形「＊」，才不會跟標記混在一起
+  function buildAccent(text, mask) {
+    const cs = Array.from(String(text == null ? '' : text)).map(c => (c === '*' ? '＊' : c));
+    let out = '', on = false;
+    cs.forEach((c, i) => {
+      const m = !!(mask && mask[i]) && c !== '\n';
+      if (m !== on) { out += '*'; on = m; }
+      out += c;
+    });
+    return on ? out + '*' : out;
+  }
+
+  // 字體特效：進場動畫；char＝逐字依序錯開，line＝一行一行錯開（整行一起動），都沒有＝整塊（含底色）一起動
+  const TEXT_FX = {
+    none: { name: '無' },
+    pop: { name: '彈出' },
+    popLine: { name: '逐行彈出', line: true },
+    popChar: { name: '逐字彈出', char: true },
+    jump: { name: '下往上跳起' },
+    jumpLine: { name: '逐行跳起', line: true },
+    jumpChar: { name: '逐字跳起', char: true },
+  };
+  const easeOutBack = (u, s) => { u = clamp(u, 0, 1) - 1; return 1 + (s + 1) * u * u * u + s * u * u; };
+  // 動畫進度 u（0~1）時的 { a 透明度, s 縮放, dy 垂直位移（px）}：彈出＝從 0 放大、稍微超過再回來；跳起＝從一行高的下方往上跳、超過一點再落定
+  function textFxState(kind, u, lh) {
+    const a = clamp(u * 3, 0, 1);
+    if (kind === 'pop' || kind === 'popLine' || kind === 'popChar') return { a, s: Math.max(0, easeOutBack(u, 2.2)), dy: 0 };
+    return { a, s: 1, dy: (1 - easeOutBack(u, 2.6)) * lh * 1.1 };
+  }
+
+  // 字幕樣式：一鍵套用的外觀（只改顏色、描邊、外框、陰影、立體、斜體、強調色；不動文字、字型、位置、過場）
+  const outlinesOf = (...a) => Array.from({ length: OUTLINE_SLOTS }, (_, i) => (a[i] ? { on: true, ...a[i] } : outlineOff()));
+  const NO_SHADOW = { color: 'rgba(0,0,0,0)', blur: 0, x: 0, y: 0 };
+  const NO_EXTRUDE = { color: '#3a2386', depth: 0, angle: 45 };
+  const TITLE_STYLES = {
+    plain: { name: '基本', sample: '字幕樣式',
+      patch: { color: '#ffffff', gradient: { on: false, color: '#8fd8ff' }, stroke: { color: '#000000', width: 0 }, outlines: outlinesOf(),
+        shadow: { color: 'rgba(0,0,0,.6)', blur: 8, x: 0, y: 4 }, extrude: NO_EXTRUDE, skew: 0, accent: '#ff2d2d' } },
+    blueGlow: { name: '藍白漸層', sample: '全場笑翻了',
+      patch: { color: '#ffffff', gradient: { on: true, color: '#8fd8ff' }, stroke: { color: '#0b3f7a', width: 5 },
+        outlines: outlinesOf({ color: '#ffffff', width: 7 }, { color: '#1593d6', width: 7 }),
+        shadow: { color: 'rgba(0,30,70,.55)', blur: 6, x: 0, y: 6 }, extrude: NO_EXTRUDE, skew: 8, accent: '#ffc531' } },
+    purple3d: { name: '紫色立體', sample: '來幫你做',
+      patch: { color: '#ffffff', gradient: { on: true, color: '#cfc0ff' }, stroke: { color: '#5a3ea6', width: 9 }, outlines: outlinesOf(),
+        shadow: NO_SHADOW, extrude: { color: '#36207f', depth: 16, angle: 45 }, skew: 0, accent: '#ffd23f' } },
+    blackCyan: { name: '黑邊青框', sample: '要不要訂閱',
+      patch: { color: '#ffffff', gradient: { on: false, color: '#8fd8ff' }, stroke: { color: '#111111', width: 9 },
+        outlines: outlinesOf({ color: '#3fd8d8', width: 5 }), shadow: NO_SHADOW, extrude: NO_EXTRUDE, skew: 0, accent: '#3fd8d8' } },
+    redAccent: { name: '黑邊強調紅', sample: '進行*瘋狂*的',
+      patch: { color: '#fff8ec', gradient: { on: false, color: '#8fd8ff' }, stroke: { color: '#141414', width: 7 }, outlines: outlinesOf(),
+        shadow: NO_SHADOW, extrude: { color: '#141414', depth: 8, angle: 45 }, skew: 10, accent: '#e5141b' } },
   };
   // defaults：切換樣式時套用 align／x／y／bg（size 只用在新增字幕）
   const TITLE_PRESETS = {
@@ -401,52 +485,147 @@
     c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
   }
 
-  // 畫一塊文字。box：{ left, top, w（區塊寬）}；reveal：只畫前 N 個字（打字機），null＝全部
-  function paintBlock(ctx, t, L, k, lh, box, reveal, drawBg) {
+  function setShadow(ctx, sh, k) {
+    if (sh) {
+      ctx.shadowColor = sh.color; ctx.shadowBlur = num(sh.blur, 0) * k;
+      ctx.shadowOffsetX = num(sh.x, 0) * k; ctx.shadowOffsetY = num(sh.y, 0) * k;
+    } else { ctx.shadowColor = 'rgba(0,0,0,0)'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; }
+  }
+  // 一段文字的外觀：外圈（描邊＋外框，最外圈在前）、立體、陰影、填色（可漸層）、斜體
+  function glyphStyle(t, k, px) {
+    const ring = [];
+    let r = Math.max(0, num(t.stroke && t.stroke.width, 0)) * k;
+    if (r > 0) ring.push({ color: t.stroke.color, r });
+    for (const o of t.outlines || []) {
+      const w = Math.max(0, num(o && o.width, 0)) * k;
+      if (o && o.on && w > 0) { r += w; ring.push({ color: o.color, r }); }
+    }
+    ring.reverse();
+    const depth = Math.max(0, num(t.extrude && t.extrude.depth, 0)) * k;
+    let ext = null;
+    if (depth > 0) {
+      const n = Math.ceil(depth / Math.max(1, depth / 16)), ang = num(t.extrude.angle, 45) * Math.PI / 180;   // 最多 16 層
+      ext = { n, dx: Math.cos(ang) * depth / n, dy: Math.sin(ang) * depth / n, color: t.extrude.color };
+    }
+    const sh = t.shadow && (num(t.shadow.blur, 0) > 0 || num(t.shadow.x, 0) || num(t.shadow.y, 0)) ? t.shadow : null;
+    return { ring, outer: r, ext, sh, k, px, color: t.color, grad: t.gradient && t.gradient.on ? t.gradient.color : null,
+      accent: t.accent || '#ff2d2d', shear: -Math.tan(clamp(num(t.skew, 0), -45, 45) * Math.PI / 180) };
+  }
+  // 在 (x,y) 畫一段文字（textBaseline middle，textAlign 由呼叫端設）：立體 → 外圈（最外先）→ 填色；陰影只加在最底下那一層
+  function paintGlyphs(ctx, s, g, accent, x, y) {
+    let first = true;
+    const shadow = () => { setShadow(ctx, first ? g.sh : null, g.k); first = false; };
+    if (g.ext) {
+      ctx.fillStyle = ctx.strokeStyle = g.ext.color; ctx.lineWidth = g.outer * 2;
+      for (let i = g.ext.n; i >= 1; i--) {
+        shadow();
+        if (g.outer > 0) ctx.strokeText(s, x + g.ext.dx * i, y + g.ext.dy * i);
+        ctx.fillText(s, x + g.ext.dx * i, y + g.ext.dy * i);
+      }
+    }
+    for (const ly of g.ring) { shadow(); ctx.lineWidth = ly.r * 2; ctx.strokeStyle = ly.color; ctx.strokeText(s, x, y); }
+    shadow();
+    if (accent) ctx.fillStyle = g.accent;
+    else if (g.grad) {
+      const gr = ctx.createLinearGradient(0, y - g.px * 0.45, 0, y + g.px * 0.45);
+      gr.addColorStop(0, g.color); gr.addColorStop(1, g.grad);
+      ctx.fillStyle = gr;
+    } else ctx.fillStyle = g.color;
+    ctx.fillText(s, x, y);
+    setShadow(ctx, null, g.k);
+  }
+  // 每行每個字是否強調：排版會吃掉換行處的空白，所以照順序在去掉星號的原文裡找同一個字
+  function lineMasks(lines, plain, mask) {
+    if (!mask) return null;
+    const src = Array.from(plain);
+    let p = 0;
+    return lines.map(line => Array.from(line).map(ch => {
+      const q = src.indexOf(ch, p);
+      if (q < 0) return false;
+      p = q + 1;
+      return !!mask[q];
+    }));
+  }
+
+  // 畫一塊文字。box：{ left, top, w（區塊寬）}；reveal：只畫前 N 個字（打字機），null＝全部；o：drawTitle 的參數（字體特效要用 f／fps）
+  function paintBlock(ctx, t, L, k, lh, box, reveal, drawBg, o) {
     const align = t.align === 'left' || t.align === 'right' ? t.align : 'center';
+    const fxDef = o && t.textFx && t.textFx !== 'none' ? TEXT_FX[t.textFx] : null;
+    const D = fxDef ? Math.max(1, num(t.textFxDur, 0.5) * o.fps) : 1;
+    const bh = lh * L.lines.length;
+    ctx.save();
+    if (fxDef && !fxDef.char && !fxDef.line) {
+      const s = textFxState(t.textFx, o.f / D, lh), cx = box.left + box.w / 2, cy = box.top + bh / 2;
+      ctx.globalAlpha *= s.a;
+      ctx.translate(cx, cy + s.dy); ctx.scale(s.s, s.s); ctx.translate(-cx, -cy);
+    }
     const bgOk = drawBg && t.bg && t.bg.color;
     if (bgOk) {
       const pad = num(t.bg.padding, 0) * k;
       ctx.fillStyle = t.bg.color;
-      roundRectPath(ctx, box.left - pad, box.top - pad, box.w + pad * 2, lh * L.lines.length + pad * 2, num(t.bg.radius, 0) * k);
+      roundRectPath(ctx, box.left - pad, box.top - pad, box.w + pad * 2, bh + pad * 2, num(t.bg.radius, 0) * k);
       ctx.fill();
     }
-    ctx.textBaseline = 'middle'; ctx.textAlign = align; ctx.lineJoin = 'round';
-    const sw = num(t.stroke && t.stroke.width, 0) * k;
-    const sh = t.shadow && (num(t.shadow.blur, 0) > 0 || num(t.shadow.x, 0) || num(t.shadow.y, 0));
-    const setShadow = on => {
-      if (on && sh) {
-        ctx.shadowColor = t.shadow.color; ctx.shadowBlur = num(t.shadow.blur, 0) * k;
-        ctx.shadowOffsetX = num(t.shadow.x, 0) * k; ctx.shadowOffsetY = num(t.shadow.y, 0) * k;
-      } else { ctx.shadowColor = 'rgba(0,0,0,0)'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; }
-    };
-    let left = reveal == null ? Infinity : reveal;
+    ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    const g = glyphStyle(t, k, o ? o.px : lh / num(t.lineHeight, 1.25));
+    const masks = lineMasks(L.lines, t.text, t.__mask);
+    const perChar = !!masks || !!(fxDef && fxDef.char);
+    const total = L.lines.reduce((n, s) => n + Array.from(s).length, 0);
+    // 逐字：每個字晚 0.06 秒開始，但最後一個字最晚在片段 60% 的地方開始
+    const stagger = fxDef && fxDef.char && total > 1 ? Math.max(0, Math.min(0.06 * o.fps, (o.dur * 0.6 - D) / (total - 1))) : 0;
+    // 逐行：每行晚 0.15 秒，最後一行最晚在片段 60% 的地方開始
+    const nl = L.lines.length;
+    const lstag = fxDef && fxDef.line && nl > 1 ? Math.max(0, Math.min(0.15 * o.fps, (o.dur * 0.6 - D) / (nl - 1))) : 0;
+    let left = reveal == null ? Infinity : reveal, gi = 0;
     L.lines.forEach((line, i) => {
-      let s = line;
-      if (reveal != null) {
-        const cs = Array.from(line);
-        s = cs.slice(0, Math.max(0, left)).join('');
-        left -= cs.length;
-      }
-      if (!s) return;
+      const cs = Array.from(line);
+      const count = Math.max(0, Math.min(cs.length, left));
+      left -= cs.length;
       const y = box.top + (i + 0.5) * lh;
       const x = align === 'left' ? box.left : align === 'right' ? box.left + box.w : box.left + box.w / 2;
-      if (sw > 0) {
-        ctx.lineWidth = sw * 2; ctx.strokeStyle = t.stroke.color;
-        setShadow(true); ctx.strokeText(s, x, y);
-        setShadow(false); ctx.fillStyle = t.color; ctx.fillText(s, x, y);
-      } else {
-        setShadow(true); ctx.fillStyle = t.color; ctx.fillText(s, x, y);
+      ctx.save();
+      if (fxDef && fxDef.line) {
+        const s = textFxState(t.textFx, (o.f - i * lstag) / D, lh), cx = box.left + box.w / 2;
+        if (s.a <= 0 || s.s <= 0) { ctx.restore(); gi += cs.length; return; }
+        ctx.globalAlpha *= s.a;
+        ctx.translate(cx, y + s.dy); ctx.scale(s.s, s.s); ctx.translate(-cx, -y);
       }
+      if (count && !perChar) {
+        ctx.save();
+        ctx.textAlign = align;
+        if (g.shear) { ctx.translate(x, y); ctx.transform(1, 0, g.shear, 1, 0, 0); paintGlyphs(ctx, cs.slice(0, count).join(''), g, false, 0, 0); }
+        else paintGlyphs(ctx, cs.slice(0, count).join(''), g, false, x, y);
+        ctx.restore();
+      } else if (count) {
+        const lw = ctx.measureText(line).width;
+        const x0 = align === 'left' ? x : align === 'right' ? x - lw : x - lw / 2;
+        ctx.textAlign = 'center';
+        for (let j = 0; j < count; j++) {
+          if (/\s/.test(cs[j])) continue;
+          const pre = j ? ctx.measureText(cs.slice(0, j).join('')).width : 0, cw = ctx.measureText(cs[j]).width;
+          ctx.save();
+          ctx.translate(x0 + pre + cw / 2, y);
+          if (fxDef && fxDef.char) {
+            const s = textFxState(t.textFx, (o.f - (gi + j) * stagger) / D, lh);
+            if (s.a <= 0 || s.s <= 0) { ctx.restore(); continue; }
+            ctx.globalAlpha *= s.a; ctx.translate(0, s.dy); ctx.scale(s.s, s.s);
+          }
+          if (g.shear) ctx.transform(1, 0, g.shear, 1, 0, 0);
+          paintGlyphs(ctx, cs[j], g, !!(masks && masks[i][j]), 0, 0);
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+      gi += cs.length;
     });
-    setShadow(false);
+    ctx.restore();
   }
 
   const TITLE_DRAW = {
     static(ctx, t, o) {
       const L = layoutTitle(ctx, t, o.font, o.outW * 0.9 - 2 * num(t.bg && t.bg.padding, 0) * o.k);
       const bh = L.lines.length * o.lh;
-      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top: t.y * o.outH - bh / 2, w: L.w }, null, true);
+      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top: t.y * o.outH - bh / 2, w: L.w }, null, true, o);
     },
     fadeUp(ctx, t, o) {
       const L = layoutTitle(ctx, t, o.font, o.outW * 0.9 - 2 * num(t.bg && t.bg.padding, 0) * o.k);
@@ -457,7 +636,7 @@
       if (o.f > o.dur - outF) a = Math.min(a, clamp((o.dur - o.f) / outF, 0, 1));
       const bh = L.lines.length * o.lh;
       ctx.globalAlpha *= a;
-      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top: t.y * o.outH - bh / 2 + rise, w: L.w }, null, true);
+      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top: t.y * o.outH - bh / 2 + rise, w: L.w }, null, true, o);
     },
     typewriter(ctx, t, o) {
       const L = layoutTitle(ctx, t, o.font, o.outW * 0.9 - 2 * num(t.bg && t.bg.padding, 0) * o.k);
@@ -465,7 +644,7 @@
       const frames = Math.max(1, Math.min(Math.round(o.dur * 0.7), Math.ceil(total * o.fps / 10)));   // 每秒約 10 字，最多用掉 70% 長度
       const n = Math.floor(total * clamp(o.f / frames, 0, 1));
       const bh = L.lines.length * o.lh;
-      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top: t.y * o.outH - bh / 2, w: L.w }, n, true);
+      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top: t.y * o.outH - bh / 2, w: L.w }, n, true, o);
     },
     lowerThird(ctx, t, o) {
       const pad = num(t.bg && t.bg.padding, 0) * o.k;
@@ -485,7 +664,7 @@
         ctx.fillStyle = '#ffd23f';
         ctx.fillRect(0, top - pad, 8 * o.k, bh + pad * 2);
       }
-      paintBlock(ctx, { ...t, align: 'left' }, L, o.k, o.lh, { left, top, w: L.w }, null, false);
+      paintBlock(ctx, { ...t, align: 'left' }, L, o.k, o.lh, { left, top, w: L.w }, null, false, o);
     },
     scroll(ctx, t, o) {
       const pad = num(t.bg && t.bg.padding, 0) * o.k;
@@ -493,7 +672,7 @@
       const bh = L.lines.length * o.lh;
       const p = clamp(o.f / Math.max(1, o.dur), 0, 1);
       const top = o.outH + pad - p * (o.outH + bh + pad * 2);
-      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top, w: L.w }, null, true);
+      paintBlock(ctx, t, L, o.k, o.lh, { left: t.x * o.outW - L.w / 2, top, w: L.w }, null, true, o);
     },
     crawl(ctx, t, o) {
       const one = { ...t, text: String(t.text == null ? '' : t.text).replace(/\s*\n\s*/g, '　') };
@@ -504,14 +683,14 @@
       const left = o.outW - p * (o.outW + w);
       const top = t.y * o.outH - o.lh / 2;
       if (t.bg && t.bg.color) { ctx.fillStyle = t.bg.color; ctx.fillRect(0, top - pad, o.outW, o.lh + pad * 2); }
-      paintBlock(ctx, { ...one, align: 'left' }, { lines: [one.text], widths: [w], w }, o.k, o.lh, { left, top, w }, null, false);
+      paintBlock(ctx, { ...one, align: 'left' }, { lines: [one.text], widths: [w], w }, o.k, o.lh, { left, top, w }, null, false, o);
     },
   };
 
   // 字幕排版位置（輸出像素、還沒套用片段變形）：[x, y, w, h]。只算 x／y 決定的那一塊（含底色內距），
   // 不含進出場動畫的位移；捲動＝整欄、跑馬燈＝整列。
   function titleLocalBox(clip, outW, outH) {
-    const tt = { ...BASE_TITLE, ...clip.title };
+    const tt = normTitle(clip.title);
     const k = Math.min(outW, outH) / 1080;
     const px = Math.max(1, num(tt.size, 80) * k), lh = px * num(tt.lineHeight, 1.25);
     const pad = num(tt.bg && tt.bg.padding, 0) * k;
@@ -571,7 +750,7 @@
     const k = Math.min(outW, outH) / 1080;
     const px = Math.max(1, num(t.size, 80) * k);
     const o = {
-      f, fps: fps || 30, dur: Math.max(1, clip.duration || 1), k, outW, outH, lh: px * num(t.lineHeight, 1.25),
+      f, fps: fps || 30, dur: Math.max(1, clip.duration || 1), k, outW, outH, px, lh: px * num(t.lineHeight, 1.25),
       font: fontString(t, px),
     };
     ctx.save();
@@ -579,7 +758,7 @@
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
     ctx.globalAlpha *= op;
     ctx.font = o.font;
-    (TITLE_DRAW[t.preset] || TITLE_DRAW.static)(ctx, { ...BASE_TITLE, ...t }, o);
+    (TITLE_DRAW[t.preset] || TITLE_DRAW.static)(ctx, normTitle(t), o);
     ctx.restore();
   }
 
@@ -742,6 +921,13 @@
 .ed-fx-head{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--ed-border,var(--border,rgba(0,74,173,.12)));font-size:11px;font-weight:700;color:var(--ed-muted,var(--muted,#6b7890))}
 .ed-fx-btn{font:inherit;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--ed-border,var(--border,rgba(0,74,173,.2)));background:var(--ed-field,var(--field-bg,#fff));color:var(--ed-text,var(--text,inherit));cursor:pointer}
 .ed-fx-btn:hover{border-color:var(--ed-accent,var(--accent,#004aad));color:var(--ed-accent,var(--accent,#004aad))}
+.ed-fx-chars{display:flex;flex-wrap:wrap;gap:3px;padding:6px;border:1px solid var(--ed-border,var(--border,rgba(0,74,173,.2)));border-radius:6px;background:var(--ed-field,var(--field-bg,#fff));touch-action:none;user-select:none;-webkit-user-select:none}
+.ed-fx-ch{min-width:22px;height:24px;padding:0 3px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;font-size:13px;cursor:pointer;color:var(--ed-text,var(--text,inherit));border:1px solid transparent}
+.ed-fx-ch:hover{border-color:var(--ed-accent,var(--accent,#004aad))}
+.ed-fx-ch.on{background:var(--ed-fx-acc,#ff2d2d);color:#fff;font-weight:700}
+.ed-fx-ch.sp{min-width:10px;cursor:default;border:none}
+.ed-fx-br{flex-basis:100%;height:0}
+.ed-fx-chars-empty{font-size:11px;color:var(--ed-muted,var(--muted,#6b7890))}
 .ed-fx-hint{font-size:11px;color:var(--ed-muted,var(--muted,#6b7890));line-height:1.4}
 `;
     d.head.appendChild(st);
@@ -876,6 +1062,50 @@
       c.addEventListener('change', () => emit(def.patch(build(), st.subject), false));
       if (a) a.addEventListener('change', () => emit(def.patch(build(), st.subject), false));
       row.append(lab(def.label), ctl);
+    } else if (def.type === 'chars') {
+      // 選字變色：把文字拆成一格一格，點一下切換；按住拖過去一次改一串。放開才送出（一筆復原）
+      row.style.gridTemplateColumns = '1fr';
+      const wrap = el('div'), box = el('div', 'ed-fx-chars');
+      wrap.append(lab(def.label), box);
+      row.append(wrap);
+      let key = null, cells = [], paint = null;
+      const cur = () => def.get(st.subject) || { text: '', mask: null, color: '#ff2d2d' };
+      refresh = () => {
+        const v = cur();
+        box.style.setProperty('--ed-fx-acc', v.color || '#ff2d2d');
+        if (paint) return;
+        if (v.text !== key) {
+          key = v.text; box.textContent = ''; cells = [];
+          Array.from(v.text).forEach((c, i) => {
+            if (c === '\n') { box.append(el('span', 'ed-fx-br')); cells.push(null); return; }
+            const sp = /\s/.test(c);
+            const b = el('span', 'ed-fx-ch' + (sp ? ' sp' : ''), sp ? '' : c);
+            b.dataset.i = i;
+            box.append(b); cells.push(sp ? null : b);
+          });
+          if (!cells.some(Boolean)) box.append(el('span', 'ed-fx-chars-empty', '先在上面輸入文字'));
+        }
+        cells.forEach((b, i) => { if (b) b.classList.toggle('on', !!(v.mask && v.mask[i])); });
+      };
+      const cellAt = e => { const t = root.document.elementFromPoint(e.clientX, e.clientY); return t && t.closest && t.closest('.ed-fx-ch:not(.sp)'); };
+      box.addEventListener('pointerdown', e => {
+        const b = cellAt(e);
+        if (e.button !== 0 || !b || !box.contains(b)) return;
+        e.preventDefault();
+        const v = cur();
+        const mask = cells.map((c, i) => !!(c && v.mask && v.mask[i]));
+        const on = !mask[+b.dataset.i];
+        paint = { mask, on };
+        const set = c => { if (!c || !box.contains(c)) return; mask[+c.dataset.i] = on; c.classList.toggle('on', on); };
+        set(b);
+        const move = ev => set(cellAt(ev));
+        const up = () => {
+          root.removeEventListener('pointermove', move); root.removeEventListener('pointerup', up); root.removeEventListener('pointercancel', up);
+          paint = null;
+          emit(def.patch(mask, st.subject), false);
+        };
+        root.addEventListener('pointermove', move); root.addEventListener('pointerup', up); root.addEventListener('pointercancel', up);
+      });
     } else if (def.type === 'text') {
       row.style.gridTemplateColumns = '1fr';
       const wrap = el('div');
@@ -920,7 +1150,19 @@
   const cropPatch = o => ({ video: { crop: o } });
   const tt = (c, k) => (c.title && c.title[k] != null) ? c.title[k] : BASE_TITLE[k];
   const ttSub = (c, o, k) => (c.title && c.title[o] && c.title[o][k] != null) ? c.title[o][k] : BASE_TITLE[o][k];
+  // 外框格子：一律送出完整 4 格（逐格合併才不會留下舊值）；有用的格子保持連續、從第 1 格開始
+  const outlinesAll = c => BASE_TITLE.outlines.map((b, i) => ({ ...b, ...((c.title && Array.isArray(c.title.outlines) && c.title.outlines[i]) || {}) }));
+  const outlineAt = (c, i) => outlinesAll(c)[i];
+  const outlineCount = c => outlinesAll(c).filter(o => o.on).length;
+  const packOutlines = list => Array.from({ length: OUTLINE_SLOTS }, (_, i) => (list[i] ? { ...list[i], on: true } : outlineOff()));
+  const setOutline = (c, i, o) => { const a = outlinesAll(c); a[i] = { ...a[i], ...o }; return a; };
+  const removeOutline = (c, i) => packOutlines(outlinesAll(c).filter((o, j) => o.on && j !== i));
+  const addOutline = c => {
+    const on = outlinesAll(c).filter(o => o.on);
+    return packOutlines([...on, { color: on.length % 2 ? '#1593d6' : '#ffffff', width: 6 }]);
+  };
 
+  const isTitleClip = c => !!c && !isTransition(c) && c.type === 'title' && !!c.title;
   const SECTIONS = [
     {
       id: 'transform', title: '變形',
@@ -961,25 +1203,54 @@
       },
     },
     {
-      id: 'title', title: '字幕',
-      appliesTo: c => !!c && !isTransition(c) && c.type === 'title' && !!c.title,
+      id: 'title', title: '字幕文字',
+      appliesTo: isTitleClip,
       render(host, clip, commit) {
         const T = o => ({ title: o });
         const isPreset = (...a) => c => a.includes(tt(c, 'preset'));
         buildSection(host, 'title:' + clip.id, clip, commit, [
           { type: 'text', label: '文字', placeholder: '輸入字幕內容（可換行）', get: c => tt(c, 'text'), patch: v => T({ text: v }) },
-          { type: 'select', label: '樣式', options: Object.keys(TITLE_PRESETS).map(k => [k, TITLE_PRESETS[k].name]), get: c => tt(c, 'preset'),
-            patch: v => { const d = deepClone(TITLE_PRESETS[v].defaults); delete d.size; return T({ preset: v, ...d }); } },
+          { type: 'chars', label: '選字變色（點字或拖過去，再點一次取消）', get: c => { const a = parseAccent(tt(c, 'text')); return { text: a.text, mask: a.mask, color: tt(c, 'accent') }; },
+            patch: (mask, c) => T({ text: buildAccent(parseAccent(tt(c, 'text')).text, mask) }) },
+          { type: 'color', label: '變色顏色', get: c => tt(c, 'accent'), patch: v => T({ accent: v }) },
+          { type: 'hint', label: '也可以直接在文字裡用 *星號* 包住要變色的字，例如：進行*瘋狂*的編輯' },
+          { type: 'head', label: '字型與位置' },
           { type: 'select', label: '字型', options: Object.keys(FONTS).map(k => [k, FONTS[k].name]), get: c => tt(c, 'font'), patch: v => { loadFont(v); return T({ font: v }); } },
           { type: 'num', label: '字級', get: c => tt(c, 'size'), def: 80, min: 8, max: 600, dpp: 0.5, dec: 0, unit: 'px', patch: v => T({ size: v }) },
-          { type: 'color', label: '文字顏色', get: c => tt(c, 'color'), patch: v => T({ color: v }) },
           { type: 'select', label: '對齊', options: ALIGN_OPTIONS, get: c => tt(c, 'align'), show: c => tt(c, 'preset') !== 'lowerThird' && tt(c, 'preset') !== 'crawl', patch: v => T({ align: v }) },
           { type: 'num', label: '行距', get: c => tt(c, 'lineHeight'), def: 1.25, min: 0.8, max: 3, dpp: 0.01, dec: 2, show: isPreset('static', 'lowerThird', 'scroll', 'typewriter', 'fadeUp'), patch: v => T({ lineHeight: v }) },
           { type: 'num', label: '水平位置', get: c => tt(c, 'x'), def: 0.5, min: -0.5, max: 1.5, scale: 100, dpp: 0.002, dec: 1, unit: '%', slider: [0, 100], sliderStep: 0.5, show: c => tt(c, 'preset') !== 'crawl', patch: v => T({ x: v }) },
           { type: 'num', label: '垂直位置', get: c => tt(c, 'y'), def: 0.5, min: -0.5, max: 1.5, scale: 100, dpp: 0.002, dec: 1, unit: '%', slider: [0, 100], sliderStep: 0.5, show: c => tt(c, 'preset') !== 'scroll', patch: v => T({ y: v }) },
+        ]);
+      },
+    },
+    {
+      id: 'titleLook', title: '字幕外觀',
+      appliesTo: isTitleClip,
+      render(host, clip, commit) {
+        const T = o => ({ title: o });
+        buildSection(host, 'titleLook:' + clip.id, clip, commit, [
+          { type: 'color', label: '文字顏色', get: c => tt(c, 'color'), patch: v => T({ color: v }) },
           { type: 'head', label: '描邊' },
           { type: 'color', label: '描邊顏色', get: c => ttSub(c, 'stroke', 'color'), patch: v => T({ stroke: { color: v } }) },
           { type: 'num', label: '描邊粗細', get: c => ttSub(c, 'stroke', 'width'), def: 0, min: 0, max: 60, dpp: 0.1, dec: 1, unit: 'px', patch: v => T({ stroke: { width: v } }) },
+          { type: 'head', label: '外框（色框）' },
+          { type: 'hint', label: '在描邊外面再加一圈圈色框，最多 4 層（1 在最內側）。', show: c => outlineCount(c) === 0 },
+          ...[0, 1, 2, 3].flatMap(i => [
+            { type: 'color', label: `外框 ${i + 1}`, show: c => outlineAt(c, i).on, get: c => outlineAt(c, i).color, patch: (v, c) => T({ outlines: setOutline(c, i, { color: v }) }) },
+            { type: 'num', label: `外框 ${i + 1} 粗細`, show: c => outlineAt(c, i).on, get: c => outlineAt(c, i).width, def: 6, min: 0, max: 60, dpp: 0.1, dec: 1, unit: 'px',
+              patch: (v, c) => T({ outlines: setOutline(c, i, { width: v }) }) },
+            { type: 'btn', label: `移除外框 ${i + 1}`, show: c => outlineAt(c, i).on, patch: c => T({ outlines: removeOutline(c, i) }) },
+          ]),
+          { type: 'btn', label: '＋ 增加外框', show: c => outlineCount(c) < OUTLINE_SLOTS, patch: c => T({ outlines: addOutline(c) }) },
+          { type: 'head', label: '文字效果' },
+          { type: 'check', label: '漸層（由上往下：文字顏色 → 漸層顏色）', get: c => ttSub(c, 'gradient', 'on'), patch: v => T({ gradient: { on: !!v } }) },
+          { type: 'color', label: '漸層顏色', show: c => !!ttSub(c, 'gradient', 'on'), get: c => ttSub(c, 'gradient', 'color'), patch: v => T({ gradient: { color: v } }) },
+          { type: 'num', label: '斜體', get: c => tt(c, 'skew'), def: 0, min: -30, max: 30, dpp: 0.1, dec: 1, unit: '°', slider: [-30, 30], sliderStep: 1, patch: v => T({ skew: v }) },
+          { type: 'head', label: '立體' },
+          { type: 'num', label: '立體深度', get: c => ttSub(c, 'extrude', 'depth'), def: 0, min: 0, max: 80, dpp: 0.1, dec: 0, unit: 'px', slider: [0, 40], sliderStep: 1, patch: v => T({ extrude: { depth: v } }) },
+          { type: 'color', label: '立體顏色', show: c => ttSub(c, 'extrude', 'depth') > 0, get: c => ttSub(c, 'extrude', 'color'), patch: v => T({ extrude: { color: v } }) },
+          { type: 'num', label: '立體方向', show: c => ttSub(c, 'extrude', 'depth') > 0, get: c => ttSub(c, 'extrude', 'angle'), def: 45, min: -180, max: 360, dpp: 0.5, dec: 0, unit: '°', patch: v => T({ extrude: { angle: v } }) },
           { type: 'head', label: '陰影' },
           { type: 'color', label: '陰影顏色', alpha: true, get: c => ttSub(c, 'shadow', 'color'), patch: v => T({ shadow: { color: v } }) },
           { type: 'num', label: '模糊', get: c => ttSub(c, 'shadow', 'blur'), def: 8, min: 0, max: 100, dpp: 0.2, dec: 0, unit: 'px', patch: v => T({ shadow: { blur: v } }) },
@@ -990,6 +1261,20 @@
           { type: 'num', label: '內距', get: c => ttSub(c, 'bg', 'padding'), def: 24, min: 0, max: 300, dpp: 0.3, dec: 0, unit: 'px', patch: v => T({ bg: { padding: v } }) },
           { type: 'num', label: '圓角', get: c => ttSub(c, 'bg', 'radius'), def: 8, min: 0, max: 200, dpp: 0.3, dec: 0, unit: 'px',
             show: c => tt(c, 'preset') !== 'lowerThird' && tt(c, 'preset') !== 'crawl', patch: v => T({ bg: { radius: v } }) },
+        ]);
+      },
+    },
+    {
+      id: 'titleAnim', title: '字幕動畫',
+      appliesTo: isTitleClip,
+      render(host, clip, commit) {
+        const T = o => ({ title: o });
+        buildSection(host, 'titleAnim:' + clip.id, clip, commit, [
+          { type: 'select', label: '字幕過場', options: Object.keys(TITLE_PRESETS).map(k => [k, TITLE_PRESETS[k].name]), get: c => tt(c, 'preset'),
+            patch: v => { const d = deepClone(TITLE_PRESETS[v].defaults); delete d.size; return T({ preset: v, ...d }); } },
+          { type: 'head', label: '字體特效' },
+          { type: 'select', label: '進場', options: Object.keys(TEXT_FX).map(k => [k, TEXT_FX[k].name]), get: c => tt(c, 'textFx'), patch: v => T({ textFx: v }) },
+          { type: 'num', label: '特效長度', show: c => tt(c, 'textFx') !== 'none', get: c => tt(c, 'textFxDur'), def: 0.5, min: 0.1, max: 5, dpp: 0.01, dec: 2, unit: '秒', patch: v => T({ textFxDur: v }) },
         ]);
       },
     },
@@ -1013,7 +1298,7 @@
     DEFAULT_TRANSFORM, DEFAULT_CROP, defaultTransform, defaultCrop, defaultVideo,
     fitRect, clipMatrix, applyMatrix, cropRect, getParam,
     drawClipVisual, drawSolid, drawTitle, titleBounds, clipQuad,
-    TRANSITIONS, ease, TITLE_PRESETS, makeTitle, wrapText, parseColor, formatColor,
+    TRANSITIONS, ease, TITLE_PRESETS, TITLE_STYLES, TEXT_FX, makeTitle, normTitle, parseAccent, buildAccent, wrapText, parseColor, formatColor,
     ready, get fontLoaded() { return defaultFontLoaded(); }, FONTS, loadFont, onFontLoad, fontIsLoaded,
     inspector: { sections: SECTIONS },
     ensureStyle,                 // 插入詳細內容樣式（.ed-fx-*）；UI 自己的區段也用這套外觀，啟動時先呼叫一次

@@ -660,6 +660,114 @@ async function runViewport(browser, base, fix, [W, H]) {
   eq(on(cl, 'V2').map(c => [c.s, c.d]), [[30, 90], [150, 90]], '把字幕樣式拖到 V2 的 150 格');
   eq(await proj(page, p => Object.values(p.clips).filter(c => c.type === 'title').map(c => c.title.preset).sort()), ['lowerThird', 'static'], '字幕樣式正確（靜態、下三分之一條）');
   eq(await invariants(page), [], '不變式 OK');
+
+  // ---------------------------------------------------------------- 字幕樣式、字體特效
+  console.log('字幕樣式、字體特效');
+  const heads = () => page.evaluate(() => [...document.querySelectorAll('.ed-panel:not([hidden]) .ed-ghead')].map(h => h.textContent));
+  eq(await page.textContent('.ed-tab[data-tab="trans"]'), '特效', '分頁「轉場」改名為「特效」');
+  eq(await heads(), ['字幕過場', '字幕樣式'], '字幕分頁分成「字幕過場」「字幕樣式」');
+  eq(await page.evaluate(() => document.querySelectorAll('#edTStyleList .ed-gitem').length), 5, '列出 5 種字幕樣式（基本＋4 種附圖樣式）');
+  const [tA, tB] = on(await clips(page), 'V2');
+  const tOf = id => proj(page, (p, Q, id) => p.clips[id].title, id);
+  const selClip = async id => { const b = await clipBox(page, id); await page.mouse.click(b.x + b.w / 2, b.y + b.h / 2); await settle(page); };
+  // 按鈕套用：選第一個字幕 → 選「黑邊青框」→ 套用
+  await selClip(tA.id);
+  await page.click('#edTStyleList .ed-gitem[data-tstyle="blackCyan"]');
+  await page.click('#edTStyleApply');
+  await settle(page);
+  let tt = await tOf(tA.id);
+  eq([tt.stroke.color, tt.outlines[0].on, tt.outlines[0].color, tt.text], ['#111111', true, '#3fd8d8', '測試字幕'], '按鈕套用「黑邊青框」：黑描邊＋青色外框，文字不變');
+  ok((await page.textContent('#edUndoLab')).includes('字幕樣式'), '套用樣式記一筆復原（字幕樣式）');
+  // 拖曳套用：「黑邊強調紅」拖到第二個字幕上
+  const dragOnto = async (sel, id) => {
+    await page.locator(sel).scrollIntoViewIfNeeded();
+    const g = await page.evaluate(s => { const r = document.querySelector(s).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+    const b = await clipBox(page, id);
+    await drag(page, g, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, { steps: 14 });
+    await settle(page);
+  };
+  await dragOnto('#edTStyleList .ed-gitem[data-tstyle="redAccent"]', tB.id);
+  tt = await tOf(tB.id);
+  eq([tt.accent, tt.skew, tt.stroke.color], ['#e5141b', 10, '#141414'], '把「黑邊強調紅」拖到字幕片段上：套用強調紅、斜體');
+  eq(on(await clips(page), 'V2').length, 2, '拖樣式到字幕上不會新增片段');
+  // 拖到影片片段上：不套用、顯示錯誤
+  const clipsBefore = await proj(page, p => JSON.stringify(p.clips));
+  await dragOnto('#edTStyleList .ed-gitem[data-tstyle="purple3d"]', on(await clips(page), 'V1')[0].id);
+  eq(await proj(page, p => JSON.stringify(p.clips)), clipsBefore, '拖樣式到影片片段：不改任何東西');
+  // 字體特效（在「特效」分頁）
+  await page.click('.ed-tab[data-tab="trans"]');
+  eq(await heads(), ['轉場特效', '字體特效'], '特效分頁分成「轉場特效」「字體特效」');
+  eq(await page.evaluate(() => [...document.querySelectorAll('#edTextFxList .ed-gitem')].map(i => i.dataset.textfx)), ['none', 'pop', 'popLine', 'popChar', 'jump', 'jumpLine', 'jumpChar'], '字體特效：無／彈出／逐行彈出／逐字彈出／下往上跳起／逐行跳起／逐字跳起');
+  await selClip(tA.id);
+  await page.click('#edTextFxList .ed-gitem[data-textfx="jumpChar"]');
+  await page.click('#edTextFxApply');
+  await settle(page);
+  eq((await tOf(tA.id)).textFx, 'jumpChar', '按鈕套用「逐字跳起」');
+  ok((await page.textContent('#edUndoLab')).includes('字體特效'), '套用字體特效記一筆復原');
+  await dragOnto('#edTextFxList .ed-gitem[data-textfx="pop"]', tB.id);
+  eq((await tOf(tB.id)).textFx, 'pop', '把「彈出」拖到字幕片段上');
+  // 詳細內容：選字幕 → 文字／外觀／動畫／變形／資訊 分頁
+  await selClip(tA.id);
+  eq(await page.evaluate(() => [...document.querySelectorAll('#edInspTabs .ed-itab')].map(b => b.textContent)), ['文字', '外觀', '動畫', '變形', '資訊'], '選取字幕：詳細內容分頁＝文字／外觀／動畫／變形／資訊');
+  await page.click('.ed-itab[data-itab="text"]');
+  ok(await page.isVisible('.ed-sec[data-sec="fx-title"]') && !(await page.isVisible('.ed-sec[data-sec="fx-titleLook"]')), '「文字」分頁只顯示文字相關欄位');
+  // 選字變色：點「測」「試」變紅（一筆復原）
+  const chipB = async ch => { const b = await page.locator('.ed-sec[data-sec="fx-title"] .ed-fx-ch', { hasText: ch }).first().boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+  await drag(page, await chipB('測'), await chipB('試'), { steps: 4 });
+  await settle(page);
+  eq((await tOf(tA.id)).text, '*測試*字幕', '選字變色：拖過「測試」→ 文字加上強調標記');
+  ok((await page.textContent('#edUndoLab')).includes('字幕文字'), '選字變色記一筆復原');
+  await page.click('.ed-itab[data-itab="look"]');
+  ok(await page.isVisible('.ed-sec[data-sec="fx-titleLook"]') && !(await page.isVisible('.ed-sec[data-sec="fx-title"]')), '切到「外觀」分頁');
+  await page.click('.ed-itab[data-itab="anim"]');
+  eq(await page.inputValue('.ed-sec[data-sec="fx-titleAnim"] .ed-fx-row:has-text("進場") select'), 'jumpChar', '「動畫」分頁顯示這個字幕的字體特效');
+  await page.selectOption('.ed-sec[data-sec="fx-titleAnim"] .ed-fx-row:has-text("進場") select', 'jumpLine');
+  await settle(page);
+  eq((await tOf(tA.id)).textFx, 'jumpLine', '在詳細內容改成逐行跳起');
+  await shot(page, `${tag}-4c-insp-tabs`);
+  await selClip(tB.id);
+  ok(await page.isVisible('.ed-sec[data-sec="fx-titleAnim"]'), '換選另一個字幕：停在同一個分頁（動畫）');
+  await page.click('.ed-itab[data-itab="text"]');
+  // 點時間軸空白處：取消選取，播放頭不動
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(40));
+  await settle(page);
+  const v2e = await laneBox(page, 'V2');
+  await page.mouse.click(await frameX(page, 400), v2e.y + v2e.h / 2);
+  await settle(page);
+  eq([await page.evaluate(() => QPTEdit.ui.state.selection.size), await page.evaluate(() => QPTEdit.ui.state.playhead)], [0, 40], '點軌道空白處：取消選取，播放頭不動');
+  ok(!(await page.isVisible('#edInspTabs')) && await page.isVisible('.ed-sec[data-sec="project"]'), '沒選東西：詳細內容回到專案資訊');
+  await selClip(tB.id);
+  const below = await page.evaluate(() => { const s = document.querySelector('.ed-tl-scroll'), r = s.getBoundingClientRect(), lanes = [...document.querySelectorAll('.ed-lane')].map(l => l.getBoundingClientRect().bottom); return { x: r.left + r.width / 2, y: Math.max(...lanes) + 12, ok: Math.max(...lanes) + 12 < r.top + s.clientHeight }; });
+  if (below.ok) {
+    await page.mouse.click(below.x, below.y);
+    await settle(page);
+    eq([await page.evaluate(() => QPTEdit.ui.state.selection.size), await page.evaluate(() => QPTEdit.ui.state.playhead)], [0, 40], '點軌道下方的空白：也取消選取，播放頭不動');
+  }
+  const rl = await page.evaluate(() => { const r = document.querySelector('.ed-ruler').getBoundingClientRect(); return { y: r.top + r.height / 2 }; });
+  await page.mouse.click(await frameX(page, 60), rl.y);
+  await settle(page);
+  eq(await page.evaluate(() => QPTEdit.ui.state.playhead), 60, '點時間尺：播放頭才移動');
+  // 預覽動畫：逐字跳起開頭 0.1 秒的畫面跟 1 秒時不同（字還在往上跳）
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(33));
+  await settle(page);
+  await shot(page, `${tag}-4a-textfx-mid`);
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(70));
+  await settle(page);
+  await shot(page, `${tag}-4b-title-styles`);
+  // 新字幕套用目前選取的樣式
+  await page.click('.ed-tab[data-tab="title"]');
+  await page.click('#edTStyleList .ed-gitem[data-tstyle="purple3d"]');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(260));
+  await page.click('#edTitleAdd');
+  await settle(page);
+  const nt = on(await clips(page), 'V2').find(c => c.id !== tA.id && c.id !== tB.id);
+  eq(nt && (await tOf(nt.id)).extrude.depth, 16, '新增字幕：用目前選取的樣式（紫色立體）');
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  eq(on(await clips(page), 'V2').length, 2, '復原新增的字幕');
+  await page.click('#edTStyleList .ed-gitem[data-tstyle="plain"]');
+  if (await page.isVisible('#edMsgs .ed-msg')) await page.evaluate(() => document.querySelectorAll('#edMsgs .ed-msg-x').forEach(b => b.click()));
+  eq(await invariants(page), [], '不變式 OK');
   // 截圖用：多軌片段＋轉場＋字幕同時出現
   const l0box = await clipBox(page, L0.id);
   await page.mouse.click(l0box.x + l0box.w / 2, l0box.y + l0box.h - 8);
@@ -686,7 +794,11 @@ async function runViewport(browser, base, fix, [W, H]) {
   await settle(page);
   if (!(await page.isVisible('.ed-sec[data-sec="fx-transform"]'))) console.log('       DEBUG', JSON.stringify(await page.evaluate(() => ({ sel: [...QPTEdit.ui.state.selection], prim: QPTEdit.ui.state.primary, tr: QPTEdit.ui.state.selTransition, secs: [...document.querySelectorAll('.ed-sec')].map(s => s.dataset.sec + ':' + s.hidden), head: document.getElementById('edInspHead').textContent }))), JSON.stringify(cb));
   ok(await page.isVisible('.ed-sec[data-sec="fx-transform"]'), '選取影片片段：檢查器出現「變形」區段');
-  ok(await page.isVisible('.ed-sec[data-sec="info"]'), '檢查器：片段資訊');
+  eq(await page.evaluate(() => [...document.querySelectorAll('#edInspTabs .ed-itab')].map(b => b.textContent)), ['變形', '裁切', '音訊', '速度', '資訊'], '選取影片片段：詳細內容分頁＝變形／裁切／音訊／速度／資訊');
+  ok(!(await page.isVisible('.ed-sec[data-sec="info"]')) && !(await page.isVisible('.ed-sec[data-sec="audio"]')), '一次只顯示一個分頁的內容');
+  await page.click('.ed-itab[data-itab="info"]');
+  ok(await page.isVisible('.ed-sec[data-sec="info"]') && !(await page.isVisible('.ed-sec[data-sec="fx-transform"]')), '檢查器：切到「資訊」分頁看片段資訊');
+  await page.click('.ed-itab[data-itab="xform"]');
   const zl = page.locator('.ed-sec[data-sec="fx-transform"] .ed-fx-lab:text-is("縮放 X")');
   await zl.scrollIntoViewIfNeeded();
   const zb = await zl.boundingBox();
@@ -1210,7 +1322,8 @@ async function runViewport(browser, base, fix, [W, H]) {
   cb = await clipBox(page, lastV.id);
   await page.mouse.click(cb.x + cb.w / 2, cb.y + cb.h - 8);
   await settle(page);
-  ok(await page.isVisible('.ed-sec[data-sec="speed"]'), '選取影片片段：檢查器有「速度」區');
+  await page.click('.ed-itab[data-itab="speed"]');
+  ok(await page.isVisible('.ed-sec[data-sec="speed"]'), '選取影片片段：檢查器有「速度」分頁');
   await page.locator('.ed-sec[data-sec="speed"]').getByLabel('倒播').check();
   await settle(page);
   cl = await clips(page);
