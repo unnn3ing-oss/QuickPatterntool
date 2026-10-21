@@ -146,28 +146,77 @@ test('開關照常運作：切到純色背景 → 出現色票；選色、全部
   assert.match(await btn('圖片背景').getAttribute('class'), /active/);
   await btn('純色背景').click();
   assert.match(await btn('純色背景').getAttribute('class'), /active/);
-  await page.waitForSelector('#singleBgPicker .color-swatches', { state: 'visible' });
-  await page.locator('#singleBgPicker .color-swatch').first().click();
+  await page.waitForSelector('#qfColorStrip .color-swatches', { state: 'visible' });
+  await page.locator('#qfColorStrip .color-swatch').first().click();
   await page.click('#resetBtn');
   await page.click('#confirmOkBtn');   // 「全部清除」要先確認
   await page.waitForFunction(() => document.querySelector('#qfBgSlot .bg-toggle button.active').textContent === '圖片背景');
-  assert.equal(await page.locator('#singleBgPicker .color-swatches').isVisible(), false);
+  assert.equal(await page.locator('#qfColorStrip').isVisible(), false);
 });
 
-test('編輯卡片的「背景」：圖片背景且沒圖片時整塊隱藏；純色背景顯示色票；載入圖片顯示縮圖', { skip }, async t => {
+test('編輯卡片的「背景」：只剩圖片縮圖，沒載入圖片時整塊隱藏（純色背景時也不顯示）', { skip }, async t => {
   const { page } = await open(t);
   const field = page.locator('#singleFields .field:has(#singleBgPicker)');
   assert.equal(await field.isVisible(), false);
   await page.locator('#qfBgSlot .bg-toggle button', { hasText: '純色背景' }).click();
-  await field.waitFor({ state: 'visible' });
-  await page.locator('#qfBgSlot .bg-toggle button', { hasText: '圖片背景' }).click();
-  await page.waitForFunction(() => document.querySelector('#singleFields .field:has(#singleBgPicker)').hidden);
+  await page.waitForSelector('#qfColorStrip', { state: 'visible' });
+  assert.equal(await field.isVisible(), false);
   await page.setInputFiles('#singleBgPicker input[type=file]', { name: 'bg.png', mimeType: 'image/png', buffer: png(40, 40) });
   await field.waitFor({ state: 'visible' });
   assert.equal(await page.locator('#singleBgPicker .batch-item-thumb').isVisible(), true);
+  assert.equal(await page.locator('#qfColorStrip').isVisible(), false);   // 放了圖片就回到圖片背景，色票收起來
   await page.click('#resetBtn');
   await page.click('#confirmOkBtn');
   await page.waitForFunction(() => document.querySelector('#singleFields .field:has(#singleBgPicker)').hidden);
+});
+
+test('按「純色背景」隨機挑一個現有色票來用；已在純色背景時再按不會重抽', { skip }, async t => {
+  const { page } = await open(t);
+  const btn = page.locator('#qfBgSlot .bg-toggle button', { hasText: '純色背景' });
+  const selected = () => page.evaluate(() => { const s = document.querySelector('#qfColorStrip .color-swatch.selected'); return s && s.title; });
+  const seen = new Set();
+  for (let i = 0; i < 12; i++) {
+    await btn.click();
+    await page.waitForSelector('#qfColorStrip .color-swatch.selected');
+    const c = await selected();
+    assert.match(c, /^#[0-9a-f]{6}$/i);
+    assert.ok(await page.locator(`#qfColorStrip .color-swatch[title="${c}"]`).count() === 1, '挑到的是現有色票');
+    assert.equal(await selected(), c);
+    await btn.click();                       // 已在純色背景：不重抽
+    assert.equal(await selected(), c);
+    seen.add(c);
+    await page.locator('#qfBgSlot .bg-toggle button', { hasText: '圖片背景' }).click();
+    await page.waitForFunction(() => document.getElementById('qfColorStrip').hidden);
+  }
+  assert.ok(seen.size > 1, `12 次只抽到 ${seen.size} 種顏色，看起來不是隨機`);
+});
+
+test('色票在「快速產圖」下方彈出一排、可左右滑動；全部色票都在裡面，氣泡不蓋到色票', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.locator('#qfBgSlot .bg-toggle button', { hasText: '純色背景' }).click();
+  await page.waitForSelector('#qfColorStrip', { state: 'visible' });
+  const strip = '#qfColorStrip .color-swatches';
+  const card = await box(page, '#quickFill'), row = await box(page, '#quickFill .qf-row'), st = await box(page, '#qfColorStrip');
+  assert.ok(st.y >= row.y + row.height, '在輸入列下方');
+  assert.ok(st.y + st.height <= card.y + card.height + 1, '在快速產圖卡片裡');
+  const tip = await box(page, '#qfTip');
+  assert.ok(!overlap(tip, await box(page, strip)), '提示氣泡不蓋到色票');
+  const m = await page.evaluate(sel => { const e = document.querySelector(sel); return { n: e.children.length, sw: e.scrollWidth, cw: e.clientWidth, oy: getComputedStyle(e).overflowX, wrap: getComputedStyle(e).flexWrap }; }, strip);
+  assert.equal(m.n, 19);
+  assert.equal(m.wrap, 'nowrap');
+  assert.equal(m.oy, 'auto');
+  assert.ok(m.sw > m.cw, '放不下，要能左右滑');
+  // 滑動：滾輪、捲到最左／最右都能點到對應的色票
+  await page.waitForTimeout(500);
+  await page.locator(strip).hover();
+  await page.mouse.wheel(0, -2000);
+  await page.waitForFunction(s => document.querySelector(s).scrollLeft === 0, strip);
+  await page.mouse.wheel(0, 2000);
+  await page.waitForFunction(s => { const e = document.querySelector(s); return e.scrollLeft >= e.scrollWidth - e.clientWidth - 1; }, strip);
+  const last = page.locator('#qfColorStrip .color-swatch').last();
+  await last.click();
+  assert.match(await last.getAttribute('class'), /selected/);
+  assert.deepEqual(errors, []);
 });
 
 test('提示氣泡在按鈕下方：「貼上連結按Enter可以產圖」不蓋到開關；貼上網址後消失', { skip }, async t => {

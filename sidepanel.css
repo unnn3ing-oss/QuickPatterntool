@@ -234,3 +234,18 @@ html.up-lock, html.up-lock body { overflow: hidden; }
 .update-note-head { font-size: calc(13px * var(--fs)); font-weight: 700; color: #22324d; line-height: 1.5; }
 .update-note ul { margin: 6px 0 0; padding-left: 18px; font-size: calc(12.5px * var(--fs)); color: #3a4a66; line-height: 1.65; }
 
+
+/* 純色背景的色票：切到純色背景時在「快速產圖」下方彈出，一排橫向捲動，19 個顏色全部都在裡面。
+   色票本來是共用背景選擇器的虛線框（可換行），這裡改成單排、藥丸形；上下留空，選取的外圈才不會被捲動區裁掉。 */
+.qf-colors { margin-top: calc(8px * var(--sp)); animation: qf-pop .16s ease-out; }
+.qf-colors[hidden] { display: none; }
+.sidepanel .qf-colors .color-swatches {
+  flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  gap: calc(8px * var(--sp)); padding: calc(9px * var(--sp)) calc(12px * var(--sp));
+  border: 1px solid rgba(0, 74, 173, 0.18); border-radius: 999px; background: rgba(0, 74, 173, 0.05);
+  scrollbar-width: thin; scroll-snap-type: x proximity;
+}
+.sidepanel .qf-colors .color-swatch { flex: 0 0 auto; scroll-snap-align: center; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .qf-colors { animation: none; } }
+/* 氣泡垂在按鈕下方，色票排要讓開，不然氣泡會蓋到最上面一排顏色 */
+#quickFill:has(.qf-btn-wrap > .tip:not([hidden])) .qf-colors { margin-top: calc(24px * var(--sp)); }

@@ -395,6 +395,7 @@ function isImageFile(file) {
 // Reusable background picker: "upload image" vs "solid color" toggle, used by
 // single mode and by each batch item block.
 // opts: onImage / onColor / onModeChange(mode, remembered) / getBg() / memory (optional, caller-owned).
+// opts.randomColor（側邊欄用）：按「純色背景」時隨機挑一個現有色票來用（不還原上次的顏色）；已經在純色背景時再按不會重抽。
 // The picker remembers the last background of each type, so flipping 圖片背景 → 純色背景 → 圖片背景
 // brings the picture (with its pan/zoom) back instead of throwing it away. getBg() returns the
 // caller's current bg object; onModeChange receives the remembered one (or null) for the new type.
@@ -498,13 +499,19 @@ function createBackgroundPicker(opts) {
     setModeVisual(mode);
     clearImageVisual();
     clearColorVisual();
-    const kept = fresh ? null : memory[mode] || null;
+    let kept = fresh ? null : memory[mode] || null;
+    if (mode === 'color' && !fresh && opts.randomColor) {
+      kept = { bg: { type: 'color', image: null, color: PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)] } };
+    }
     if (kept && mode === 'image') showImage(kept.bg.image, kept.fileName);
     if (kept && mode === 'color') selectSwatch(kept.bg.color);
     if (opts.onModeChange) opts.onModeChange(mode, kept ? kept.bg : null);
   }
   btnImage.addEventListener('click', () => setMode('image'));
-  btnColor.addEventListener('click', () => setMode('color'));
+  btnColor.addEventListener('click', () => {
+    if (opts.randomColor && btnColor.classList.contains('active')) return;
+    setMode('color');
+  });
 
   let currentUrl = null;
 
@@ -591,6 +598,7 @@ function applyDefaultFontSize(bgType, force = false) {
 }
 
 const singleBgPicker = createBackgroundPicker({
+  randomColor: document.body.classList.contains('sidepanel'),
   getBg: () => singleBg,
   onImage: image => {
     singleBg = { type: 'image', image, color: null, view: newView() };

@@ -209,20 +209,40 @@ document.getElementById('webBtn').addEventListener('click', () => {
 })();
 
 // 「圖片背景／純色背景」開關：搬到「快速產圖」標題列右邊（縮小版，樣式見 sidepanel.css 的 #qfBgSlot）。
-// 開關本來是共用的背景選擇器（app.js）產生的，這裡只是換位置，按鈕和事件都還是原本那組。
-// 編輯卡片的「背景」區塊：圖片背景而且還沒載入圖片時，裡面沒有東西可以操作（圖片直接貼上或拖到預覽），整塊先隱藏；
-// 切到純色背景（有色票）或載入圖片（有縮圖）就顯示。
+// 開關和色票本來是共用的背景選擇器（app.js）產生的，這裡只是換位置，按鈕和事件都還是原本那組。
+// 色票：切到純色背景時在「快速產圖」下方彈出一排，橫向捲動（滑鼠滾輪也能左右捲）；選到的顏色會捲到中間。
+// 編輯卡片的「背景」區塊：現在只剩圖片縮圖，沒載入圖片時整塊隱藏。
 (function () {
   const slot = document.getElementById('qfBgSlot');
+  const strip = document.getElementById('qfColorStrip');
   const picker = document.getElementById('singleBgPicker');
-  if (!slot || !picker) return;
+  if (!slot || !strip || !picker) return;
   const toggle = picker.querySelector('.bg-toggle');
-  if (toggle) slot.appendChild(toggle);
-  const field = picker.closest('.field');
   const swatches = picker.querySelector('.color-swatches');
   const thumb = picker.querySelector('.batch-item-thumb');
+  const field = picker.closest('.field');
+  if (toggle) slot.appendChild(toggle);
+  if (swatches) strip.appendChild(swatches);
   const shown = el => !!el && el.style.display !== 'none';
-  function sync() { if (field) field.hidden = !(shown(swatches) || shown(thumb)); }
+  function centerSelected() {
+    const sw = swatches && swatches.querySelector('.color-swatch.selected');
+    if (!sw || !shown(swatches)) return;
+    swatches.scrollTo({ left: sw.offsetLeft - (swatches.clientWidth - sw.offsetWidth) / 2, behavior: 'smooth' });
+  }
+  function sync() {
+    strip.hidden = !shown(swatches);
+    if (field) field.hidden = !shown(thumb);
+    centerSelected();
+  }
   new MutationObserver(sync).observe(picker, { attributes: true, subtree: true, attributeFilter: ['style'] });
+  if (swatches) {
+    new MutationObserver(sync).observe(swatches, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
+    swatches.addEventListener('wheel', e => {
+      if (swatches.scrollWidth <= swatches.clientWidth) return;
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      swatches.scrollLeft += d;
+      e.preventDefault();
+    }, { passive: false });
+  }
   sync();
 })();
