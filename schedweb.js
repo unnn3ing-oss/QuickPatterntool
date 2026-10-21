@@ -157,6 +157,17 @@
     if (!modal) { setOpen(false); tab.focus(); }
   });
 
+  // 排程只在「圖片套版」顯示：切到浮水印、拼圖、尺寸、剪輯時，頁籤與抽屜都不顯示（開著的也會收起來）。
+  // 直接看圖片套版區塊的 hidden（watermark.js 的 setFunc 切換功能時會設定它），不管是從哪裡切換都會同步。
+  const layout = document.getElementById('layoutApp');
+  function syncVisible() {
+    const on = !layout || !layout.hidden;
+    drawer.hidden = !on;
+    if (!on) setOpen(false);
+  }
+  if (layout) new MutationObserver(syncVisible).observe(layout, { attributes: true, attributeFilter: ['hidden'] });
+  syncVisible();
+
   detect();   // 先偵測一次：有外掛就先把清單抓下來，頁籤上才有「等待中」數量
   if (typeof document !== 'undefined') setTimeout(() => { if (!mounted) detect(); }, 1500);   // 內容腳本可能比頁面晚一點才就緒
 })();

@@ -230,7 +230,8 @@
 - 排程資料存在外掛的 `chrome.storage.local`，網頁讀不到，所以網頁版透過 `schedbridge.js`（外掛只注入 `https://unnn3ing-oss.github.io/QuickPatterntool/*` 的內容腳本）：網頁 `postMessage({source:'qpt-web', type:'sched', v:1, nonce, op, payload})` → 內容腳本驗證後 `chrome.runtime.sendMessage({type:'sched:api'})` → 背景 `poster.js` 的 `webApi` 執行 → 結果用 `sched-result` 回給網頁；佇列有變動時內容腳本通知網頁 `sched-changed`，抽屜自動重整。
 - **網頁傳來的一切都不可信**：內容腳本驗證來源（`event.source === window`、同源）與格式（op 白名單、nonce、payload 是物件）；背景再驗證 sender（自己的擴充功能、有 tab、網址是網頁版頁面），新增／編輯重新走 `buildItem`（粉專網址、時間、圖片格式與大小、網址格式）；清單只回圖片名稱，編輯時才單筆取完整圖片；執行中的不能刪。
 - **介面共用**：`schedui.js` 不碰 `chrome.*`，所有資料存取由呼叫端用 `api` 介面提供（側邊欄直接讀寫 storage，網頁版走橋接），所以兩邊的行為與畫面一致。沒有安裝外掛時抽屜只顯示說明與「重新偵測」。
-- **頁籤的字不能用直排**：第一版「排程」兩個字用 `writing-mode: vertical-rl`＋`display:flex` 的 `<button>`，在 Chrome 裡高度被壓成幾像素（頁籤只剩 31px 高、字疊成一團），每個功能分頁看起來都像壞掉、不容易認出來（使用者回報「只有圖片套版才看得到」，實測頁籤在五個功能分頁其實都在、也沒被蓋住，是它自己長得太不像東西）。改成「排／程」兩個字上下堆疊（一般的橫向 flex column），並加了每個功能分頁都檢查「夠大、兩字不重疊、沒被蓋住、抽屜能彈出」的測試。［程式碼］
+- **只在「圖片套版」顯示**（使用者的要求）：切到浮水印、拼圖、尺寸、剪輯時，頁籤與抽屜整個不顯示（`display:none`，不在 Tab 順序裡），開著的抽屜也會收起來；切回圖片套版時頁籤回來、抽屜是關著的。做法是 `MutationObserver` 監看 `#layoutApp` 的 `hidden`（`watermark.js` 的 `setFunc` 切換功能時設定它），不管從哪裡切換都會同步，不必改 `watermark.js`。［程式碼］（我一度把這句話誤讀成「排程頁籤只有圖片套版看得到」的問題回報，白查了一輪；實際上是使用者要的規則。）
+- **頁籤的字不能用直排**：第一版「排程」兩個字用 `writing-mode: vertical-rl`＋`display:flex` 的 `<button>`，在 Chrome 裡高度被壓成幾像素（頁籤只剩 31px 高、字疊成一團），看起來像壞掉、不容易認出來。改成「排／程」兩個字上下堆疊（一般的橫向 flex column），測試會檢查頁籤夠大、兩字不重疊、沒被蓋住。［程式碼］
 - 抽屜是**非模態**的（沒有遮罩，頁面其他功能照常可用），z-index 高於右下角工具按鈕、低於確認視窗；`Esc` 或再點頁籤關閉，收起時內容 `visibility:hidden`，不會被 Tab 到。
 - **為什麼用橋接而不是網頁自己存**：發文一定要靠外掛開分頁、操作 Facebook；排程只存一份在外掛裡，才不會出現網頁和側邊欄兩份資料不同步。［推論］
 

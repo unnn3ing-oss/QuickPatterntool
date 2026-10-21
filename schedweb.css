@@ -5,6 +5,7 @@
   transform: translateX(100%); transition: transform .24s cubic-bezier(.2, .8, .2, 1);
 }
 .sched-drawer.open { transform: none; }
+.sched-drawer[hidden] { display: none; }   /* 只有「圖片套版」才顯示排程；其他功能分頁整個不顯示（schedweb.js 的 syncVisible） */
 /* 右邊緣的頁籤：跟著抽屜一起移動，關閉時露在螢幕右緣（每個功能分頁都一樣，因為是直接掛在 body 上的固定元素）。
    「排程」兩個字上下堆疊；不要改成直排（writing-mode）：button＋flex＋直排在 Chrome 會把高度壓成幾像素，字疊成一團，看起來像壞掉。 */
 .sched-tab {

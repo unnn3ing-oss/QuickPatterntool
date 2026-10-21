@@ -235,30 +235,61 @@ test('網頁版也能中止執行中（卡住）的排程：經橋接請外掛�
   assert.match(await page.locator('.sch-failed .sch-detail').textContent(), /已手動中止/);
 });
 
-// 回報過「排程頁籤只有圖片套版才看得到」：每個功能分頁（圖片套版／浮水印／拼圖／尺寸／剪輯）都要看得到、點得到、而且看得清楚
-test('每個功能分頁都看得到「排程」頁籤（夠大、兩個字清楚不重疊、沒有被蓋住），點了抽屜都能彈出', { skip }, async t => {
+// 規則：排程頁籤與抽屜「只在圖片套版」顯示，其他功能分頁（浮水印／拼圖／尺寸／剪輯）都不顯示
+const FUNCS = [['funcLayoutBtn', '圖片套版'], ['funcWatermarkBtn', '浮水印'], ['funcCollageBtn', '拼圖'], ['funcResizeBtn', '尺寸'], ['funcEditBtn', '剪輯']];
+const gotoFunc = async (page, id) => { await page.click('#' + id); await page.waitForFunction(i => document.getElementById(i).getAttribute('aria-pressed') === 'true', id); };
+
+test('排程頁籤只在「圖片套版」顯示：圖片套版看得到（夠大、兩字不重疊、沒被蓋住）；浮水印、拼圖、尺寸、剪輯完全不顯示', { skip }, async t => {
   const { page, errors } = await open(t);
-  for (const [id, name] of [['funcLayoutBtn', '圖片套版'], ['funcWatermarkBtn', '浮水印'], ['funcCollageBtn', '拼圖'], ['funcResizeBtn', '尺寸'], ['funcEditBtn', '剪輯']]) {
-    await page.click('#' + id);
-    await page.waitForFunction(i => document.getElementById(i).getAttribute('aria-pressed') === 'true', id);
+  for (const [id, name] of FUNCS) {
+    await gotoFunc(page, id);
     const info = await page.evaluate(() => {
-      const tab = document.getElementById('schedTab'), r = tab.getBoundingClientRect();
+      const tab = document.getElementById('schedTab'), drawer = document.getElementById('schedDrawer'), r = tab.getBoundingClientRect();
       const chars = [...tab.querySelectorAll('.sched-tab-label > span')].map(s => s.getBoundingClientRect());
-      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { rect: r.toJSON(), chars: chars.map(c => [c.top, c.height]), onTop: !!top && tab.contains(top), vw: innerWidth, vh: innerHeight, text: tab.querySelector('.sched-tab-label').textContent };
+      const top = document.elementFromPoint(Math.min(r.left + r.width / 2, innerWidth - 2), Math.min(r.top + r.height / 2, innerHeight - 2));
+      return { rect: r.toJSON(), chars: chars.map(c => [c.top, c.height]), onTop: !!top && tab.contains(top), vw: innerWidth, vh: innerHeight, drawerDisplay: getComputedStyle(drawer).display, drawerHidden: drawer.hidden };
     });
-    assert.equal(info.text, '排程', name);
-    assert.ok(info.rect.height >= 60 && info.rect.width >= 36, `${name}：頁籤太小 ${info.rect.width}×${info.rect.height}`);
-    assert.ok(info.rect.left >= 0 && info.rect.right <= info.vw + 1 && info.rect.top >= 0 && info.rect.bottom <= info.vh, `${name}：頁籤跑出畫面`);
-    assert.ok(info.chars[1][0] >= info.chars[0][0] + info.chars[0][1] - 1, `${name}：兩個字重疊了 ${JSON.stringify(info.chars)}`);
-    assert.equal(info.onTop, true, `${name}：頁籤被別的東西蓋住`);
-    await page.click('#schedTab');
-    await page.waitForSelector('#schPage', { state: 'visible' });
-    await page.waitForFunction(() => document.getElementById('schedDrawerPanel').getBoundingClientRect().left <= innerWidth - 439);   // 等彈出動畫跑完
-    const covered = await page.evaluate(() => { const p = document.getElementById('schedDrawerPanel').getBoundingClientRect(); const e = document.elementFromPoint(p.left + 200, 300); return !document.getElementById('schedDrawerPanel').contains(e); });
-    assert.equal(covered, false, `${name}：抽屜被蓋住`);
-    await page.click('#schedTab');
-    await page.waitForFunction(() => !document.querySelector('#schedDrawer.open'));
+    if (id === 'funcLayoutBtn') {
+      assert.equal(await page.locator('#schedTab').isVisible(), true, name);
+      assert.ok(info.rect.height >= 60 && info.rect.width >= 36, `${name}：頁籤太小 ${info.rect.width}×${info.rect.height}`);
+      assert.ok(info.rect.left >= 0 && info.rect.right <= info.vw + 1 && info.rect.top >= 0 && info.rect.bottom <= info.vh, `${name}：頁籤跑出畫面`);
+      assert.ok(info.chars[1][0] >= info.chars[0][0] + info.chars[0][1] - 1, `${name}：兩個字重疊了 ${JSON.stringify(info.chars)}`);
+      assert.equal(info.onTop, true, `${name}：頁籤被別的東西蓋住`);
+    } else {
+      assert.equal(await page.locator('#schedTab').isVisible(), false, `${name}：不該顯示排程頁籤`);
+      assert.equal(info.drawerDisplay, 'none', `${name}：抽屜不該顯示`);
+      assert.equal(info.drawerHidden, true, name);
+      assert.equal(info.onTop, false, `${name}：原本的位置不該還有頁籤`);
+      assert.equal(await page.locator('#schedTab').boundingBox(), null, name);
+    }
   }
   assert.deepEqual(errors, []);
+});
+
+test('抽屜開著時切到別的功能分頁：抽屜收起來並隱藏；切回圖片套版：頁籤回來、抽屜是關的、仍能再打開', { skip }, async t => {
+  const { page } = await open(t);
+  await page.click('#schedTab');
+  await page.waitForSelector('#schPage', { state: 'visible' });
+  await gotoFunc(page, 'funcEditBtn');
+  assert.equal(await page.locator('#schedDrawer.open').count(), 0, '切走後抽屜要收起來');
+  assert.equal(await page.locator('#schPage').isVisible(), false);
+  assert.equal(await page.locator('#schedTab').isVisible(), false);
+  await gotoFunc(page, 'funcLayoutBtn');
+  assert.equal(await page.locator('#schedTab').isVisible(), true);
+  assert.equal(await page.locator('#schedDrawer.open').count(), 0, '切回來時抽屜是關著的');
+  assert.equal(await page.locator('#schedTab').getAttribute('aria-expanded'), 'false');
+  await page.click('#schedTab');
+  await page.waitForSelector('#schPage', { state: 'visible' });
+  assert.equal(await page.locator('#schedDrawer.open').count(), 1);
+});
+
+test('在不顯示排程的分頁按 Esc 或鍵盤操作不會誤開抽屜；頁籤也不在 Tab 順序裡', { skip }, async t => {
+  const { page } = await open(t);
+  await gotoFunc(page, 'funcResizeBtn');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#schedDrawer.open').count(), 0);
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press('Tab');
+    assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'schedTab', '隱藏的頁籤不能被 Tab 選到');
+  }
 });
