@@ -61,6 +61,8 @@
     async cancel(id) { const r = await call('cancel', { id }); return { ok: r.ok, error: friendly(r.error) }; },
     async loadPrefs() { return { pageUrl: lsGet(PAGE_KEY) || '' }; },
     async savePrefs(p) { lsSet(PAGE_KEY, p.pageUrl || ''); },
+    async loadSettings() { const r = await call('getSettings'); return r.ok ? r.data : { background: false }; },
+    async saveSettings(s) { const r = await call('setSettings', { background: !!s.background }); return { ok: r.ok, error: friendly(r.error) }; },
     onChange(cb) { changeHandlers.push(cb); }
   };
 

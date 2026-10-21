@@ -13,8 +13,8 @@
   const BEAT_LOST_MS = 45 * 1000;      // 超過這麼久沒收到心跳（內容腳本每 4 秒一次）就當它失聯了
   const MAX_RESUME = 1;                // 腳本在留言階段失聯時，最多重新交付一次（頁面被重新載入的情況）
   const FB_ORIGIN = 'https://www.facebook.com';
-  const DELIVER_TRIES = 60;          // 等內容腳本就緒：最多 60 次 × 1.5 秒
-  const DELIVER_EVERY_MS = 1500;
+  const DELIVER_TRIES = 180;         // 等內容腳本就緒：最多 180 次 × 0.5 秒（發文要快：頁面一就緒就交付）
+  const DELIVER_EVERY_MS = 500;
   const RELOAD_WAIT_MS = 30 * 1000;  // 重新整理後等頁面載入的上限
   const BUSY_RETRY_MS = 60 * 1000;   // 前一筆還在跑，等 1 分鐘再試
 
@@ -73,6 +73,7 @@
     }
 
     const commentState = result.ok && result.commentState && result.commentState !== 'none' ? result.commentState : undefined;
+    if (result.ok && typeof result.postMs === 'number') base.postMs = result.postMs;
     await S.update(item.id, Object.assign(base, {
       status: result.ok ? 'done' : 'failed', step: result.step, error: result.ok ? undefined : result.error,
       commentState, commentError: commentState === 'failed' ? result.commentError : undefined
@@ -136,12 +137,15 @@
     }
 
     await S.update(id, {
-      status: 'running', startedAt: now, beat: now, dryRun, mode, prevStatus: item.status, step: 'start', error: undefined, finishedAt: undefined, tabId: undefined, resume: undefined, resumed: undefined
+      status: 'running', startedAt: now, beat: now, dryRun, mode, prevStatus: item.status, step: 'start', error: undefined, finishedAt: undefined, tabId: undefined, resume: undefined, resumed: undefined, postMs: mode === 'comment' ? item.postMs : undefined
     });
+    // 背景執行：新分頁不搶焦點，你原本在看的分頁不會被切走（也就不需要切回去）
+    let background = false;
+    try { background = (await S.getSettings()).background; } catch (e) { /* 讀不到設定：照一般方式（前景）執行 */ }
     let prev = null;
-    try { [prev] = await c().tabs.query({ active: true, lastFocusedWindow: true }); } catch (e) { /* ignore */ }
+    if (!background) { try { [prev] = await c().tabs.query({ active: true, lastFocusedWindow: true }); } catch (e) { /* ignore */ } }
     let tab;
-    try { tab = await c().tabs.create({ url: item.pageUrl, active: true }); }
+    try { tab = await c().tabs.create({ url: item.pageUrl, active: !background }); }
     catch (e) { await failRunning(id, '無法開啟 Facebook 分頁', 'start'); return { ok: false, error: 'tab_failed' }; }
     await S.update(id, { tabId: tab.id, prevTabId: prev ? prev.id : undefined });
     await c().alarms.create(WATCH + id, { delayInMinutes: S.RUN_TIMEOUT_MS / 60000 });
@@ -190,8 +194,14 @@
   }
   // 貼文發佈後，Facebook 不會即時把新貼文長到「目前這個頁面」的動態牆上，所以內容腳本請背景把分頁重新整理，
   // 載入完再交付一次「只留言」的工作（resume：留言失敗只算留言失敗，貼文早就發出去了）
-  async function reloadThenComment(item) {
-    await S.update(item.id, { resume: true, beat: Date.now(), step: 'reloading' });
+  // 從開始執行到「按下發佈、視窗關閉」用了幾毫秒（內容腳本回報完成的時間點；不含之後的重新整理與留言）
+  function postMsOf(item, postedAt) {
+    const t = Number(postedAt);
+    if (!item.startedAt || !isFinite(t) || t < item.startedAt || t > Date.now() + 5000) return undefined;
+    return Math.round(t - item.startedAt);
+  }
+  async function reloadThenComment(item, postMs) {
+    await S.update(item.id, Object.assign({ resume: true, beat: Date.now(), step: 'reloading' }, postMs !== undefined ? { postMs } : {}));
     try { await reloadTab(item.tabId); }
     catch (e) { await failRunning(item.id, '貼文已發佈，但重新整理頁面失敗：' + (e.message || e), 'reloading'); return; }
     const now = (await S.list()).find(i => i.id === item.id);
@@ -340,6 +350,8 @@
         return start(payload.id, { manual: true, dryRun: !!payload.dryRun, mode: payload.mode === 'comment' ? 'comment' : 'post' });
       }
       case 'cancel': return typeof payload.id === 'string' ? cancel(payload.id) : { ok: false, error: 'bad_request' };
+      case 'getSettings': return { ok: true, data: await S.getSettings() };
+      case 'setSettings': return typeof payload.background === 'boolean' ? { ok: true, data: await S.setSettings({ background: payload.background }) } : { ok: false, error: 'bad_request' };
       case 'fetchArticle': return webFetchArticle(payload);
       case 'fetchImage': return webFetchImage(payload);
       default: return { ok: false, error: 'unknown_op' };
@@ -392,7 +404,7 @@
           if (!item || item.status !== 'running' || item.tabId !== sender.tab.id) return;
           if (msg.type === 'fbpost:progress') { await S.update(item.id, { step: String(msg.step || '').slice(0, 20), beat: Date.now() }); return; }
           if (msg.type === 'fbpost:reload') {
-            if (item.mode !== 'comment' && !item.dryRun && !item.resume) await reloadThenComment(item);
+            if (item.mode !== 'comment' && !item.dryRun && !item.resume) await reloadThenComment(item, postMsOf(item, msg.postedAt));
             return;
           }
           // 接手繼續留言（resume）失敗：貼文早就發佈了，只能算「留言失敗」，不能把整筆標成失敗
@@ -404,7 +416,8 @@
             ok: !!msg.ok, step: String(msg.step || item.step || '').slice(0, 20),
             error: msg.ok ? undefined : String(msg.error || '發佈失敗').slice(0, 300),
             commentState: ['none', 'done', 'failed', 'dry-ok'].includes(msg.commentState) ? msg.commentState : undefined,
-            commentError: msg.commentError ? String(msg.commentError).slice(0, 300) : undefined
+            commentError: msg.commentError ? String(msg.commentError).slice(0, 300) : undefined,
+            postMs: item.resume ? item.postMs : postMsOf(item, msg.postedAt)
           });
         })().catch(() => {});
         sendResponse({ ok: true });

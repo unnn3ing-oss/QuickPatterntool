@@ -13,6 +13,8 @@
 .sch-row { display: flex; gap: calc(8px * var(--_sp)); margin-top: calc(8px * var(--_sp)); align-items: center; }
 .sch-field .sch-row { margin-top: 0; }
 .sch-row button { flex: 0 0 auto; font-size: calc(14px * var(--_fs)); padding: calc(10px * var(--_sp)) calc(16px * var(--_sp)); white-space: nowrap; }
+.sch-field label.sch-check { display: flex; align-items: center; gap: calc(8px * var(--_sp)); margin: 0; cursor: pointer; color: var(--text, #1f2a3d); }
+.sch-check input { width: 16px; height: 16px; margin: 0; flex: 0 0 auto; cursor: pointer; }
 .sch-root textarea { width: 100%; }
 .sch-thumbs { display: flex; flex-wrap: wrap; gap: calc(8px * var(--_sp)); margin-top: calc(8px * var(--_sp)); }
 .sch-thumbs[hidden], .sch-list[hidden], .sch-preview[hidden], .sch-editbar[hidden] { display: none; }

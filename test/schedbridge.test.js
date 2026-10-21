@@ -11,7 +11,7 @@ test('validateRequest：格式正確的請求通過，payload 預設為空物件
 });
 
 test('OPS 白名單：排程操作與快速產圖的代抓，沒有別的', () => {
-  assert.deepStrictEqual(B.OPS, ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start', 'cancel', 'fetchArticle', 'fetchImage']);
+  assert.deepStrictEqual(B.OPS, ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start', 'cancel', 'fetchArticle', 'fetchImage', 'getSettings', 'setSettings']);
 });
 
 test('validateRequest：來源標記、版本、nonce、op、payload 任何一項不對都拒絕', () => {

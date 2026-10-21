@@ -20,21 +20,30 @@
   const TEXTBOX = '[contenteditable="true"][role="textbox"]';
   const MAX_LABEL = 60;
   // 各步驟等待上限（毫秒）；測試時會調小
-  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 1200, article: 30000, articleOld: 60000, scrollAfter: 5000, afterPublish: 3000, scrollWait: 700, commentSent: 6000, heartbeat: 4000, deadline: 300000, poll: 250 };
+  const T = { trigger: 30000, text: 1500, settle: 250, upload: 120000, enabled: 30000, closed: 120000, pressWait: 5000, hop: 300, article: 30000, articleOld: 60000, scrollAfter: 5000, afterPublish: 3000, scrollWait: 700, commentSent: 6000, heartbeat: 4000, deadline: 300000, poll: 100, spin: 15000, closedHold: 800 };
 
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // 背景分頁（使用者開了「背景執行」）的計時器會被 Chrome 降速到每秒一次，短暫的等待（輪詢、等畫面穩定）會被拖成 1 秒以上，
+  // 整個發文流程就慢好幾倍。所以分頁隱藏時，短等待改用 MessageChannel 一輪一輪讓出執行權（不受計時器降速影響）。
+  function spinSleep(ms) {
+    return new Promise(resolve => {
+      const end = performance.now() + ms, ch = new MessageChannel();
+      ch.port1.onmessage = () => { if (performance.now() >= end) { ch.port1.close(); resolve(); } else ch.port2.postMessage(0); };
+      ch.port2.postMessage(0);
+    });
+  }
+  const sleep = ms => ((typeof document !== 'undefined' && document.hidden && ms < 1000) ? spinSleep(ms) : new Promise(r => setTimeout(r, ms)));
   // 逾時中止後，原本的流程不能還在背景繼續動作（例如已經回報失敗了卻又按下發佈）：所有等待立刻結束、所有點擊與換步驟都拒絕
   let aborted = false;
   const stopped = () => { if (aborted) throw new Error('已中止'); };
   async function waitFor(fn, timeout) {
-    const end = Date.now() + timeout;
+    const begin = Date.now(), end = begin + timeout;
     for (;;) {
       if (aborted) return null;
       let v = null;
       try { v = fn(); } catch (e) { /* 頁面重畫中，下一輪再試 */ }
       if (v) return v;
       if (Date.now() >= end) return null;
-      await sleep(T.poll);
+      await sleep(Date.now() - begin > T.spin ? 1000 : T.poll);   // 等很久的（例如上傳）就別一直空轉，降成每秒檢查一次
     }
   }
   const fail = msg => { throw new Error(msg); };
@@ -294,7 +303,7 @@
     if (!pressed) fail('按了「繼續」之後仍然沒有出現「發佈」按鈕' + shown());
     // 發佈成功＝編輯視窗關掉。多等一下確認不是短暫消失
     const closed = await waitFor(() => !findLooseDialog(), T.closed);
-    if (closed) await sleep(Math.min(1500, T.closed));
+    if (closed) await sleep(Math.min(T.closedHold, T.closed));
     if (!closed || findLooseDialog()) fail('按下發佈後編輯視窗沒有關閉，貼文可能沒有發出，請到粉專確認');
   }
 
@@ -392,7 +401,7 @@
       if (a) return a;
       if (Date.now() - start >= ms) return null;
       if (Date.now() - start >= T.scrollAfter) { window.scrollBy(0, Math.round(window.innerHeight * 0.8)); await sleep(T.scrollWait); }
-      else await sleep(T.poll);
+      else await sleep(Date.now() - start > T.spin ? 1000 : T.poll);
     }
   }
   // 貼文裡的留言框：優先 aria-label 寫著「留言」的
@@ -487,6 +496,7 @@
         if (job.dryRun) { out.step = step; return out; }
         before = snapshot(job.text);
         await publish(() => go('next'), () => go('publishing'));
+        out.postedAt = Date.now();   // 貼文發出的時間點：背景用它算「發文用了幾秒」
         if (comment && job.reload) {
           // 發佈完成：新貼文不會即時出現在目前頁面，要先重新整理再找。交給背景重整分頁，再重新交付「只留言」的工作
           go('reloading');
@@ -550,7 +560,7 @@
         deadlineTimer = setTimeout(() => { aborted = true; reject(Object.assign(new Error(`這次執行超過 ${Math.round(T.deadline / 60000)} 分鐘還沒完成，已中止`), { step: lastStep })); }, T.deadline);
       });
       Promise.race([run(job, report), deadline]).then(
-        out => (out.reload ? report('reload', {}) : report('result', Object.assign({ ok: true }, out))),
+        out => (out.reload ? report('reload', { postedAt: out.postedAt }) : report('result', Object.assign({ ok: true }, out))),
         e => report('result', { ok: false, step: e.step || lastStep, error: e.message || String(e) })
       ).finally(() => { clearInterval(beat); clearTimeout(deadlineTimer); });
     });

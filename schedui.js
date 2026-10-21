@@ -4,7 +4,8 @@
 //
 // QptSchedUI.mount(container, { api, compose, confirm }) → { refresh }
 //   api：{ list():Promise<item[]>, get(id):Promise<item|null>, add(input):Promise<{ok,error}>, edit(id,input):Promise<{ok,error}>,
-//          remove(id), start(id,{dryRun,mode}):Promise<{ok,error}>, cancel(id):Promise<{ok,error}>, loadPrefs():Promise<{pageUrl}>, savePrefs({pageUrl}), onChange(cb) }
+//          remove(id), start(id,{dryRun,mode}):Promise<{ok,error}>, cancel(id):Promise<{ok,error}>, loadPrefs():Promise<{pageUrl}>, savePrefs({pageUrl}), onChange(cb),
+//          loadSettings()（選用）:Promise<{background}>, saveSettings({background}):Promise<{ok,error}> 「背景執行」開關 }
 //   compose（選用）：async () => ({ text, image(dataURL|null), articleUrl })，「帶入目前圖文」用
 //   confirm（選用）：async ({ title, message, okText }) => boolean
 (function (root) {
@@ -89,6 +90,12 @@
     el.add = h('button', { type: 'button', class: 'primary', id: 'schAddBtn', text: '加入排程' });
     container.append(h('div', { class: 'sch-field' }, h('label', { for: 'schAt', text: '發佈時間' }), h('div', { class: 'sch-row' }, el.at, el.add)));
 
+    if (api.loadSettings && api.saveSettings) {
+      el.bg = h('input', { type: 'checkbox', id: 'schBackground' });
+      container.append(h('div', { class: 'sch-field' },
+        h('label', { class: 'sch-check', for: 'schBackground' }, el.bg, h('span', { text: '背景執行（發文時不切換到 Facebook 分頁）' })),
+        h('div', { class: 'hint', text: '新分頁會在背景開啟，不會打斷你正在看的分頁。Facebook 在背景分頁偶爾反應較慢，第一次請先按「試跑」確認能正常運作。' })));
+    }
     el.status = h('div', { class: 'qf-status', id: 'schStatus', role: 'status' });
     el.list = h('div', { class: 'sch-list', id: 'schList', hidden: true });
     container.append(el.status, el.list, h('div', { class: 'hint', text: '到時間瀏覽器要開著、電腦不能休眠；外掛會自動開新分頁發佈並在貼文下留言，發完關閉。請先在 Facebook 切換成粉專身分。第一次建議先按「試跑」確認內容有正確填好。' }));
@@ -246,7 +253,7 @@
         return out;
       }
       if (item.status === 'done') {
-        out.push({ text: `已在 ${fmt(item.finishedAt || item.at)} 發佈` });
+        out.push({ text: `已在 ${fmt(item.finishedAt || item.at)} 發佈` + (typeof item.postMs === 'number' ? `（發文用了 ${Math.max(1, Math.round(item.postMs / 1000))} 秒）` : '') });
         if (item.commentState === 'done') out.push({ text: '留言：已完成' });
         else if (item.commentState === 'failed') out.push({ text: `留言失敗：${item.commentError || '原因不明'}`, err: true });
         if (item.step === 'dry-ok') out.push({ text: '試跑留言完成：留言有打好，沒有送出' });
@@ -338,6 +345,15 @@
     Promise.resolve(api.loadPrefs ? api.loadPrefs() : null).then(p => {
       if (p && p.pageUrl && !el.page.value) { el.page.value = p.pageUrl; syncPresetFromUrl(); renderPreview(); }
     }).catch(() => {});
+    if (el.bg) {
+      Promise.resolve(api.loadSettings()).then(s => { el.bg.checked = !!(s && s.background); }).catch(() => {});
+      el.bg.addEventListener('change', async () => {
+        const want = el.bg.checked;
+        let r = null;
+        try { r = await api.saveSettings({ background: want }); } catch (e) { r = { ok: false, error: '設定沒有儲存成功' }; }
+        if (r && r.ok === false) { el.bg.checked = !want; say(r.error || '設定沒有儲存成功', 'err'); }
+      });
+    }
     refresh();
     return { refresh };
   }

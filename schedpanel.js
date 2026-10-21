@@ -14,6 +14,8 @@
     cancel: id => chrome.runtime.sendMessage({ type: 'poster:cancel', id }),
     loadPrefs: async () => { const got = await chrome.storage.local.get(S.PAGE_KEY); return { pageUrl: got[S.PAGE_KEY] }; },
     savePrefs: p => chrome.storage.local.set({ [S.PAGE_KEY]: p.pageUrl }),
+    loadSettings: () => S.getSettings(),
+    saveSettings: async s => { await S.setSettings({ background: !!s.background }); return { ok: true }; },
     onChange: cb => chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes[S.KEY]) cb(); })
   };
 

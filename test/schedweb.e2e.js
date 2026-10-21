@@ -293,3 +293,14 @@ test('在不顯示排程的分頁按 Esc 或鍵盤操作不會誤開抽屜；頁
     assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'schedTab', '隱藏的頁籤不能被 Tab 選到');
   }
 });
+
+test('網頁版「背景執行」開關：讀寫外掛裡的設定（getSettings／setSettings）', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await openDrawer(page);
+  assert.equal(await page.locator('#schBackground').isChecked(), false);
+  await page.check('#schBackground');
+  await page.waitForFunction(() => window.__data.fbSchedSettings && window.__data.fbSchedSettings.background === true);
+  await page.uncheck('#schBackground');
+  await page.waitForFunction(() => window.__data.fbSchedSettings.background === false);
+  assert.deepEqual(errors, []);
+});

@@ -798,3 +798,94 @@ test('重新整理的請求只有「發貼文」的正式執行才接受：試�
   await tick();
   assert.deepStrictEqual(d.log.reloaded, [], '試跑不會發佈，不重整');
 });
+
+// ---- 背景執行（v6.30）----------------------------------------------------------------
+test('背景執行關閉（預設）：分頁在前景開，成功後切回原本的分頁', async () => {
+  const t = load();
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  assert.strictEqual(t.log.created[0].active, true);
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'publishing' });
+  await tick();
+  assert.deepStrictEqual(clone(t.log.updated), [[7, { active: true }]]);
+});
+
+test('背景執行開啟：分頁用 active:false 開，不搶焦點；成功後關分頁但不去切別的分頁', async () => {
+  const t = load();
+  await t.S.setSettings({ background: true });
+  await t.S.add(t.item());
+  t.fire('post:i1');
+  await tick();
+  assert.deepStrictEqual(clone(t.log.created), [{ url: PAGE, active: false }]);
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'publishing' });
+  await tick();
+  assert.deepStrictEqual(clone(t.log.removed), [101]);
+  assert.deepStrictEqual(t.log.updated, [], '背景執行沒有切走過，也就不用切回去');
+});
+
+test('背景執行：重新整理與接手留言的流程不變', async () => {
+  const t = load();
+  await t.S.setSettings({ background: true });
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  t.report({ type: 'fbpost:reload', id: 'i1' });
+  await tick();
+  t.loaded(101);
+  await tick();
+  assert.strictEqual(t.log.sent[1][1].job.mode, 'comment');
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'commenting', commentState: 'done' });
+  await tick();
+  assert.strictEqual((await t.get('i1')).status, 'done');
+  assert.deepStrictEqual(t.log.updated, []);
+});
+
+test('網頁版 API：getSettings／setSettings（只收布林）', async () => {
+  const t = load();
+  assert.deepStrictEqual(clone((await t.fromWeb('getSettings')).data), { background: false });
+  assert.strictEqual((await t.fromWeb('setSettings', { background: true })).ok, true);
+  assert.deepStrictEqual(clone((await t.fromWeb('getSettings')).data), { background: true });
+  for (const bad of [{ background: 'yes' }, { background: 1 }, {}]) assert.strictEqual((await t.fromWeb('setSettings', bad)).ok, false);
+  assert.deepStrictEqual(clone((await t.fromWeb('getSettings')).data), { background: true }, '亂填不會改到設定');
+  assert.strictEqual((await t.fromWeb('setSettings', { background: false }, { id: 'me', tab: { id: 5 }, url: 'https://evil.example/' })).ok, false, '別的網站不能改');
+  assert.deepStrictEqual(clone((await t.fromWeb('getSettings')).data), { background: true });
+});
+
+test('記錄「發文用了幾毫秒」：發佈完成的時間點 − 開始時間；留言與補留言不會洗掉它', async () => {
+  const t = load();
+  await t.S.add(t.item(NOTE_ITEM));
+  t.fire('post:i1');
+  await tick();
+  const started = Date.now() - 60000;
+  await t.S.update('i1', { startedAt: started });
+  t.report({ type: 'fbpost:reload', id: 'i1', postedAt: started + 28000 });
+  await tick();
+  assert.strictEqual((await t.get('i1')).postMs, 28000);
+  t.loaded(101);
+  await tick();
+  t.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'commenting', commentState: 'done' });
+  await tick();
+  assert.strictEqual((await t.get('i1')).postMs, 28000);
+  await t.fromPanel({ type: 'poster:start', id: 'i1', mode: 'comment' });
+  await tick();
+  assert.strictEqual((await t.get('i1')).postMs, 28000, '補留言不會洗掉發文耗時');
+
+  const u = load();
+  await u.S.add(u.item());   // 沒有留言：直接回報結果
+  u.fire('post:i1');
+  await tick();
+  const st = Date.now() - 60000;
+  await u.S.update('i1', { startedAt: st });
+  u.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'publishing', postedAt: st + 12345 });
+  await tick();
+  assert.strictEqual((await u.get('i1')).postMs, 12345);
+
+  const v = load();   // 亂填的時間點不收
+  await v.S.add(v.item());
+  v.fire('post:i1');
+  await tick();
+  v.report({ type: 'fbpost:result', id: 'i1', ok: true, step: 'publishing', postedAt: 'x' });
+  await tick();
+  assert.strictEqual((await v.get('i1')).postMs, undefined);
+});

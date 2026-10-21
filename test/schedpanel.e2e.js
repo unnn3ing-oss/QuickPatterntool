@@ -17,7 +17,7 @@ let browser;
 test.before(async () => { if (chromium) browser = await chromium.launch(); });
 test.after(async () => { if (browser) await browser.close(); });
 
-async function open(t, { queue = [] } = {}) {
+async function open(t, { queue = [], settings } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 420, height: 1100 } });
   t.after(() => ctx.close());
   const page = await ctx.newPage();
@@ -25,8 +25,9 @@ async function open(t, { queue = [] } = {}) {
   page.on('pageerror', e => errors.push(e.message));
   await page.route('https://api.github.com/**', r => r.abort());
   await page.route('https://raw.githubusercontent.com/**', r => r.abort());
-  await page.addInitScript(initial => {
+  await page.addInitScript(([initial, st]) => {
     const data = { fbQueue: initial };
+    if (st) data.fbSchedSettings = st;
     const listeners = [];
     window.__data = data;
     window.__sent = [];
@@ -50,7 +51,7 @@ async function open(t, { queue = [] } = {}) {
         onChanged: { addListener: fn => listeners.push(fn) }
       }
     };
-  }, queue);
+  }, [queue, settings]);
   await page.goto(PAGE);
   return { page, errors };
 }
@@ -372,4 +373,23 @@ test('中止的提醒依階段不同：留言階段說「貼文已經發佈，�
     await page.getByRole('button', { name: '中止' }).click();
     assert.match(await page.locator('#confirmMessage').textContent(), re, step);
   }
+});
+
+test('「背景執行」開關：預設關閉；勾選後存進外掛設定；取消勾選存回關閉；已開啟的設定載入時會勾起來', { skip }, async t => {
+  const { page, errors } = await open(t);
+  assert.equal(await page.locator('#schBackground').isChecked(), false);
+  assert.match(await page.locator('#schedCard').textContent(), /背景執行（發文時不切換到 Facebook 分頁）/);
+  await page.check('#schBackground');
+  await page.waitForFunction(() => window.__data.fbSchedSettings && window.__data.fbSchedSettings.background === true);
+  await page.uncheck('#schBackground');
+  await page.waitForFunction(() => window.__data.fbSchedSettings.background === false);
+  assert.deepEqual(errors, []);
+  const on = await open(t, { settings: { background: true } });
+  await on.page.waitForFunction(() => document.getElementById('schBackground').checked);
+});
+
+test('清單上顯示「發文用了 N 秒」', { skip }, async t => {
+  const { page } = await open(t, { queue: [item({ status: 'done', finishedAt: Date.now() - 1000, postMs: 27600 })] });
+  await page.waitForSelector('#schList .sch-detail');
+  assert.match(await page.locator('#schList').textContent(), /發文用了 28 秒/);
 });

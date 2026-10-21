@@ -12,6 +12,7 @@
 (function (root) {
   const KEY = 'fbQueue';
   const PAGE_KEY = 'fbPageUrl';
+  const SETTINGS_KEY = 'fbSchedSettings';   // { background: true } 背景執行：開 Facebook 分頁時不切換過去
   const GRACE_MS = 10 * 60 * 1000;        // 錯過排定時間 10 分鐘內還會補發；超過就標成「錯過」，不補發過時的貼文
   const RUN_TIMEOUT_MS = 6 * 60 * 1000;   // 一次執行（發文＋留言）最多 6 分鐘，超過視為卡住
   const MAX_IMAGES = 10;
@@ -189,6 +190,17 @@
     chain = run.catch(() => {});
     return run;
   }
+  async function getSettings() {
+    const got = await root.chrome.storage.local.get(SETTINGS_KEY);
+    const s = got[SETTINGS_KEY];
+    return { background: !!(s && s.background === true) };
+  }
+  async function setSettings(patch) {
+    const cur = await getSettings();
+    const next = { background: patch && typeof patch.background === 'boolean' ? patch.background : cur.background };
+    await root.chrome.storage.local.set({ [SETTINGS_KEY]: next });
+    return next;
+  }
   async function list() {
     const got = await root.chrome.storage.local.get(KEY);
     return Array.isArray(got[KEY]) ? got[KEY] : [];
@@ -201,7 +213,7 @@
   });
 
   root.QptSched = {
-    KEY, PAGE_KEY, GRACE_MS, RUN_TIMEOUT_MS, MAX_IMAGES, MAX_TEXT, MAX_ITEMS, STEP_LABELS,
+    KEY, PAGE_KEY, SETTINGS_KEY, getSettings, setSettings, GRACE_MS, RUN_TIMEOUT_MS, MAX_IMAGES, MAX_TEXT, MAX_ITEMS, STEP_LABELS,
     MAX_NOTE, MAX_URL, MAX_IMAGE_CHARS, PAGES,
     normalizePageUrl, pageOf, withUtm, commentOf, canEdit, validateItem, buildItem, summarize, classify, stuckMessage, newId,
     list, update, remove, add, addItem, edit, mutate

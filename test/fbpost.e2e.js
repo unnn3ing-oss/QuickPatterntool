@@ -162,10 +162,18 @@ let browser;
 test.before(async () => { if (chromium) browser = await chromium.launch(); });
 test.after(async () => { if (browser) await browser.close(); });
 
-async function open(t, opts) {
+async function open(t, opts, { throttle = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 700 } });
   t.after(() => ctx.close());
   const page = await ctx.newPage();
+  // 模擬背景分頁：頁面是隱藏的，而且計時器最短只能 1 秒（Chrome 對背景分頁的降速）
+  if (throttle) await page.addInitScript(() => {
+    Object.defineProperty(document, 'hidden', { get: () => true });
+    const st = window.setTimeout.bind(window);
+    window.setTimeout = (fn, ms, ...a) => st(fn, Math.max(1000, ms || 0), ...a);
+    const si = window.setInterval.bind(window);
+    window.setInterval = (fn, ms, ...a) => si(fn, Math.max(1000, ms || 0), ...a);
+  });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route(URL_PAGE, r => r.fulfill({ contentType: 'text/html; charset=utf-8', body: mock(opts) }));
@@ -733,4 +741,25 @@ test('沒有留言內容或試跑時，發佈完不會要求重新整理', { ski
   const { result: r2 } = await b.result();
   assert.equal(r2.ok, true, r2.error);
   assert.equal(await b.page.evaluate(() => window.__sent.some(m => m.type === 'fbpost:reload')), false);
+});
+
+test('背景分頁（計時器被降速到每秒一次、頁面隱藏）：發文流程不會被拖慢', { skip }, async t => {
+  const { page, send, result } = await open(t, { flow: 'continue' }, { throttle: true });
+  const t0 = Date.now();
+  await send(job({ comment: '' }));
+  const { result: r } = await result();
+  const ms = Date.now() - t0;
+  assert.equal(r.ok, true, r.error);
+  assert.equal(await publishes(page), 1);
+  // 模擬的頁面本身有幾個 1 秒的計時器（開視窗、發佈動畫），腳本自己的等待不能再疊上去：整個流程只比模擬頁面本身的計時器（約 4 秒）多一點點；沒有防降速的舊版是 6.5 秒
+  assert.ok(ms < 5200, `背景分頁發文花了 ${ms} 毫秒，太慢`);
+});
+
+test('發佈完成的時間點（postedAt）會隨結果回報，背景用它算發文耗時', { skip }, async t => {
+  const { send, result } = await open(t, {});
+  const t0 = Date.now();
+  await send(job());
+  const { result: r } = await result();
+  assert.equal(r.ok, true, r.error);
+  assert.ok(r.postedAt >= t0 && r.postedAt <= Date.now(), '時間點要落在這次執行期間');
 });

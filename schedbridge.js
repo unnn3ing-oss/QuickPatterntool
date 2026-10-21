@@ -9,7 +9,7 @@
 (function (root) {
   const PAGE_ORIGIN = 'https://unnn3ing-oss.github.io';
   const PAGE_PATH_PREFIX = '/QuickPatterntool/';
-  const OPS = ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start', 'cancel', 'fetchArticle', 'fetchImage'];
+  const OPS = ['ping', 'list', 'get', 'add', 'edit', 'remove', 'start', 'cancel', 'fetchArticle', 'fetchImage', 'getSettings', 'setSettings'];
 
   // → { ok:true, nonce, op, payload } 或 { ok:false }
   function validateRequest(d) {
