@@ -17,7 +17,7 @@
   const MAX_ITEMS = 50;
   const STEP_LABELS = {
     start: '開啟粉專', open: '開啟發文框', text: '輸入文字', images: '上傳圖片',
-    ready: '內容已填好', publishing: '按下發佈', 'dry-ok': '試跑完成'
+    ready: '內容已填好', next: '按「繼續」', publishing: '按下發佈', 'dry-ok': '試跑完成'
   };
 
   // 只接受 facebook.com 的 https 網址，而且要是粉專頁面（不能是首頁）。
