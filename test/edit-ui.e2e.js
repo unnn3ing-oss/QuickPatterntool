@@ -360,7 +360,8 @@ async function runViewport(browser, base, fix, [W, H]) {
       for (let i = 1; i <= 8; i++) { await page.mouse.move(x + dx * i / 8, y); await sleep(8); }
       await settle(page);
       const tp = await tipE(), ex = await frameX(page, want);
-      eq(tp && tp.t, tcE(want), `拖${edge === 'end' ? '尾端' : '開頭'}：邊緣旁顯示時間碼 ${tcE(want)}`);
+      const wantTc = tcE(edge === 'end' ? want - 1 : want);
+      eq(tp && tp.t, wantTc, `拖${edge === 'end' ? '尾端（顯示最後一格）' : '開頭'}：邊緣旁顯示時間碼 ${wantTc}`);
       ok(tp && (edge === 'end' ? tp.l >= ex - 1 && tp.l - ex < 12 : tp.r <= ex + 1 && ex - tp.r < 12) && Math.abs(tp.y - y) < 4, `時間碼貼在${edge === 'end' ? '右' : '左'}側邊緣外、跟片段同高（${JSON.stringify(tp)}，邊緣 x=${ex.toFixed(1)}）`);
       await page.mouse.up(); await settle(page);
       eq(await tipE(), null, '放開後時間碼消失');

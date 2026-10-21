@@ -2483,7 +2483,7 @@
     if (!ce) { b.hidden = true; return; }
     const f = at.edge === 'start' ? c.start : C.clipEnd(c);
     const ir = tl.inner.getBoundingClientRect(), r = ce.getBoundingClientRect();
-    b.textContent = tc(f, state.project.fps);
+    b.textContent = tc(at.edge === 'start' ? f : Math.max(c.start, f - 1), state.project.fps);   // 尾端顯示最後一格（片段範圍不含 end）
     b.dataset.edge = at.edge;
     b.hidden = false;
     b.style.left = (HEAD_W + f * tl.k) + 'px';
