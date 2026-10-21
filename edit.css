@@ -468,6 +468,22 @@ html[data-ed-theme="dark"]:has(#editApp:not([hidden])) .ds {
 .ed-itab:hover:not(.active) { color: var(--text); }
 .ed-itab.active { background: var(--ed-tab-on-bg); color: var(--ed-tab-on-fg); box-shadow: inset 0 0 0 1px var(--ed-tab-on-ring); }
 .ed-itab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 字幕清單：時間｜長度｜刪除，下面一行文字框 */
+.ed-sublist { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.ed-subrow { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 6px; padding: 6px; border-radius: 8px; border: 1px solid var(--ed-line); background: var(--ed-tint); transition: box-shadow .3s; }
+.ed-subrow.sel { border-color: var(--accent); }
+.ed-subrow.new { box-shadow: 0 0 0 2px var(--accent); }
+.ed-subtc { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+.ed-subtc:hover { text-decoration: underline; }
+.ed-subdur { font-size: 11px; color: var(--muted); }
+.ed-subdel { border: none; background: none; color: var(--muted); font-size: 15px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.ed-subdel:hover { color: #e5484d; }
+.ed-subtxt, .ed-fx .ed-subtxt { min-height: 0; grid-column: 1 / -1; width: 100%; resize: none; font: inherit; font-size: 13px; line-height: 1.4; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--ed-border, var(--border)); background: var(--ed-field, var(--field-bg)); color: var(--text); box-sizing: border-box; }
+.ed-subtxt:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* 播放控制列右側的字幕標記鍵 V */
+.ed-submark { margin-left: auto; min-width: 40px; font-weight: 800; color: var(--ed-on-primary, #fff) !important; background: var(--ed-primary, var(--accent)) !important; border-color: transparent !important; }
+.ed-submark[hidden] { display: none; }
+.ed-submark:not([hidden]) + .ed-time { margin-left: 12px; }
 /* 分頁裡只有一個區段時，不用再顯示可收合的區段標題 */
 .ed-sec.solo { border-top: none; }
 .ed-sec.solo > .ed-sec-h { display: none; }

@@ -665,7 +665,7 @@ async function runViewport(browser, base, fix, [W, H]) {
   console.log('字幕樣式、字體特效');
   const heads = () => page.evaluate(() => [...document.querySelectorAll('.ed-panel:not([hidden]) .ed-ghead')].map(h => h.textContent));
   eq(await page.textContent('.ed-tab[data-tab="trans"]'), '特效', '分頁「轉場」改名為「特效」');
-  eq(await heads(), ['字幕過場', '字幕樣式'], '字幕分頁分成「字幕過場」「字幕樣式」');
+  eq(await heads(), ['字幕清單', '字幕過場', '字幕樣式'], '字幕分頁分成「字幕清單」「字幕過場」「字幕樣式」');
   eq(await page.evaluate(() => document.querySelectorAll('#edTStyleList .ed-gitem').length), 5, '列出 5 種字幕樣式（基本＋4 種附圖樣式）');
   const [tA, tB] = on(await clips(page), 'V2');
   const tOf = id => proj(page, (p, Q, id) => p.clips[id].title, id);
@@ -747,6 +747,76 @@ async function runViewport(browser, base, fix, [W, H]) {
   await page.mouse.click(await frameX(page, 60), rl.y);
   await settle(page);
   eq(await page.evaluate(() => QPTEdit.ui.state.playhead), 60, '點時間尺：播放頭才移動');
+
+  // ---------------------------------------------------------------- 字幕清單：V 標記、輸入文字、SRT 匯入
+  console.log('字幕清單：V 標記、SRT 匯入');
+  const baseSnap = await proj(page, p => JSON.stringify([p.clips, p.tracks]));
+  const fps = await proj(page, p => p.fps);
+  const subs = () => proj(page, p => Object.values(p.clips).filter(c => c.type === 'title' && c.title.sub).sort((a, b) => a.start - b.start).map(c => ({ s: c.start, d: c.duration, t: c.title.text, tr: p.tracks.find(x => x.id === c.trackId).name })));
+  await page.evaluate(() => QPTEdit.ui.selectClips([]));
+  await page.click('.ed-tab[data-tab="title"]');
+  ok(await page.isVisible('#edSubMark'), '字幕分頁：播放控制列右側出現「V」');
+  await page.click('.ed-tab[data-tab="media"]');
+  ok(!(await page.isVisible('#edSubMark')), '媒體分頁、沒選字幕：不顯示 V');
+  await page.click('.ed-tab[data-tab="title"]');
+  await page.evaluate(() => { QPTEdit.ui.seekTimeline(30); document.activeElement && document.activeElement.blur(); });
+  await page.keyboard.press('v');
+  await settle(page);
+  eq(await subs(), [{ s: 30, d: 10 * fps, t: '', tr: '字幕' }], '按 V：在播放頭加一段字幕（10 秒），放在新的「字幕」軌');
+  ok(await page.isVisible('.ed-itab.active[data-itab="subs"]') && await page.isVisible('.ed-sec[data-sec="subs"]'), '詳細內容切到「字幕清單」');
+  eq(await page.evaluate(() => document.querySelectorAll('.ed-subrow').length), 1, '字幕清單多一行');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(90));
+  await page.click('#edSubMark');
+  await settle(page);
+  eq((await subs()).map(x => [x.s, x.d]), [[30, 60], [90, 10 * fps]], '在第一段播放中按 V：第一段改成在 89 格結束（新的一段減 1 格）');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(60));
+  await page.click('#edSubMark');
+  await settle(page);
+  eq((await subs()).map(x => [x.s, x.d]), [[30, 30], [60, 30], [90, 10 * fps]], '插在兩段中間：前一段縮短、新的一段碰到後一段就停');
+  eq(await page.evaluate(() => document.querySelectorAll('.ed-subrow').length), 3, '字幕清單共 3 行（依時間排序）');
+  // 一行一行輸入：Enter 跳下一行
+  const rows = page.locator('.ed-subrow .ed-subtxt');
+  await rows.nth(0).click();
+  await page.keyboard.type('第一句');
+  await page.keyboard.press('Enter');
+  ok(await page.evaluate(() => document.activeElement === document.querySelectorAll('.ed-subrow .ed-subtxt')[1]), 'Enter：跳到下一行');
+  await page.keyboard.type('第二句');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('換行');
+  await page.keyboard.press('Escape');
+  await settle(page);
+  eq((await subs()).map(x => x.t), ['第一句', '第二句\n換行', ''], '字幕清單輸入的文字寫進字幕片段（Shift＋Enter 換行）');
+  await page.evaluate(() => QPTEdit.ui.seekTimeline(45));
+  await settle(page);
+  await shot(page, `${tag}-4d-subtitle-list`);
+  // 刪除一行
+  await page.locator('.ed-subrow').nth(2).locator('.ed-subdel').click();
+  await settle(page);
+  eq((await subs()).length, 2, '按 × 刪除那一段字幕');
+  // 復原回到標記前
+  for (let i = 0; i < 12 && (await proj(page, p => JSON.stringify([p.clips, p.tracks]))) !== baseSnap; i++) { await page.keyboard.press('Control+z'); await settle(page); }
+  eq(await proj(page, p => JSON.stringify([p.clips, p.tracks])), baseSnap, '復原：字幕與「字幕」軌都拿掉');
+  // SRT 匯入（UTF-8，含重疊）
+  const srtText = '1\n00:00:00,500 --> 00:00:02,000\n大家好\n\n2\n00:00:01,500 --> 00:00:03,000\n歡迎收看\n第二行\n';
+  await page.setInputFiles('#edSrtFile', { name: 'demo.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srtText, 'utf8') });
+  await settle(page);
+  for (let i = 0; i < 20 && (await subs()).length < 2; i++) await page.waitForTimeout(100);
+  eq((await subs()).map(x => [x.s, x.d, x.t, x.tr]), [[Math.round(0.5 * fps), Math.round(1.5 * fps) - Math.round(0.5 * fps), '大家好', '字幕'], [Math.round(1.5 * fps), Math.round(3 * fps) - Math.round(1.5 * fps), '歡迎收看\n第二行', '字幕']], '匯入 SRT：每段一個字幕片段，重疊的前一段結束在下一段前一格');
+  eq(await page.evaluate(() => [...document.querySelectorAll('.ed-subrow .ed-subtxt')].map(t => t.value)), ['大家好', '歡迎收看\n第二行'], '匯入後字幕清單列出每一段');
+  ok((await page.textContent('#edUndoLab')).includes('匯入 SRT'), '匯入 SRT 一筆復原');
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  eq(await proj(page, p => JSON.stringify([p.clips, p.tracks])), baseSnap, '復原匯入');
+  // 拖進來的 .srt 走字幕匯入（不會被當成不支援的素材）；Big5 編碼也讀得懂（「字幕」＝A6 72 B9 F5）
+  const big5 = [...Buffer.from('1\n00:00:01,000 --> 00:00:02,000\n', 'ascii'), 0xA6, 0x72, 0xB9, 0xF5, 0x0A];
+  await page.evaluate(b => QPTEdit.ui.importFiles([new File([new Uint8Array(b)], 'old.SRT', { type: '' })]), big5);
+  for (let i = 0; i < 20 && !(await subs()).length; i++) await page.waitForTimeout(100);
+  eq((await subs()).map(x => [x.s, x.t]), [[fps, '字幕']], '拖進 .srt（Big5 編碼）：匯入成字幕');
+  ok(!(await page.isVisible('#edMsgs .ed-msg.err')), '沒有「不支援的格式」錯誤');
+  await page.keyboard.press('Control+z');
+  await settle(page);
+  eq(await proj(page, p => JSON.stringify([p.clips, p.tracks])), baseSnap, '復原');
+  eq(await invariants(page), [], '不變式 OK');
   // 預覽動畫：逐字跳起開頭 0.1 秒的畫面跟 1 秒時不同（字還在往上跳）
   await page.evaluate(() => QPTEdit.ui.seekTimeline(33));
   await settle(page);

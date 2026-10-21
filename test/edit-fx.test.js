@@ -380,3 +380,22 @@ test('選字變色：buildAccent 是 parseAccent 的反向', () => {
   const r = fx.parseAccent(fx.buildAccent('a*b', [false, false, true]));
   assert.deepEqual([r.text, r.mask], ['a＊b', [false, false, true]], '原本的星號換成全形，不會被當成標記');
 });
+test('SRT 解析：時間碼、多行、標籤、BOM、CRLF、重疊', () => {
+  const srt = '﻿1\r\n00:00:01,000 --> 00:00:03,500\r\n<i>第一句</i>\r\n第二行\r\n\r\n2\r\n00:00:03,000 --> 00:00:05,000\r\n{\\an8}第二句\r\n\r\n3\n00:20.5 --> 00:22.000\nHello\n\n4\n00:00:30,000 --> 00:00:30,000\n長度 0 不要\n';
+  const c = fx.parseSrt(srt, 30);
+  assert.deepEqual(c, [
+    { start: 30, end: 90, text: '第一句\n第二行' },     // 原本到 3.5 秒，跟第二段重疊 → 結束在第二段開始的前一格
+    { start: 90, end: 150, text: '第二句' },
+    { start: 615, end: 660, text: 'Hello' },            // 省略小時、句點分隔
+  ]);
+  assert.deepEqual(fx.parseSrt('不是字幕', 30), []);
+  // 同一格開始的只留第一段
+  assert.deepEqual(fx.fitCues([{ start: 10, end: 50, text: 'a' }, { start: 10, end: 40, text: 'b' }]).map(x => x.text), ['a']);
+});
+test('V 標記：預設 10 秒、碰到下一段就停、前一段在這格前結束', () => {
+  const subs = [{ id: 'a', start: 0, end: 300 }, { id: 'b', start: 400, end: 500 }];
+  assert.deepEqual(fx.planSubtitleMark(subs, 90, 30, 10), { start: 90, end: 390, trimPrev: { id: 'a', end: 90 } }, '前一段 a 改成在 89 格結束；新段 10 秒');
+  assert.deepEqual(fx.planSubtitleMark(subs, 350, 30, 10), { start: 350, end: 400, trimPrev: null }, '碰到 b：結束在 b 開始的前一格');
+  assert.deepEqual(fx.planSubtitleMark([], 0, 25, 10), { start: 0, end: 250, trimPrev: null });
+  assert.deepEqual(fx.planSubtitleMark(subs, 400, 30, 10), { existing: 'b' }, '剛好是某段開頭：不重複加');
+});
