@@ -63,14 +63,26 @@
     onChange(cb) { changeHandlers.push(cb); }
   };
 
-  // 「帶入目前圖文」：目前展開的（沒有就取最後完成的）套版圖。用過快速產圖的卡片，連文章網址與圖文格式（【標題】／圖說／hashtag）一起帶入；
-  // 沒用過的只帶標題放進【】。
+  // 「帶入目前圖文」：優先取左邊正在編輯（展開）的那張卡片，只要有標題和背景就行，不用先按「完成」；
+  // 沒有的話退回最後完成的一張，再退回最後一張準備好的。成品圖用 app.js 按「完成」同一個函式（completeBatchItem）渲染，
+  // 所以和下載出來的完全一樣；用過快速產圖的卡片，連文章網址與圖文格式（【標題】／圖說／hashtag）一起帶入，否則只帶標題放進【】。
+  const EMPTY_HINT = '左邊還沒有可以帶入的圖：請先在圖片卡片輸入標題、放上背景（或貼上文章網址按 Enter），再按「帶入目前圖文」；也可以自己輸入文字、加入圖片';
   async function compose() {
     const items = typeof batchItems !== 'undefined' ? batchItems : [];
     const openId = typeof expandedBatchItemId !== 'undefined' ? expandedBatchItemId : null;
-    const finished = it => it && it.done && it.resultDataUrl;
-    const pick = items.find(it => it.id === openId && finished(it)) || [...items].reverse().find(finished);
-    if (!pick) return { text: '', image: null, articleUrl: '' };
+    const finished = it => !!(it && it.done && it.resultDataUrl);
+    const ready = it => !!(it && String(it.title || '').trim() && typeof hasBackground === 'function' && hasBackground(it.bg));
+    const open = items.find(it => it.id === openId) || null;
+    const pick = (finished(open) || ready(open) ? open : null)
+      || [...items].reverse().find(finished) || [...items].reverse().find(ready);
+    if (!pick) return { text: '', image: null, articleUrl: '', hint: EMPTY_HINT };
+    if (!finished(pick)) {
+      // 還沒完成：渲染成品圖（會把這張標成已完成，但不會收合卡片）。渲染用的是共用的預覽畫布，完成後把畫面還給正在編輯的那張
+      let ok = false;
+      try { ok = await completeBatchItem(pick); } catch (e) { ok = false; }
+      if (open && open !== pick && typeof expandBatchItem === 'function') expandBatchItem(open);
+      if (!ok || !finished(pick)) return { text: '', image: null, articleUrl: '', hint: '這張圖還不能完成（需要同時有標題和背景），請先補齊再帶入' };
+    }
     const title = String(pick.title || '').replace(/\s*\n\s*/g, ' ').trim();
     const meta = pick.qfMeta;
     if (!meta) return { text: title ? `【${title}】` : '', image: pick.resultDataUrl, articleUrl: '' };

@@ -147,11 +147,11 @@ test('已發佈的貼文：網頁版也能「試跑留言」「補留言」（mo
     { mode: 'comment', images: [], dryRun: false, comment: `小編\n${ART}?&utm_source=facebook&utm_medium=fbarticlecomments` });
 });
 
-test('帶入目前圖文：取目前展開（或最後完成）的套版圖，標題放進【】', { skip }, async t => {
+test('帶入目前圖文：取目前展開（或最後完成）的套版圖，標題放進【】（卡片資料已是成品的情況）', { skip }, async t => {
   const { page } = await open(t);
   await openDrawer(page);
   await page.click('#schFillBtn');
-  assert.match(await page.locator('#schStatus').textContent(), /沒有可以帶入的內容/);
+  assert.match(await page.locator('#schStatus').textContent(), /左邊還沒有可以帶入的圖/);
   await page.evaluate(png => {
     batchItems.push({ id: 't1', title: '第一則\n第二行', done: true, resultDataUrl: png });
     batchItems.push({ id: 't2', title: '最後完成的', done: true, resultDataUrl: png });
@@ -162,4 +162,61 @@ test('帶入目前圖文：取目前展開（或最後完成）的套版圖，�
   await page.evaluate(() => { expandedBatchItemId = 't1'; });
   await page.click('#schFillBtn');
   await page.waitForFunction(() => document.getElementById('schText').value === '【第一則 第二行】');
+});
+
+// 用真的卡片操作：在左邊卡片打標題、放背景圖，「不按完成」就直接帶入
+const BG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const prepareCard = async (page, title) => {
+  await page.fill('.batch-item-block textarea', title);
+  await page.setInputFiles('.batch-item-block input[type=file]', { name: 'bg.png', mimeType: 'image/png', buffer: BG });
+  await page.waitForFunction(() => batchItems[0].bg && batchItems[0].bg.image);
+};
+
+test('帶入目前圖文：左邊正在編輯、還沒按「完成」的卡片也能帶入（有標題＋背景就行），成品圖與按完成的一樣', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await prepareCard(page, '黑人心梗主因曝！\n醫示警「1行為」');
+  assert.equal(await page.evaluate(() => batchItems[0].done), false);
+  await page.click('#schedTab');
+  await page.waitForSelector('#schFillBtn', { state: 'visible' });
+  await page.click('#schFillBtn');
+  await page.waitForFunction(() => document.querySelectorAll('.sch-thumb').length === 1, null, { timeout: 20000 });
+  assert.equal(await page.inputValue('#schText'), '【黑人心梗主因曝！ 醫示警「1行為」】');
+  assert.match(await page.locator('#schStatus').textContent(), /已帶入文字、預覽圖片|已帶入文字.*圖片/);
+  // 帶進來的圖就是 1080×1080 成品圖
+  const size = await page.evaluate(() => new Promise(res => { const i = new Image(); i.onload = () => res([i.width, i.height]); i.src = document.querySelector('.sch-thumb img').src; }));
+  assert.deepEqual(size, [1080, 1080]);
+  // 卡片沒有被收合，仍在編輯；且帶入的就是它目前的成品
+  assert.equal(await page.locator('.batch-item-block').count(), 1);
+  assert.equal(await page.evaluate(() => batchItems[0].done), true);
+  assert.deepEqual(errors, []);
+});
+
+test('帶入目前圖文：卡片只有標題、沒有背景 → 不亂帶，說明要補什麼', { skip }, async t => {
+  const { page } = await open(t);
+  await page.fill('.batch-item-block textarea', '只有標題');
+  await page.click('#schedTab');
+  await page.waitForSelector('#schFillBtn', { state: 'visible' });
+  await page.click('#schFillBtn');
+  assert.match(await page.locator('#schStatus').textContent(), /左邊還沒有可以帶入的圖.*標題.*背景/);
+  assert.equal(await page.locator('.sch-thumb').count(), 0);
+  assert.equal(await page.inputValue('#schText'), '');
+});
+
+test('帶入目前圖文：多張卡片時以「正在編輯（展開）」的那張為準，不是第一張', { skip }, async t => {
+  const { page } = await open(t);
+  await prepareCard(page, '第一張的標題');
+  await page.getByRole('button', { name: '完成', exact: true }).click();   // 第一張完成並收合
+  await page.waitForFunction(() => batchItems[0].done);
+  await page.click('#addBatchItemBtn');                                    // 新增第二張並展開
+  await page.waitForFunction(() => batchItems.length === 2);
+  await page.fill('.batch-item-block textarea', '第二張的標題');
+  await page.setInputFiles('.batch-item-block input[type=file]', { name: 'bg.png', mimeType: 'image/png', buffer: BG });
+  await page.waitForFunction(() => batchItems[1].bg && batchItems[1].bg.image);
+  await page.click('#schedTab');
+  await page.waitForSelector('#schFillBtn', { state: 'visible' });
+  await page.click('#schFillBtn');
+  await page.waitForFunction(() => document.getElementById('schText').value !== '', null, { timeout: 20000 });
+  assert.equal(await page.inputValue('#schText'), '【第二張的標題】');
+  // 帶入沒有把正在編輯的畫面換掉
+  assert.equal(await page.locator('.batch-item-block textarea').inputValue(), '第二張的標題');
 });

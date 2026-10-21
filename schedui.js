@@ -170,7 +170,7 @@
       renderThumbs();
       renderPreview();
       const got = [text && '文字', c.articleUrl && '文章網址', c.image && '預覽圖片'].filter(Boolean);
-      if (!got.length) say('目前沒有可以帶入的內容：請先完成一張套版圖（側邊欄是快速產圖），或自己輸入文字、加入圖片', 'warn');
+      if (!got.length) say(c.hint || '目前沒有可以帶入的內容：請先快速產圖或完成一張套版圖，或自己輸入文字、加入圖片', 'warn');
       else say(`已帶入${got.join('、')}${c.image ? '' : '（目前預覽沒有圖片，所以沒帶圖）'}`, c.image ? 'ok' : 'warn');
     }
     if (el.fill) el.fill.addEventListener('click', () => fillFromCompose().catch(() => say('帶入失敗', 'err')));

@@ -224,6 +224,7 @@
 - **安全（這是讓網頁用外掛的身分發請求，所以比側邊欄嚴）**：文章只能是 **https 的 `tvbs.com.tw`**（同熱門新聞庫橋接的 `validateSend`），**轉址後也必須還在 TVBS**；圖片網址必須是公開網站（`isAllowedImageUrl`，內網、本機不行，轉址後也一樣），**回應的 content-type 必須是圖片才回傳**，有逾時與大小上限。拒絕時根本不發出請求。側邊欄的快速產圖是使用者自己在外掛裡貼網址，所以不限網域；網頁版因為是「網頁」在驅動外掛，才限 TVBS。［推論：若之後要放寬到其他新聞網站，在 `bridge.js` 的 `validateSend` 與 `poster.js` 的 `webFetchArticle` 一起改，並且要重新評估風險］
 - **網頁的 CSP 不放寬**：`index.html` 的 `connect-src` 只允許 GitHub，網頁自己 `fetch` TVBS 會被擋（所以才用外掛代抓），連 `fetch('data:…')` 也會被擋，所以 data URL 轉 Blob 用 `atob`。測試環境把「背景」放在網頁裡，只在測試時放寬給 TVBS（`test/web-harness.js`），`manifest.test.js` 會確認真正的 `index.html` 沒被改動。
 - **`quickfill.js` 三種載入方式**：側邊欄（有 `#qfUrl`，完整介面）、網頁版（沒有，只用匯出的純函式）、背景 service worker（沒有 `document`，只用 `fetchLimited` 等下載函式）。為此把「有逾時與大小上限的下載」和網址正規化搬到匯出區，檔案開頭的 `root` 改成 `self`／`window` 皆可。
+- **「帶入目前圖文」取哪一張**（`schedweb.js` 的 `compose`）：優先是**左邊正在編輯（展開）的卡片**，只要有標題和背景就行，**不必先按「完成」**（第一版只認已完成的卡片，結果使用者正在編輯的那張被忽略，說「沒有可以帶入的內容」——「目前」指的就是正在編輯的那張）；其次最後完成的一張，再其次最後一張準備好的。還沒完成的用 `app.js` 按「完成」同一個函式 `completeBatchItem` 渲染成品圖（和下載的完全一樣；副作用是那張標成已完成，但不收合），渲染用的是共用預覽畫布，所以結束後把畫面還給展開的那張（`expandBatchItem`）。什麼都帶不進來時，說明要補標題或背景（`compose` 回傳的 `hint`）。
 - **給排程抽屜用**：快速產圖完成後在卡片資料記下 `qfMeta = { articleUrl, appliedTitle, copyText }`；之後在抽屜按「帶入目前圖文」會帶入 `copyText`（【標題】／圖說／hashtag）與文章網址。標題在快速產圖後又改過（和 `appliedTitle` 不同）時，只把第一行【標題】換成新的，圖說與 hashtag 照原本。
 - **踩過的坑**：卡片 `id` 是數字，從 `data-item-id` 讀回來是字串，比對要用 `String()`，否則永遠找不到卡片、Enter 完全沒反應。
 
