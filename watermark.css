@@ -139,3 +139,38 @@ h1.topbar-title {
   .hint-desk { display: none; }
   .hint-touch { display: inline; }
 }
+
+/* ---- 貼圖與馬賽克（網頁版：預覽畫布下方一排＋畫布上的操作方框；側邊欄的同款樣式在 sidepanel.css）---- */
+.fx-bar { margin-top: 12px; }
+.fx-bar.off { opacity: .55; }
+.fx-bar-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 4px 6px; font-size: 13px; color: var(--text); }
+.fx-bar .fx-count { font-size: 12px; color: var(--accent); font-weight: 600; }
+.fx-bar .fx-row {
+  display: flex; align-items: center; gap: 8px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  padding: 8px 12px; border: 1px solid rgba(0, 74, 173, 0.18); border-radius: 18px; background: rgba(0, 74, 173, 0.05); scrollbar-width: thin;
+}
+.fx-bar .fx-tile { flex: 0 0 auto; margin: 0; cursor: pointer; border: 1px solid rgba(0, 74, 173, 0.18); background: #fff; border-radius: 14px; }
+.fx-bar .fx-tile:disabled { cursor: not-allowed; }
+.fx-bar .fx-sticker-tile { width: 52px; height: 52px; padding: 4px; }
+.fx-bar .fx-sticker-tile img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.fx-bar .fx-mosaic-tile { display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 14px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.fx-bar .fx-mini { width: 22px; height: 22px; border-radius: 4px; background: conic-gradient(#8d99ae 25%, #d4dae4 0 50%, #b6c0d0 0 75%, #6c7a96 0) 0 0 / 50% 50%; }
+.fx-bar .fx-sep { flex: 0 0 1px; align-self: stretch; background: rgba(0, 74, 173, 0.18); }
+.fx-bar .fx-tile:hover:not(:disabled) { border-color: var(--accent); }
+.fx-bar .fx-hint { margin: 6px 4px 0; font-size: 12px; color: var(--muted); }
+/* 預覽上的操作方框：蓋在畫布上、不會被輸出。方框本身透明（畫面上的貼圖／馬賽克是畫在畫布裡的）。 */
+.canvas-wrap .fx-layer { position: absolute; pointer-events: none; z-index: 4; }
+.canvas-wrap .fx-layer[hidden] { display: none; }
+.fx-item { position: absolute; pointer-events: auto; cursor: move; touch-action: none; box-sizing: border-box; border-radius: 4px; }
+.fx-item:hover { outline: 1px dashed rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.fx-item.selected { outline: 2px dashed #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(0, 74, 173, 0.55); }
+.fx-item .fx-del {
+  display: none; position: absolute; top: -11px; right: -11px; width: 22px; height: 22px; padding: 0; margin: 0;
+  border-radius: 50%; border: 2px solid #fff; background: #22324d; color: #fff; font-size: 14px; line-height: 1; cursor: pointer;
+}
+.fx-item.selected .fx-del { display: block; }
+@media (max-width: 820px) {
+  .fx-item .fx-del { top: -14px; right: -14px; width: 28px; height: 28px; font-size: 17px; }   /* 手指點得到 */
+  .fx-bar .fx-sticker-tile, .fx-bar .fx-mosaic-tile { height: 48px; }
+  .fx-bar .fx-sticker-tile { width: 48px; }
+}

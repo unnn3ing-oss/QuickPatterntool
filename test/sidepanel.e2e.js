@@ -378,8 +378,8 @@ test('貼圖會跟著輸出：按「下載圖片」時畫布內容和預覽一�
   assert.deepEqual(errors, []);
 });
 
-test('網頁版（index.html）不載入貼圖功能', { skip }, async () => {
+test('網頁版（index.html）與側邊欄都載入貼圖功能（網頁版是批次預覽，側邊欄是單張預覽）', { skip }, async () => {
   const fs = require('node:fs');
-  assert.ok(!/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')));
+  assert.ok(/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')));
   assert.ok(/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'sidepanel.html'), 'utf8')));
 });

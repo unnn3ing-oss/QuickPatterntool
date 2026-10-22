@@ -369,7 +369,8 @@ function hasBackground(source) {
 
 let singleBg = { type: 'image', image: null, color: null };
 let singleFrame = 'news';
-let singleFx = null;   // 貼圖／馬賽克（stickers.js 設定；網頁版沒有）
+let singleFx = null;   // 貼圖／馬賽克（stickers.js 設定；單張預覽，側邊欄用）
+let batchFx = null;    // 同上，批次預覽（網頁版用）：{ forItem(item) -> 那一組的 fx, onView() -> 預覽的對象換了／畫面要更新 }
 
 function render() {
   if (document.activeElement !== singlePreviewTitleInput) singlePreviewTitleInput.value = titleEl.value;
@@ -819,6 +820,9 @@ function scrollToBatchItem(id) {
 
 // The caption under the big preview always mirrors the title as one line
 // (line breaks become a full-width space instead), no extension needed.
+// 預覽的對象換了（或沒有對象了）時，讓貼圖／馬賽克的操作方框跟著換（網頁版）
+function syncBatchFx() { if (batchFx) batchFx.onView(); }
+
 function setBatchPreviewTitle(item) {
   batchPreviewTitle.textContent = parseLines(item.title).filter(Boolean).join('　');
   if (document.activeElement !== batchPreviewTitleInput) batchPreviewTitleInput.value = item.title;
@@ -852,6 +856,7 @@ function expandBatchItem(item) {
     batchCtx.clearRect(0, 0, SIZE, SIZE);
     batchStatus.textContent = `圖片 #${index + 1} 尚未設定背景`;
   }
+  syncBatchFx();
 }
 
 function addBatchItem() {
@@ -895,6 +900,7 @@ async function removeBatchItem(id) {
     batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
     renderBatchItemsList();
     renderBatchThumbs();
+    syncBatchFx();
   }
 }
 
@@ -963,10 +969,11 @@ function refreshBatchItem(item) {
 // a result, so editing gives the same immediate feedback as single mode.
 async function previewBatchItem(item) {
   setBatchPreviewTitle(item);
+  syncBatchFx();
   if (!hasBackground(item.bg)) return;
   await whzFontReady;
   const fontSize = canvaToPx(effectiveCanvaSize(item.bg, item.fontSize));
-  renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame);
+  renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame, batchFx && batchFx.forItem(item));
   const index = batchItems.indexOf(item);
   batchStatus.textContent = `預覽中（尚未完成）：圖片 #${index + 1}`;
 }
@@ -983,7 +990,7 @@ async function completeBatchItem(item) {
   // its corner ribbon or bottom logo, since this snapshot is never redrawn.
   await Promise.all([whzFontReady, ribbonReady, ribbonNewsReady, logoReady]);
   const fontSize = canvaToPx(effectiveCanvaSize(item.bg, item.fontSize));
-  renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame);
+  renderComposite(batchCtx, item.bg, item.title, fontSize, item.frame, batchFx && batchFx.forItem(item));
   setBatchPreviewTitle(item);
   const index = batchItems.indexOf(item);
   item.resultFilename = `${String(index + 1).padStart(2, '0')}_${safeFilename(item.title, '娛樂新聞圖' + (index + 1))}.png`;
@@ -1011,6 +1018,7 @@ function collapseBatchItems() {
   renderBatchThumbs();
   batchPreviewTitleInput.hidden = true;
   batchCanvas.classList.remove('pannable');
+  syncBatchFx();
 }
 
 // Round red "×" used for 移除 on both the collapsed row and the open block.
@@ -1519,6 +1527,7 @@ batchResetBtn.addEventListener('click', async () => {
   batchStatus.textContent = '按某一組的「完成」後，預覽會顯示在這裡';
   renderBatchItemsList();
   renderBatchThumbs();
+  syncBatchFx();
 });
 
 // ---- help modal ----

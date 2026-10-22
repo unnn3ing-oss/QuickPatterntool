@@ -115,6 +115,8 @@
           <canvas id="batchCanvas" width="1080" height="1080"></canvas>
           <textarea class="title-overlay" id="batchPreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1" hidden></textarea>
         </div>
+        <!-- 貼圖與馬賽克（stickers.js 填內容）：每一組各自一份，編輯的是目前預覽的那一組 -->
+        <div class="fx-bar" id="batchFxSlot"></div>
         <div class="thumbs-shelf" id="batchThumbsShelf" hidden>
           <button type="button" class="shelf-nav" id="batchThumbsPrev" aria-label="往左看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.5 3l-3 3 3 3"/></svg></button>
           <div class="batch-thumbs" id="batchThumbs"></div>
@@ -1034,5 +1036,6 @@
 <script src="schedweb.js"></script>
 <script src="quickfill.js"></script>
 <script src="qfweb.js"></script>
+<script src="stickers.js"></script>
 </body>
 </html>
