@@ -106,3 +106,36 @@ h1.topbar-title {
   content: ""; position: absolute; left: 6px; bottom: 6px; width: 10px; height: 10px; border-radius: 50%;
   background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); pointer-events: none;
 }
+
+/* ---- 手機版面（網頁版專用，≤820px）----
+   style.css 的 `.layout { grid-template-columns: 380px 1fr }`（Soft Studio 區塊）排在 820px 的單欄規則後面，把單欄蓋掉了，
+   手機上就變成固定 380px＋右邊一欄、頁面被撐寬而橫向捲動；這裡放在最後面重新收成單欄，並順便調整間距與觸控大小。
+   側邊欄沒有載入這個檔案，不受影響。 */
+@media (max-width: 820px) {
+  body { padding: 14px 12px 48px; }
+  header.topbar { margin: -14px -12px 16px; padding: 10px 12px; }
+  .topbar-inner { gap: 8px 10px; }
+  h1.topbar-title { order: 1; font-size: 17px; }
+  .topbar-actions { order: 2; margin-left: auto; width: auto; gap: 6px; }
+  .topbar-actions .help-btn { padding: 7px 12px; font-size: 13px; }
+  .func-switch { order: 3; flex: 1 0 100%; width: 100%; }
+  .func-btn { padding: 9px 2px; font-size: 14px; white-space: nowrap; }
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .card { border-radius: 22px; padding: 16px; }
+  .canvas-wrap { padding: 12px; }
+  /* 圖片套版：預覽（可以直接點兩下輸入標題、拖曳、雙指縮放）放在最上面，欄位在下面 */
+  #layoutApp .preview-col { order: -1; }
+  .wm-stage, .cg-stage { min-height: 180px; }
+  /* iOS 的輸入框字級小於 16px 時，點進去整個頁面會被放大；預覽上的標題框（.title-overlay）字級是跟著畫布算的，不動 */
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]), select, textarea:not(.title-overlay) { font-size: 16px; }
+  .batch-item-head button { min-height: 36px; }
+  /* 右下角「其他工具」縮小一點、貼角落，少蓋到內容 */
+  .tools-fab { right: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .tools-btn { width: 40px; height: 40px; font-size: 17px; }
+}
+/* 滑鼠專用的說明（Ctrl+V、滾輪）在沒有滑鼠的裝置上不顯示，換成觸控說明 */
+.hint-touch { display: none; }
+@media (hover: none) {
+  .hint-desk { display: none; }
+  .hint-touch { display: inline; }
+}

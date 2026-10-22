@@ -107,7 +107,7 @@
           <textarea class="title-overlay" id="singlePreviewTitleInput" placeholder="點兩下輸入內容" spellcheck="false" tabindex="-1"></textarea>
         </div>
         <div class="status" id="status">請先上傳圖片並輸入標題</div>
-        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
+        <div class="hint preview-hint">點兩下預覽圖輸入標題；<span class="hint-desk">點一下即可 Ctrl+V 貼上圖片；滾輪縮放、</span><span class="hint-touch">雙指縮放、</span>拖曳調整位置</div>
       </div>
 
       <div id="batchPreview" style="display:none">
@@ -122,7 +122,7 @@
         </div>
         <div class="preview-title" id="batchPreviewTitle"></div>
         <div class="status" id="batchStatus">按某一組的「完成」後，預覽會顯示在這裡</div>
-        <div class="hint preview-hint">點兩下預覽圖輸入標題；點一下即可 Ctrl+V 貼上圖片；滾輪縮放、拖曳調整位置</div>
+        <div class="hint preview-hint">點兩下預覽圖輸入標題；<span class="hint-desk">點一下即可 Ctrl+V 貼上圖片；滾輪縮放、</span><span class="hint-touch">雙指縮放、</span>拖曳調整位置</div>
       </div>
     </div>
   </div>
@@ -132,7 +132,7 @@
     <div class="card">
       <!-- 左上：拖放／點擊選取照片（可一次選多張） -->
       <div class="dropzone wm-photo-drop" id="wmPhotoDrop" tabindex="0">
-        <div id="wmPhotoText">點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張；也能直接 Ctrl+V 貼上</div>
+        <div id="wmPhotoText">點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張<span class="hint-desk">；也能直接 Ctrl+V 貼上</span></div>
         <input type="file" id="wmPhotoInput" accept="image/*" multiple>
       </div>
       <div class="hint" id="wmPhotoHint">輸出會保持原圖尺寸</div>
@@ -207,7 +207,7 @@
         <div class="batch-thumbs" id="wmThumbs"></div>
         <button type="button" class="shelf-nav" id="wmShelfNext" aria-label="往右看"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3"/></svg></button>
       </div>
-      <div class="hint preview-hint">在預覽上拖曳浮水印（抓的範圍比 Logo 大）可以換位置，只會改目前這一張；滑鼠停在浮水印上滾動滾輪可以放大縮小。大小、透明度、邊距，以及左側的位置鈕會套用到所有照片。</div>
+      <div class="hint preview-hint">在預覽上拖曳浮水印（抓的範圍比 Logo 大）可以換位置，只會改目前這一張；<span class="hint-desk">滑鼠停在浮水印上滾動滾輪可以放大縮小。</span>大小、透明度、邊距，以及左側的位置鈕會套用到所有照片。</div>
     </div>
   </div>
 
@@ -215,7 +215,7 @@
   <div class="layout" id="collageApp" hidden>
     <div class="card">
       <div class="dropzone wm-photo-drop" id="cgDrop" tabindex="0">
-        <div>點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張，會依序放進空的格子；也能 Ctrl+V 貼上</div>
+        <div>點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張，會依序放進空的格子<span class="hint-desk">；也能 Ctrl+V 貼上</span></div>
         <input type="file" id="cgInput" accept="image/*" multiple>
       </div>
       <div class="hint" id="cgHint">輸出 1080×1080、300 DPI 的 JPG</div>
@@ -279,7 +279,7 @@
         <canvas id="cgCanvas" width="1080" height="1080"></canvas>
       </div>
       <div class="status" id="cgStatus"></div>
-      <div class="hint preview-hint">點一格選取，拖曳照片調整位置，滑鼠停在格子上滾動滾輪可放大縮小；雙擊格子可以換照片，也能把照片直接拖到格子上。等分時拖曳格子之間的分隔線調整比例；自由框時可以拉出、移動、縮放每一個框。</div>
+      <div class="hint preview-hint">點一格選取，拖曳照片調整位置，<span class="hint-desk">滑鼠停在格子上滾動滾輪可放大縮小；</span><span class="hint-touch">用上面的「照片縮放」滑桿放大縮小；</span>雙擊格子可以換照片，也能把照片直接拖到格子上。等分時拖曳格子之間的分隔線調整比例；自由框時可以拉出、移動、縮放每一個框。</div>
     </div>
   </div>
 
@@ -455,7 +455,7 @@
   <div class="layout" id="resizeApp" hidden>
     <div class="card">
       <div class="dropzone wm-photo-drop" id="rsDrop" tabindex="0">
-        <div id="rsDropText">點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張；也能直接 Ctrl+V 貼上</div>
+        <div id="rsDropText">點擊選擇照片，或把照片拖曳到這裡<br>可以一次選多張<span class="hint-desk">；也能直接 Ctrl+V 貼上</span></div>
         <input type="file" id="rsInput" accept="image/*" multiple>
       </div>
       <div class="hint" id="rsHint">輸入想要的寬高，所有照片一起轉換</div>

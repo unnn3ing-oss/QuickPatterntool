@@ -1334,17 +1334,47 @@ function wirePreviewPanZoom(canvasEl, getBg, onChange) {
     onChange();
   }, { passive: false });
 
+  // 單指拖曳＝平移；兩指＝雙指縮放（手機沒有滾輪）：開始時記下兩指中點底下是影像的哪一點，之後讓那一點一直跟著中點走（同時縮放與平移）。
   let drag = null;
+  const touches = new Map();   // pointerId -> { x, y }，目前按在預覽上的手指（滑鼠也會進來，但只有兩點同時按住才會進入縮放）
+  let pinch = null;
+  const pinchGeom = () => {
+    const [a, b] = [...touches.values()];
+    return { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+  };
   canvasEl.addEventListener('pointerdown', e => {
     wrap.focus();
     const bg = activeBg();
     if (!bg || e.button !== 0) return;
     if (!bg.view) bg.view = newView();
-    drag = { bg, id: e.pointerId, startX: e.clientX, startY: e.clientY, viewX: bg.view.x, viewY: bg.view.y };
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     canvasEl.setPointerCapture(e.pointerId);
-    canvasEl.classList.add('panning');
+    if (touches.size === 2) {
+      drag = null;
+      const g = pinchGeom();
+      const p = toCanvas(g.cx, g.cy);
+      const before = coverGeometry(bg.image, bg.view);
+      pinch = { bg, dist0: Math.max(g.dist, 1), zoom0: bg.view.zoom, u: (p.x - before.dx) / before.s, v: (p.y - before.dy) / before.s };
+      canvasEl.classList.add('panning');
+    } else if (touches.size === 1) {
+      drag = { bg, id: e.pointerId, startX: e.clientX, startY: e.clientY, viewX: bg.view.x, viewY: bg.view.y };
+      canvasEl.classList.add('panning');
+    }
   });
   canvasEl.addEventListener('pointermove', e => {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && touches.size === 2) {
+      const g = pinchGeom();
+      const view = pinch.bg.view;
+      view.zoom = Math.min(MAX_ZOOM, Math.max(1, pinch.zoom0 * g.dist / pinch.dist0));
+      const p = toCanvas(g.cx, g.cy);
+      const after = coverGeometry(pinch.bg.image, { zoom: view.zoom, x: 0, y: 0 });
+      view.x = p.x - pinch.u * after.s - after.dx;
+      view.y = p.y - pinch.v * after.s - after.dy;
+      clampView(pinch.bg.image, view);
+      onChange();
+      return;
+    }
     if (!drag || e.pointerId !== drag.id) return;
     const { k } = toCanvas(e.clientX, e.clientY);
     drag.bg.view.x = drag.viewX + (e.clientX - drag.startX) * k;
@@ -1353,7 +1383,17 @@ function wirePreviewPanZoom(canvasEl, getBg, onChange) {
     onChange();
   });
   const endDrag = e => {
-    if (!drag || e.pointerId !== drag.id) return;
+    const wasDown = touches.delete(e.pointerId);
+    if (pinch && touches.size < 2) {
+      pinch = null;
+      // 剩下的那根手指接著拖曳（從它現在的位置重新算起，畫面不會跳）
+      const [[id, pos]] = touches.size ? [...touches.entries()] : [[null, null]];
+      const bg = activeBg();
+      if (id !== null && bg) drag = { bg, id, startX: pos.x, startY: pos.y, viewX: bg.view.x, viewY: bg.view.y };
+      else { drag = null; canvasEl.classList.remove('panning'); }
+      return;
+    }
+    if (!wasDown || !drag || e.pointerId !== drag.id) return;
     drag = null;
     canvasEl.classList.remove('panning');
   };
