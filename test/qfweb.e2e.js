@@ -5,6 +5,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const zlib = require('node:zlib');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { openWeb } = require('./web-harness');
 
 let chromium = null;
@@ -14,6 +16,8 @@ const skip = chromium ? false : '找不到 playwright（設 NODE_PATH 指到有 
 const ART_URL = 'https://news.tvbs.com.tw/local/1111111';
 const TITLE = '少年霸凌案狂燒！中壢武和宮主道歉喊冤：我兒子沒打人';
 const CORS = { 'access-control-allow-origin': '*' };
+const PROXY = 'https://qpt-article-proxy.19jpz-3.workers.dev';
+const PAGE_ORIGIN = 'https://unnn3ing-oss.github.io';
 
 function png(w, h) {   // 純色 PNG
   const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
@@ -39,8 +43,10 @@ test.before(async () => { if (chromium) browser = await chromium.launch(); });
 test.after(async () => { if (browser) await browser.close(); });
 
 // imgs：{ 檔名: { status, w, h, type } }；回傳記錄所有請求的 log
-async function open(t, { html, imgs = { 'good.png': { w: 1200, h: 900 } }, withExtension = true } = {}) {
-  const log = { article: [], image: [], other: [] };
+// proxy：true＝瀏覽器的 /article、/image 由「真的」worker.mjs 處理（它對 TVBS 的請求由 stubTvbs 假的 fetch 回答）；'down'＝代理連不上
+async function open(t, { html, imgs = { 'good.png': { w: 1200, h: 900 } }, withExtension = true, proxy = false, proxyJson } = {}) {
+  const log = { article: [], image: [], proxy: [], other: [] };
+  if (proxy === true) await stubTvbs(t, log, html || article(), imgs);
   const routes = async page => {
     await page.route('https://news.tvbs.com.tw/**', r => { log.article.push(r.request().url()); return r.fulfill({ contentType: 'text/html; charset=utf-8', headers: CORS, body: html || article() }); });
     await page.route('https://img.tvbs.com.tw/**', r => {
@@ -51,13 +57,43 @@ async function open(t, { html, imgs = { 'good.png': { w: 1200, h: 900 } }, withE
       if (spec.type) return r.fulfill({ contentType: spec.type, headers: CORS, body: '<html>not an image</html>' });
       return r.fulfill({ contentType: 'image/png', headers: CORS, body: png(spec.w, spec.h) });
     });
+    if (proxy) {
+      await page.route(`${PROXY}/**`, async r => {
+        const u = new URL(r.request().url());
+        log.proxy.push(u.pathname + u.search);
+        if (proxy === 'down') return r.abort('connectionrefused');
+        if (proxyJson) return r.fulfill({ status: proxyJson.status, contentType: 'application/json', headers: { 'access-control-allow-origin': PAGE_ORIGIN }, body: JSON.stringify(proxyJson.body) });
+        const resp = await worker().fetch(new Request(u.href, { headers: { Origin: PAGE_ORIGIN } }));
+        return r.fulfill({ status: resp.status, headers: Object.fromEntries(resp.headers), body: Buffer.from(await resp.arrayBuffer()) });
+      });
+    }
     page_other(page, log);
   };
   const r = await openWeb(browser, t, { withExtension, routes });
   await r.page.waitForSelector('.qfw-input');
   return Object.assign(r, { log });
 }
-function page_other(page, log) { page.on('request', req => { const u = new URL(req.url()); if (!/^(unnn3ing-oss\.github\.io|news\.tvbs\.com\.tw|img\.tvbs\.com\.tw)$/.test(u.hostname)) log.other.push(req.url()); }); }
+function page_other(page, log) { page.on('request', req => { const u = new URL(req.url()); if (!/^(unnn3ing-oss\.github\.io|news\.tvbs\.com\.tw|img\.tvbs\.com\.tw|qpt-article-proxy\.19jpz-3\.workers\.dev)$/.test(u.hostname)) log.other.push(req.url()); }); }
+
+// ---- 文章代理（真的 worker.mjs）----------------------------------------------------
+let workerMod = null;
+const worker = () => workerMod;
+test.before(async () => { workerMod = (await import(pathToFileURL(path.join(__dirname, '..', 'examples', 'article-proxy', 'worker.mjs')).href)).default; });
+// worker 在 Node 裡對 TVBS 發的 fetch 用假的回答（記錄在 log.tvbs，確認網頁自己完全沒碰 TVBS）
+async function stubTvbs(t, log, html, imgs) {
+  log.tvbs = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(String(url));
+    log.tvbs.push(u.href);
+    if (u.hostname === 'news.tvbs.com.tw') return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    const spec = imgs[u.pathname.slice(1)];
+    if (!spec) return new Response('nope', { status: 404 });
+    if (spec.type) return new Response('<html>not an image</html>', { headers: { 'Content-Type': spec.type } });
+    return new Response(png(spec.w, spec.h), { headers: { 'Content-Type': 'image/png' } });
+  };
+  t.after(() => { globalThis.fetch = orig; });
+}
 const status = page => page.locator('.qfw-status').textContent();
 const waitDone = (page, re = /完成/) => page.waitForFunction(r => new RegExp(r).test((document.querySelector('.qfw-status') || {}).textContent || ''), re.source, { timeout: 20000 });
 const run = async (page, url = ART_URL) => { await page.fill('.qfw-input', url); await page.press('.qfw-input', 'Enter'); };
@@ -110,12 +146,65 @@ test('不是 TVBS 的網址：外掛拒絕，顯示說明，完全沒有對外�
   assert.equal(await page.locator('.batch-item-block textarea').inputValue(), '');
 });
 
-test('沒有安裝外掛：顯示「沒有收到外掛的回應…」，不壞掉', { skip }, async t => {
-  const { page, errors } = await open(t, { withExtension: false });
-  await page.evaluate(() => { const orig = QptWebBridge.call; QptWebBridge.call = (op, p) => orig(op, p, 500); });   // 測試加速：不要等 30 秒
+test('沒有外掛、文章代理也連不上：顯示說明（不是一直停在「讀取文章中…」），不壞掉', { skip }, async t => {
+  const { page, errors, log } = await open(t, { withExtension: false, proxy: 'down' });
   await run(page);
-  await waitDone(page, /沒有收到外掛的回應/);
+  await waitDone(page, /連不上文章代理，也沒有偵測到外掛/);
+  assert.equal(log.proxy.length, 1);
   assert.deepEqual(errors, []);
+});
+
+test('沒有外掛（手機）：改走文章代理，標題與首圖照樣帶進卡片；網頁自己不碰 TVBS', { skip }, async t => {
+  const { page, log, errors } = await open(t, { withExtension: false, proxy: true });
+  await run(page);
+  await waitDone(page, /完成：標題、圖片都帶入了/);
+  assert.equal(await page.locator('.batch-item-block textarea').inputValue(), await page.evaluate(t0 => QuickFill.breakTitle(t0).join('\n'), TITLE));
+  assert.equal(await page.evaluate(() => batchItems[0].bg.image.naturalWidth), 1200);
+  assert.deepEqual(log.proxy, [`/article?url=${encodeURIComponent(ART_URL)}`, `/image?url=${encodeURIComponent('https://img.tvbs.com.tw/good.png')}&article=${encodeURIComponent(ART_URL)}`]);
+  assert.deepEqual(log.article.concat(log.image), [], '瀏覽器自己沒有連 TVBS');
+  assert.deepEqual(log.tvbs, [ART_URL, 'https://img.tvbs.com.tw/good.png']);
+  assert.deepEqual(log.other, []);
+  assert.deepEqual(errors, []);
+});
+
+test('有外掛：照舊走外掛，完全不碰文章代理', { skip }, async t => {
+  const { page, log } = await open(t, { proxy: true });
+  await run(page);
+  await waitDone(page, /完成：標題、圖片都帶入了/);
+  assert.deepEqual(log.proxy, []);
+  assert.equal(log.article.length, 1);
+});
+
+test('走代理：第一張圖太小／不是圖片時自動換下一張，直到找到可用的', { skip }, async t => {
+  const html = article({ og: 'https://img.tvbs.com.tw/bad.png', images: ['https://img.tvbs.com.tw/small.png', 'https://img.tvbs.com.tw/text.png', 'https://img.tvbs.com.tw/good.png'] });
+  const { page, log } = await open(t, { withExtension: false, proxy: true, html, imgs: { 'small.png': { w: 100, h: 80 }, 'text.png': { type: 'text/html' }, 'good.png': { w: 1200, h: 900 } } });
+  await run(page);
+  await waitDone(page, /完成/);
+  assert.deepEqual(log.proxy.filter(p => p.startsWith('/image')).map(p => new URL(PROXY + p).searchParams.get('url').split('/').pop()), ['bad.png', 'small.png', 'text.png', 'good.png']);
+  assert.equal(await page.evaluate(() => batchItems[0].bg.image.naturalWidth), 1200);
+});
+
+test('走代理：圖片都抓不到，標題照樣帶入並提醒手動放圖', { skip }, async t => {
+  const { page } = await open(t, { withExtension: false, proxy: true, html: article({ images: ['https://img.tvbs.com.tw/x.png'] }), imgs: {} });
+  await run(page);
+  await waitDone(page, /完成，但/);
+  assert.match(await status(page), /圖片都抓不到，請手動放圖/);
+  assert.notEqual(await page.locator('.batch-item-block textarea').inputValue(), '');
+});
+
+test('走代理：代理回報錯誤（例如文章讀不到）→ 顯示它的原因，不帶入任何東西', { skip }, async t => {
+  const { page } = await open(t, { withExtension: false, proxy: true, proxyJson: { status: 502, body: { ok: false, error: '文章讀取失敗（HTTP 404）' } } });
+  await run(page);
+  await waitDone(page, /文章讀取失敗（HTTP 404）/);
+  assert.equal(await page.locator('.batch-item-block textarea').inputValue(), '');
+});
+
+test('走代理：不是 TVBS 的網址在網頁這邊就擋掉，完全沒有送出任何請求', { skip }, async t => {
+  const { page, log } = await open(t, { withExtension: false, proxy: true });
+  await run(page, 'https://example.com/a');
+  await waitDone(page, /只能抓 TVBS/);
+  assert.deepEqual(log.proxy, []);
+  assert.deepEqual(log.tvbs, []);
 });
 
 test('第一張圖抓不到／太小時自動換下一張，直到找到可用的（顯示進度）', { skip }, async t => {

@@ -59,8 +59,9 @@ test('網頁版專用的排程抽屜與快速產圖（schedweb、qfweb）在 SKI
   }
   assert.strictEqual(skip.some(re => re.test('quickfill.js')), false);
   for (const f of ['schedweb.js', 'qfweb.js', 'quickfill.js']) assert.ok(read('index.html').includes(`src="${f}"`), `網頁版要載入 ${f}`);
-  // 網頁版 CSP 的 connect-src 不能放寬：網頁自己不能連 TVBS，文章與圖片一律請外掛代抓
-  assert.ok(/connect-src https:\/\/api\.github\.com https:\/\/raw\.githubusercontent\.com;/.test(read('index.html')), 'index.html 的 connect-src 被改動了');
+  // 網頁版 CSP 的 connect-src 不能放寬：網頁自己不能連 TVBS，文章與圖片一律請外掛或文章代理（只放行這一個 Worker 網址）代抓
+  assert.ok(/connect-src https:\/\/api\.github\.com https:\/\/raw\.githubusercontent\.com https:\/\/qpt-article-proxy\.19jpz-3\.workers\.dev;/.test(read('index.html')), 'index.html 的 connect-src 被改動了');
+  assert.ok(read('qfweb.js').includes("'https://qpt-article-proxy.19jpz-3.workers.dev'"), 'qfweb.js 的代理網址要和 CSP 一致');
 });
 
 test('粉專排程的檔案都要隨外掛更新（不在 SKIP 清單）', () => {
