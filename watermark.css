@@ -43,22 +43,18 @@ h1.topbar-title {
 #layoutApp[hidden], #watermarkApp[hidden] { display: none; }
 
 /* ---- 浮水印 ---- */
-/* 位置：一個縮小的照片框，四個角各一顆按鈕 */
-.wm-corners { position: relative; width: 168px; height: 108px; margin: 4px 0 8px; border-radius: 14px; border: 1px solid var(--border); background: rgba(0, 74, 173, 0.04); }
+/* 位置：一個縮小的照片框，四個角各一顆按鈕（緊湊的 2×2，箭頭指向各自的角落） */
+.wm-corners { display: grid; grid-template-columns: repeat(2, 76px); grid-auto-rows: 52px; gap: 8px; width: max-content; padding: 8px; margin: 4px 0 8px; border-radius: 14px; border: 1px solid var(--border); background: rgba(0, 74, 173, 0.04); }
 .wm-corners button {
-  position: absolute; width: 44px; height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--border);
-  background: var(--field-bg); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--field-bg); color: #9aa8c2; cursor: pointer;
 }
-.wm-corners button:nth-child(1) { left: 6px; top: 6px; }
-.wm-corners button:nth-child(2) { right: 6px; top: 6px; }
-.wm-corners button:nth-child(3) { left: 6px; bottom: 6px; }
-.wm-corners button:nth-child(4) { right: 6px; bottom: 6px; }
-.wm-corners button::after {            /* 小圓點表示位置 */
-  content: ""; position: absolute; inset: 0; margin: auto; width: 10px; height: 10px; border-radius: 50%; background: #c3cde0;
-}
-.wm-corners button:hover:not(.active)::after { background: var(--accent); opacity: .6; }
-.wm-corners button.active { border-color: var(--accent); background: var(--accent-soft); }
-.wm-corners button.active::after { background: var(--accent); width: 14px; height: 14px; }
+.wm-corners button svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.wm-corners button:nth-child(2) svg { transform: rotate(90deg); }    /* ↗ */
+.wm-corners button:nth-child(4) svg { transform: rotate(180deg); }   /* ↘ */
+.wm-corners button:nth-child(3) svg { transform: rotate(270deg); }   /* ↙ */
+.wm-corners button:hover:not(.active) { color: var(--accent); }
+.wm-corners button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 #watermarkApp label { display: flex; justify-content: space-between; align-items: baseline; }
 #watermarkApp output { font-weight: 600; color: var(--accent); font-size: 14px; }
 #watermarkApp input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
