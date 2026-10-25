@@ -37,7 +37,7 @@
   // 位置只有 4 個角：[px, py]，0＝貼齊左／上（扣掉邊距）、1＝貼齊右／下
   const ANCHORS = [[0, 0], [1, 0], [0, 1], [1, 1]];
   const ANCHOR_NAME = { '0,0': '左上', '1,0': '右上', '0,1': '左下', '1,1': '右下' };
-  const HIT_PAD = 48;                      // 預覽上拖曳 Logo 的判定區：在 Logo 外圍再加大這麼多（螢幕上的像素），Logo 本身大小不變
+  const HIT_PAD = 96;                      // 預覽上拖曳 Logo 的判定區：在 Logo 外圍再加大這麼多（螢幕上的像素），Logo 本身大小不變
   // px／py 是「全部照片共用」的位置；某張照片在預覽上單獨拖過，就會有自己的 p.pos 蓋掉它
   const DEFAULTS = { px: 1, py: 0, size: 13, transparency: 0, margin: 3 };   // 預設右上角、13%、邊距 3%、不透明
   const PREVIEW_MAX = 1080;                // 預覽畫布的長邊
