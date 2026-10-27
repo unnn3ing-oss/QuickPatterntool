@@ -1152,9 +1152,11 @@ function buildBatchItemBlock(item, index) {
   const frameEnt = document.createElement('button');
   frameEnt.type = 'button';
   frameEnt.textContent = '娛樂（粉框）';
+  frameEnt.dataset.frame = 'entertainment';
   const frameNews = document.createElement('button');
   frameNews.type = 'button';
   frameNews.textContent = '新聞（藍框）';
+  frameNews.dataset.frame = 'news';
   frameToggle.appendChild(frameNews);
   frameToggle.appendChild(frameEnt);
   function setFrameVisual(frame) {

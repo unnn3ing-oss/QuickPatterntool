@@ -125,6 +125,25 @@ test('貼上網址按 Enter：標題依規則斷行帶進卡片、首圖放進�
   assert.deepEqual(errors, []);
 });
 
+test('網址有 entertainment → 這張卡片自動切成娛樂（粉框）；一般網址維持新聞（藍框）', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const frame = () => page.evaluate(() => ({ data: batchItems[0].frame, active: document.querySelector('.batch-item-block button[data-frame].active').dataset.frame }));
+  await run(page);
+  await waitDone(page);
+  assert.deepEqual(await frame(), { data: 'news', active: 'news' });
+  await run(page, 'https://news.tvbs.com.tw/entertainment/3333333');
+  await waitDone(page, /完成：標題、圖片都帶入了/);
+  assert.deepEqual(await frame(), { data: 'entertainment', active: 'entertainment' });
+  assert.deepEqual(errors, []);
+});
+
+test('網頁版走代理時也一樣：網址有 entertainment 就切成娛樂（粉框）', { skip }, async t => {
+  const { page } = await open(t, { withExtension: false, proxy: true });
+  await run(page, 'https://news.tvbs.com.tw/entertainment/3333333');
+  await waitDone(page, /完成：標題、圖片都帶入了/);
+  assert.equal(await page.evaluate(() => batchItems[0].frame), 'entertainment');
+});
+
 test('只有按 Enter 才送出（打字、貼上都不會）；沒填網址按 Enter 會提醒', { skip }, async t => {
   const { page, log } = await open(t);
   await page.fill('.qfw-input', ART_URL);

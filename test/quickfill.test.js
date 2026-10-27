@@ -11,6 +11,15 @@ win.document = { getElementById: () => null };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'quickfill.js'), 'utf8'), win);
 const QF = win.QuickFill;
 
+test('isEntertainmentUrl：網址有 entertainment（不分大小寫）就是娛樂版', () => {
+  assert.strictEqual(QF.isEntertainmentUrl('https://news.tvbs.com.tw/entertainment/3333333'), true);
+  assert.strictEqual(QF.isEntertainmentUrl('https://news.tvbs.com.tw/Entertainment/3333333'), true);
+  assert.strictEqual(QF.isEntertainmentUrl('https://news.tvbs.com.tw/local/1111111'), false);
+  assert.strictEqual(QF.isEntertainmentUrl(''), false);
+  assert.strictEqual(QF.isEntertainmentUrl(null), false);
+  assert.strictEqual(QF.isEntertainmentUrl(undefined), false);
+});
+
 test('resolveTitle：override 優先', () => {
   assert.strictEqual(QF.resolveTitle('卡片改標', '文章標題'), '卡片改標');
 });

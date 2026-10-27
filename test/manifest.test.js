@@ -7,8 +7,8 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const changelog = JSON.parse(read('changelog.json'));
 
-test('manifest 版本是 7.20', () => {
-  assert.strictEqual(manifest.version, '7.20');
+test('manifest 版本是 7.21', () => {
+  assert.strictEqual(manifest.version, '7.21');
 });
 
 test('content_scripts 只注入熱門新聞庫、Facebook（粉專排程）與網頁版（排程橋接）', () => {

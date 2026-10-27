@@ -380,6 +380,9 @@
   const MAX_PIXELS = 50e6;        // 5,000 萬畫素（約 7000×7000）
   const MAX_IMAGE_TRIES = 6;      // 最多試前幾張圖
 
+  // 網址（輸入的或轉址後的）有「entertainment」就是娛樂版文章：快速產圖要自動切成娛樂（粉框）
+  const isEntertainmentUrl = u => /entertainment/i.test(String(u || ''));
+
   function normalizeUrl(raw) {
     let s = raw.trim();
     if (!s) return '';
@@ -422,7 +425,7 @@
 
   root.QuickFill = {
     breakTitle, parseArticle, formatCopy, pickTags, pickCaption, isPrivateHost, isAllowedImageUrl, resolveTitle, overrideLines, overrideOneLine,
-    normalizeUrl, fetchLimited,
+    normalizeUrl, fetchLimited, isEntertainmentUrl,
     LIMITS: { MIN_W, MIN_H, ARTICLE_TIMEOUT, IMAGE_TIMEOUT, MAX_ARTICLE_BYTES, MAX_IMAGE_BYTES, MAX_PIXELS, MAX_IMAGE_TRIES }
   };
 
@@ -528,11 +531,19 @@
     confirmTipEl.hidden = false;
   }
 
+  // 網址有「entertainment」就把套版切成娛樂（粉框）；只往娛樂切，不會把使用者自己選的娛樂切回新聞
+  function applyFrameByUrl(...urls) {
+    if (!urls.some(isEntertainmentUrl)) return;
+    const btn = document.querySelector('#singleFrameToggle button[data-frame="entertainment"]');
+    if (btn && !btn.classList.contains('active')) btn.click();
+  }
+
   // opts.titleOverride：圖上標題用這個（例如熱門新聞庫卡片目前的改標），不用文章自己的標題。
   async function run(opts = {}) {
     const url = normalizeUrl(urlInput.value);
     if (!url) { setStatus('請先貼上文章網址', 'err'); return; }
     const mine = ++runId;
+    applyFrameByUrl(url);
     if (runCtrl) runCtrl.abort();
     runCtrl = new AbortController();
     const signal = runCtrl.signal;
@@ -563,6 +574,7 @@
       const articleUrl = got0.res.url || url;
       const article = parseArticle(await got0.blob.text(), articleUrl);
       if (mine !== runId) return;
+      applyFrameByUrl(articleUrl);   // 轉址之後才出現 entertainment 的情況
       const title = resolveTitle(overrideOne, article.title);
       if (!title) throw new Error('這個網頁抓不到標題');
 

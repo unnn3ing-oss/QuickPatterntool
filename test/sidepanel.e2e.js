@@ -124,6 +124,26 @@ test('改標送來但文章抓失敗：複製框不會混著上一篇的圖說�
   assert.equal(await page.inputValue('#qfCopyText'), '【B的改標】');
 });
 
+test('網址有 entertainment → 自動切成娛樂（粉框）；一般新聞網址維持新聞（藍框）；已選娛樂時不會被切回新聞', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const ENT = 'https://news.tvbs.com.tw/entertainment/3333333';
+  await page.route(ENT, r => r.fulfill({ contentType: 'text/html; charset=utf-8', body: article('藝人新聞', '（圖／B攝影）', '藝人') }));
+  const active = () => page.evaluate(() => document.querySelector('#singleFrameToggle button.active').dataset.frame);
+  await page.fill('#qfUrl', ARTICLE_A);
+  await page.click('#qfBtn');
+  await waitStatus(page, /完成/);
+  assert.equal(await active(), 'news');
+  await page.fill('#qfUrl', ENT);
+  await page.click('#qfBtn');
+  await waitStatus(page, /完成/);
+  assert.equal(await active(), 'entertainment');
+  await page.fill('#qfUrl', ARTICLE_A);   // 之後貼一般網址：只往娛樂切，不會硬切回新聞
+  await page.click('#qfBtn');
+  await waitStatus(page, /完成/);
+  assert.equal(await active(), 'entertainment');
+  assert.deepEqual(errors, []);
+});
+
 // ---- 「圖片背景／純色背景」開關在「快速產圖」標題列右邊；提示氣泡在按鈕下方 ---------------------------
 const box = (page, sel) => page.locator(sel).boundingBox();
 const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;

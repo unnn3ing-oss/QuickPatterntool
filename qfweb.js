@@ -61,6 +61,19 @@
     return new Blob([bytes], { type: mime });
   }
 
+  // 網址有「entertainment」就把這張卡片切成娛樂（粉框）；只往娛樂切。卡片是展開的就按它的切換鈕（會自己更新預覽），收合的就直接改資料再重畫
+  function applyFrameByUrl(id, ...urls) {
+    if (!urls.some(QF.isEntertainmentUrl)) return;
+    const btn = findBlock(id) && findBlock(id).querySelector('button[data-frame="entertainment"]');
+    if (btn) { if (!btn.classList.contains('active')) btn.click(); return; }
+    const item = findItem(id);
+    if (!item || item.frame === 'entertainment') return;
+    item.frame = 'entertainment';
+    item.done = false;
+    if (typeof renderBatchItemsList === 'function') renderBatchItemsList();
+    if (typeof renderBatchThumbs === 'function') renderBatchThumbs();
+  }
+
   const isTvbs = u => { try { const x = new URL(u); const h = x.hostname.toLowerCase(); return x.protocol === 'https:' && !x.username && !x.password && (h === 'tvbs.com.tw' || h.endsWith('.tvbs.com.tw')); } catch (e) { return false; } };
 
   // ---- 文章代理：任何「連不上」（斷網、沒部署、被擋）都標成 unreachable，由呼叫端決定怎麼說 ----------
@@ -111,12 +124,14 @@
     if (!url) { setStatus(id, '請先貼上文章網址', 'err'); return; }
     if (!isTvbs(url)) { setStatus(id, NOT_TVBS, 'err'); return; }
     const mine = ++st.runId;
+    applyFrameByUrl(id, url);
     const stale = () => mine !== st.runId || !findItem(id);
     const L = QF.LIMITS;
     setStatus(id, '讀取文章中…');
     try {
       const art = await getArticle(url);
       if (stale()) return;
+      applyFrameByUrl(id, art.url);   // 轉址之後才出現 entertainment 的情況
       const article = QF.parseArticle(art.html, art.url);
       if (!article.title) throw new Error('這個網頁抓不到標題');
       const applied = QF.breakTitle(article.title).join('\n');
