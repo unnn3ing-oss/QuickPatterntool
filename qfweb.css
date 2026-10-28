@@ -13,3 +13,20 @@
 .qfw-status.ok { color: var(--success, #16a34a); }
 .qfw-status.warn { color: #b45309; }
 .qfw-status.err { color: #d92d20; }
+
+/* 快速產圖讀取中的佔位（skeleton）：疊在預覽畫布上，位置與大小由 qfweb.js 對齊畫布。讀文章時是整片微光＋三條標題長條，
+   抓圖時（.sweep）改成半透明的微光掃過，底下已有的照片與標題仍隱約看得到。 */
+.qfw-skel {
+  position: absolute; z-index: 2; box-sizing: border-box; border-radius: 20px; overflow: hidden; pointer-events: none;
+  background: linear-gradient(90deg, #e8edf5 25%, #d6dfec 50%, #e8edf5 75%); background-size: 200% 100%;
+  animation: qfw-shimmer 1.5s infinite linear;
+}
+.qfw-skel[hidden] { display: none; }
+.qfw-skel-line { position: absolute; left: calc((100% - var(--w)) / 2); width: var(--w); height: 5.5%; border-radius: 999px; background: rgba(255, 255, 255, 0.75); }
+.qfw-skel-line:nth-child(1) { top: 71%; }
+.qfw-skel-line:nth-child(2) { top: 79.5%; }
+.qfw-skel-line:nth-child(3) { top: 88%; }
+.qfw-skel.sweep { background: linear-gradient(90deg, rgba(232, 237, 245, 0.5) 25%, rgba(255, 255, 255, 0.78) 50%, rgba(232, 237, 245, 0.5) 75%); background-size: 200% 100%; }
+.qfw-skel.sweep .qfw-skel-line { display: none; }
+@keyframes qfw-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .qfw-skel { animation: none; } }

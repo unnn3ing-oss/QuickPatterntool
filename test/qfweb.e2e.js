@@ -144,6 +144,67 @@ test('網頁版走代理時也一樣：網址有 entertainment 就切成娛樂�
   assert.equal(await page.evaluate(() => batchItems[0].frame), 'entertainment');
 });
 
+// ---- 讀取中的佔位（skeleton）-----------------------------------------------------------------
+// 用「閘門」讓文章、圖片回應停在半路，才看得到讀取中的畫面
+const gate = () => { let open; const p = new Promise(r => { open = r; }); return { p, open }; };
+const skelState = page => page.evaluate(() => {
+  const el = document.querySelector('.qfw-skel');
+  const cv = document.getElementById('batchCanvas').getBoundingClientRect();
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { hidden: el.hidden || r.width === 0, sweep: el.classList.contains('sweep'), ariaHidden: el.getAttribute('aria-hidden'), pe: getComputedStyle(el).pointerEvents,
+    lines: [...el.querySelectorAll('.qfw-skel-line')].filter(l => getComputedStyle(l).display !== 'none').length,
+    same: Math.abs(r.left - cv.left) < 1.5 && Math.abs(r.top - cv.top) < 1.5 && Math.abs(r.width - cv.width) < 1.5 && Math.abs(r.height - cv.height) < 1.5,
+    busy: (document.querySelector('.batch-item-block') || { getAttribute: () => null }).getAttribute('aria-busy') };
+});
+
+test('讀取中的佔位：讀文章時整片 shimmer＋三條標題長條（對齊預覽畫布、不擋操作、aria-hidden）；抓圖時改成半透明掃過；完成後全部消失', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const art = gate(), img = gate();
+  await page.route('https://news.tvbs.com.tw/**', async r => { await art.p; return r.fulfill({ contentType: 'text/html; charset=utf-8', headers: CORS, body: article() }); });
+  await page.route('https://img.tvbs.com.tw/**', async r => { await img.p; return r.fulfill({ contentType: 'image/png', headers: CORS, body: png(1200, 900) }); });
+  assert.equal(await skelState(page), null, '沒在讀取時完全沒有佔位');
+  await run(page);
+  await page.waitForFunction(() => { const e = document.querySelector('.qfw-skel'); return e && !e.hidden; });
+  const s1 = await skelState(page);
+  assert.deepEqual(s1, { hidden: false, sweep: false, ariaHidden: 'true', pe: 'none', lines: 3, same: true, busy: 'true' });
+  art.open();
+  await page.waitForFunction(() => document.querySelector('.qfw-skel.sweep'));
+  const s2 = await skelState(page);
+  assert.deepEqual(s2, { hidden: false, sweep: true, ariaHidden: 'true', pe: 'none', lines: 0, same: true, busy: 'true' });
+  assert.notEqual(await page.locator('.batch-item-block textarea').inputValue(), '', '抓圖時標題已經帶入、看得到');
+  img.open();
+  await waitDone(page);
+  const s3 = await skelState(page);
+  assert.equal(s3.hidden, true);
+  assert.equal(s3.busy, null);
+  assert.deepEqual(errors, []);
+});
+
+test('讀取失敗：佔位與 aria-busy 一樣會收掉（不會永遠轉下去）', { skip }, async t => {
+  const { page } = await open(t, { withExtension: false, proxy: 'down' });
+  await run(page);
+  await waitDone(page, /連不上文章代理/);
+  const s = await skelState(page);
+  assert.ok(!s || s.hidden, '失敗後沒有佔位');
+  assert.equal(await page.locator('.batch-item-block').getAttribute('aria-busy'), null);
+});
+
+test('讀取中按「全部清除」：佔位立刻消失，之後也不會冒出來', { skip }, async t => {
+  const { page } = await open(t);
+  const art = gate();
+  await page.route('https://news.tvbs.com.tw/**', async r => { await art.p; return r.fulfill({ contentType: 'text/html; charset=utf-8', headers: CORS, body: article() }); });
+  await run(page);
+  await page.waitForFunction(() => { const e = document.querySelector('.qfw-skel'); return e && !e.hidden; });
+  await page.click('#batchResetBtn');
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => batchItems.length === 0);
+  art.open();
+  await new Promise(r => setTimeout(r, 800));
+  const s = await skelState(page);
+  assert.ok(!s || s.hidden);
+});
+
 test('只有按 Enter 才送出（打字、貼上都不會）；沒填網址按 Enter 會提醒', { skip }, async t => {
   const { page, log } = await open(t);
   await page.fill('.qfw-input', ART_URL);

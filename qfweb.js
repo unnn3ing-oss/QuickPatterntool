@@ -18,9 +18,9 @@
   const NOT_TVBS = '網頁版快速產圖只能抓 TVBS 的文章網址（https://….tvbs.com.tw/…）';
   const NO_ROUTE = '連不上文章代理，也沒有偵測到外掛：請確認網路後再試；電腦版也可以安裝並更新外掛，重新整理本頁';
 
-  // 每張卡片各自記住輸入框內容與狀態：卡片展開／收合時會整個重建，不能因此掉了正在跑的進度或剛貼的網址
+  // 每張卡片各自記住輸入框內容與狀態（busy：'' 沒在跑｜'article' 讀文章中｜'image' 標題已帶入、抓圖中）：卡片展開／收合時會整個重建，不能因此掉了正在跑的進度或剛貼的網址
   const states = new Map();   // itemId → { value, runId, status:{ text, kind } }
-  const stateOf = id => { if (!states.has(id)) states.set(id, { value: '', runId: 0, status: { text: '', kind: '' } }); return states.get(id); };
+  const stateOf = id => { if (!states.has(id)) states.set(id, { value: '', runId: 0, busy: '', status: { text: '', kind: '' } }); return states.get(id); };
   // 卡片的 id 是數字，從 data-item-id 讀回來是字串，所以用字串比對
   const findItem = id => (typeof batchItems !== 'undefined' ? batchItems : []).find(i => String(i.id) === String(id)) || null;
   const findBlock = id => list.querySelector(`.batch-item-block[data-item-id="${CSS.escape(id)}"]`);
@@ -37,6 +37,42 @@
   function setStatus(id, text, kind) {
     stateOf(id).status = { text: text || '', kind: kind || '' };
     showStatus(id);
+  }
+
+  // ---- 讀取中的佔位（skeleton）：快速產圖讀文章、抓圖的時候，預覽上疊一層 shimmer，卡片標 aria-busy -------------
+  // 讀文章時：整張預覽是微光流動的佔位＋三條標題形狀的長條（位置對齊成品的標題區，所以讀完換成真的內容不會跳）；
+  // 標題已帶入、在抓圖時：改成半透明的微光掃過，標題照樣看得到。疊在目前「正在預覽」的那一張上，切到別張就跟著換。
+  // 疊層只是視覺：aria-hidden、不擋滑鼠，讀取狀態由卡片的 aria-busy 與狀態列（role=status）負責。
+  const stageEl = document.querySelector('#batchPreview .canvas-wrap');
+  const canvasEl = document.getElementById('batchCanvas');
+  let skel = null;
+  function ensureSkel() {
+    if (skel || !stageEl) return skel;
+    skel = document.createElement('div');
+    skel.className = 'qfw-skel';
+    skel.setAttribute('aria-hidden', 'true');
+    skel.hidden = true;
+    for (const w of [76, 62, 48]) { const l = document.createElement('i'); l.className = 'qfw-skel-line'; l.style.setProperty('--w', w + '%'); skel.appendChild(l); }
+    stageEl.appendChild(skel);
+    return skel;
+  }
+  function refreshSkel() {
+    const openId = typeof expandedBatchItemId !== 'undefined' ? expandedBatchItemId : null;
+    let phase = '';
+    for (const [id, st] of states) if (st.busy && openId != null && String(id) === String(openId)) phase = st.busy;
+    const el = phase && canvasEl && canvasEl.offsetWidth ? ensureSkel() : skel;
+    if (!el) return;
+    if (!phase || !canvasEl || !canvasEl.offsetWidth) { el.hidden = true; return; }
+    el.hidden = false;
+    el.classList.toggle('sweep', phase === 'image');
+    Object.assign(el.style, { left: canvasEl.offsetLeft + 'px', top: canvasEl.offsetTop + 'px', width: canvasEl.offsetWidth + 'px', height: canvasEl.offsetHeight + 'px' });
+  }
+  if (canvasEl && typeof ResizeObserver === 'function') new ResizeObserver(refreshSkel).observe(canvasEl);
+  function setBusy(id, phase) {
+    stateOf(id).busy = phase || '';
+    const block = findBlock(id);
+    if (block) { if (phase) block.setAttribute('aria-busy', 'true'); else block.removeAttribute('aria-busy'); }
+    refreshSkel();
   }
 
   // 標題帶進卡片：優先寫進卡片的標題框並觸發 input（這樣卡片自己會更新狀態、預覽與縮圖）；卡片目前是收合的就直接改資料再重畫
@@ -128,6 +164,7 @@
     const stale = () => mine !== st.runId || !findItem(id);
     const L = QF.LIMITS;
     setStatus(id, '讀取文章中…');
+    setBusy(id, 'article');
     try {
       const art = await getArticle(url);
       if (stale()) return;
@@ -136,6 +173,7 @@
       if (!article.title) throw new Error('這個網頁抓不到標題');
       const applied = QF.breakTitle(article.title).join('\n');
       applyTitle(id, applied);
+      setBusy(id, 'image');
 
       // 圖片：依序試（最多 MAX_IMAGE_TRIES 張），抓不到、太小、太大就換下一張
       const cands = article.images.filter(c => QF.isAllowedImageUrl(c.url, art.url)).slice(0, L.MAX_IMAGE_TRIES);
@@ -179,6 +217,8 @@
       setStatus(id, notes.length ? `完成，但${notes.join('、')}` : '完成：標題、圖片都帶入了', notes.length ? 'warn' : 'ok');
     } catch (err) {
       if (!stale()) setStatus(id, err.message || String(err), 'err');
+    } finally {
+      if (mine === st.runId && findItem(id)) setBusy(id, '');   // 被新的一次取代的，由新的那次負責；卡片被刪掉的，decorate 會清掉
     }
   }
 
@@ -218,7 +258,9 @@
       if (!head || !block.dataset.itemId) continue;
       head.after(buildRow(block.dataset.itemId));
       showStatus(block.dataset.itemId);
+      if (stateOf(block.dataset.itemId).busy) block.setAttribute('aria-busy', 'true');   // 卡片重建後補回
     }
+    refreshSkel();   // 展開的卡片換了，佔位跟著換
   }
   new MutationObserver(decorate).observe(list, { childList: true });
   decorate();
