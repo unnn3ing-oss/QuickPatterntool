@@ -169,7 +169,61 @@
 .dz-sticker-pick button { padding: 4px !important; border-radius: 12px !important; }
 .dz-sticker-pick button.active { border-color: var(--accent); background: var(--accent-soft); }
 .dz-sticker-pick img { width: 100%; height: 40px; object-fit: contain; display: block; pointer-events: none; }
-.dz-export h3 { margin-bottom: 4px; }
+
+/* 弧度：滑桿旁的數字欄位固定寬 */
+.dz-ctl > input.dz-arc-num { flex: 0 0 62px; width: 62px; }
+#dzF-arcOut { flex-basis: 32px; }
+.dz-toggle button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 配色：色票格（每格就是一個 <input type=color>，右下角是使用次數） */
+.dz-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; margin-top: 8px; }
+.dz-swatch { position: relative; display: block; margin: 0; cursor: pointer; }
+.dz-panel .dz-swatch input[type="color"] {
+  display: block; width: 100%; height: 40px; padding: 0; margin: 0;
+  border-radius: 10px; border: 1px solid var(--border); background: none; cursor: pointer;
+}
+.dz-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.dz-swatch input[type="color"]::-webkit-color-swatch { border: none; border-radius: 9px; }
+.dz-swatch input[type="color"]::-moz-color-swatch { border: none; border-radius: 9px; }
+.dz-swatch:hover input[type="color"], .dz-swatch input[type="color"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dz-swatch-n {
+  position: absolute; right: 3px; bottom: 3px; min-width: 14px; padding: 1px 4px; border-radius: 999px;
+  background: rgba(31, 42, 61, 0.72); color: #fff; font-size: 10px; line-height: 1.3; text-align: center;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+
+/* ---- 檢視列右側：專案檔與匯出 ---- */
+.dz-viewbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.dz-export-btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px !important; padding: 8px 16px !important; font-weight: 700; }
+.dz-export-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- 匯出彈窗 ---- */
+.dz-modal {
+  position: fixed; inset: 0; z-index: 120; padding: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(15, 30, 60, 0.42); backdrop-filter: blur(3px);
+}
+.dz-modal[hidden] { display: none; }
+.dz-modal-card {
+  width: 100%; max-width: 440px; max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--field-bg); border-radius: 22px; box-shadow: 0 30px 80px -30px rgba(0, 43, 102, 0.55);
+}
+.dz-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 8px; }
+.dz-modal-head h2 { margin: 0; font-size: 18px; color: var(--text); }
+.dz-modal-x { border: none !important; background: transparent !important; box-shadow: none !important; font-size: 22px !important; line-height: 1; padding: 4px 10px !important; color: var(--muted); }
+.dz-modal-x:hover { color: var(--accent); }
+.dz-modal-body { padding: 4px 20px 8px; overflow-y: auto; }
+.dz-modal-body .dz-lbl { flex-basis: 64px; font-weight: 600; }
+.dz-modal-body .dz-toggle { margin: 0; }
+.dz-modal-body .dz-note { margin: 0 0 8px 72px; }
+.dz-modal-body input[type="text"] { width: 100%; min-width: 0; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--field-bg); font-size: 14px; }
+.dz-modal-body input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
+.dz-modal-body .dz-row[hidden] { display: none; }
+.dz-exp-summary { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; font-weight: 600; }
+.dz-exp-summary:empty { display: none; }
+.dz-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; border-top: 1px solid var(--border); }
+.dz-modal-foot .primary { min-width: 96px; }
 
 /* ---- 窄一點的桌機：面板縮窄 ---- */
 @media (max-width: 1100px) {
@@ -196,4 +250,10 @@
   .dz-rot::after { top: 22px; height: 18px; }
   .dz-lbl { flex-basis: 72px; font-size: 14px; }
   .dz-pagebar { gap: 8px; }
+  .dz-viewbar-end { width: 100%; justify-content: space-between; }
+  .dz-modal { padding: 0; align-items: flex-end; }
+  .dz-modal-card { max-width: none; max-height: 92vh; border-radius: 22px 22px 0 0; }
+  .dz-modal-body .dz-note { margin-left: 0; }
+  .dz-modal-foot { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+  .dz-modal-foot button { flex: 1 1 0; }
 }

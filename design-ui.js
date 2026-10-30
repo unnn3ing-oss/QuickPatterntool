@@ -1,7 +1,7 @@
 // =====================================================================================
 // 設計：介面（網頁版專用，外掛不需要；updater.js／deploy.js 的 SKIP 會略過 design-*）
 //
-// 「設計」分頁的工具列、畫布舞台（縮放／平移）、選取框與把手、屬性面板、頁面列、快捷鍵、觸控、匯出與專案檔。
+// 「設計」分頁的工具列、畫布舞台（縮放／平移）、選取框與把手、屬性面板、頁面列、快捷鍵、觸控、匯出彈窗與專案檔。
 // 只用 QPTDesign.core／fonts／render／export（一律在用到時才讀），不引用 app.js、stickers.js、watermark.js、deploy.js、edit-*.js。
 // 跟主工具唯一的接縫：watermark.js 切分頁時送出的 qpt:func 事件（detail==='design' 時顯示）。
 //
@@ -32,7 +32,8 @@
   const STICKER_NAMES = { angry: '生氣', cry: '哭', kiss: '親親', laugh: '大笑', meh: '無言', shock: '驚訝', smile: '微笑' };
   const SIZE_NAMES = { '1:1': '1:1 方形', '4:5': '4:5 直式貼文', '9:16': '9:16 限動', '16:9': '16:9 橫式' };
   const SHAPES = [['rect', '矩形'], ['ellipse', '橢圓'], ['line', '線'], ['arrow', '箭頭']];
-  const TEXT_LAYOUT_KEYS = ['text', 'font', 'size', 'w', 'lineHeight', 'letterSpacing'];
+  const TEXT_LAYOUT_KEYS = ['text', 'font', 'size', 'w', 'lineHeight', 'letterSpacing', 'arc'];
+  const RECOLOR_MAX = 24;                // 配色區最多列幾色
 
   // ---- 小工具 ------------------------------------------------------------------------
   const $ = id => document.getElementById(id);
@@ -183,6 +184,7 @@
   // =====================================================================================
   const ICONS = {
     text: '<path d="M4 5h16M12 5v14M9 19h6"/>',
+    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-8 8"/>',
     rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
     ellipse: '<ellipse cx="12" cy="12" rx="8" ry="6"/>',
@@ -192,6 +194,11 @@
   };
   const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
+  // 匯出彈窗的切換列（純字串，選項都是固定文字）
+  function expToggle(id, label, options) {
+    return `<div class="dz-row"><span class="dz-lbl">${label}</span><div class="dz-ctl"><div class="bg-toggle dz-toggle" id="${id}" role="group" aria-label="${label}">` +
+      options.map(([v, n]) => `<button type="button" data-v="${v}">${n}</button>`).join('') + '</div></div></div>';
+  }
   function build() {
     app.innerHTML = `
       <div class="dz-tools" id="dzTools" role="toolbar" aria-label="加入物件">
@@ -217,6 +224,14 @@
             <button type="button" id="dzZoomPlus" class="dz-sq" title="放大" aria-label="放大">＋</button>
             <button type="button" id="dzFitBtn" title="整頁放進視窗">符合視窗</button>
           </div>
+          <div class="dz-viewbar-end">
+            <div class="dz-group">
+              <button type="button" id="dzOpenBtn" title="開啟之前存的 .json 專案檔">開啟專案</button>
+              <button type="button" id="dzSaveBtn" title="存成 .json，之後可以再開啟繼續編輯">存專案</button>
+              <input type="file" id="dzOpenFile" accept=".json,application/json" hidden>
+            </div>
+            <button type="button" class="primary dz-export-btn" id="dzExportBtn" aria-haspopup="dialog" title="設定格式、範圍、尺寸後下載或複製">${icon('download')}<span>匯出</span></button>
+          </div>
         </div>
         <div class="dz-stage" id="dzStage" tabindex="-1" aria-label="設計畫布">
           <canvas id="dzCanvas" width="1" height="1"></canvas>
@@ -234,22 +249,37 @@
         <div class="dz-hint"><span class="dz-desk">雙擊文字可以直接編輯；Ctrl＋滾輪縮放、按住空白鍵拖曳平移；Delete 刪除、Ctrl＋Z 復原、Ctrl＋C／V／D 複製貼上與重複、方向鍵微調（Shift 一次 10px）、] [ 調圖層。</span><span class="dz-touch">雙指縮放畫布、在空白處拖曳平移；文字內容在下方面板修改。</span></div>
       </div>
       <aside class="dz-panel" id="dzPanel" aria-label="屬性">
-        <section class="dz-sec dz-export">
-          <h3>匯出</h3>
-          <div class="dz-btns">
-            <button type="button" class="primary" id="dzExportPng">下載 PNG</button>
-            <button type="button" id="dzExportJpg">下載 JPG</button>
-            <button type="button" id="dzExportZip">全部頁 ZIP</button>
-            <button type="button" id="dzCopyBtn">複製圖片</button>
-          </div>
-          <div class="dz-btns">
-            <button type="button" id="dzSaveBtn" title="存成 .json，之後可以再開啟繼續編輯">存專案檔</button>
-            <button type="button" id="dzOpenBtn">開啟專案檔</button>
-            <input type="file" id="dzOpenFile" accept=".json,application/json" hidden>
-          </div>
-        </section>
         <div id="dzPanelBody"></div>
-      </aside>`;
+      </aside>
+      <div class="dz-modal" id="dzExportDlg" hidden>
+        <div class="dz-modal-card" role="dialog" aria-modal="true" aria-labelledby="dzExpTitle">
+          <div class="dz-modal-head">
+            <h2 id="dzExpTitle">匯出</h2>
+            <button type="button" class="dz-modal-x" id="dzExpClose" aria-label="關閉">×</button>
+          </div>
+          <div class="dz-modal-body">
+            ${expToggle('dzExpFmt', '格式', [['png', 'PNG'], ['jpg', 'JPG']])}
+            <p class="dz-note" id="dzExpFmtNote"></p>
+            <div class="dz-row" id="dzExpQualityRow"><span class="dz-lbl">JPG 品質</span><div class="dz-ctl"><input type="range" id="dzExpQuality" min="60" max="100" step="1"><output class="dz-out" id="dzExpQualityOut"></output></div></div>
+            ${expToggle('dzExpRange', '範圍', [['cur', '目前頁'], ['all', '全部頁'], ['custom', '指定頁']])}
+            <div class="dz-row" id="dzExpPagesRow"><span class="dz-lbl">頁碼</span><div class="dz-ctl"><input type="text" id="dzExpPages" placeholder="例：1-3, 5" inputmode="numeric" autocomplete="off"></div></div>
+            <div class="dz-row" id="dzExpPackRow"><span class="dz-lbl">多頁時</span><div class="dz-ctl"><div class="bg-toggle dz-toggle" id="dzExpPack" role="group" aria-label="多頁時"><button type="button" data-v="each">一張一張下載</button><button type="button" data-v="zip">打包 ZIP</button></div></div></div>
+            <p class="dz-note" id="dzExpPackNote"></p>
+            ${expToggle('dzExpScale', '尺寸', [['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['3', '3×']])}
+            <p class="dz-note" id="dzExpSize"></p>
+            ${expToggle('dzExpDpi', '解析度', [['72', '72'], ['150', '150'], ['300', '300 DPI']])}
+            <p class="dz-note">DPI 只寫進檔案的解析度標記（影響印刷時的實際尺寸），不會改變像素。</p>
+            <div class="dz-row"><span class="dz-lbl">檔名</span><div class="dz-ctl"><input type="text" id="dzExpName" autocomplete="off" spellcheck="false"><span class="dz-unit" id="dzExpExt"></span></div></div>
+            <p class="dz-exp-summary" id="dzExpSummary"></p>
+            <p class="dz-note err" id="dzExpErr" role="alert"></p>
+          </div>
+          <div class="dz-modal-foot">
+            <button type="button" id="dzExpCancel">取消</button>
+            <button type="button" id="dzExpCopy" title="把這一頁（PNG）複製到剪貼簿，可以直接貼到聊天或社群後台">複製圖片</button>
+            <button type="button" class="primary" id="dzExpGo">下載</button>
+          </div>
+        </div>
+      </div>`;
   }
 
   // =====================================================================================
@@ -425,7 +455,7 @@
     $('dzRedoBtn').disabled = !H.canRedo || H.busy;
     $('dzPageDel').disabled = state.doc.pages.length <= 1;
     $('dzPageAdd').disabled = $('dzPageDup').disabled = false;
-    for (const id of ['dzExportPng', 'dzExportJpg', 'dzExportZip', 'dzCopyBtn', 'dzSaveBtn', 'dzOpenBtn']) $(id).disabled = exporting;
+    for (const id of ['dzExportBtn', 'dzSaveBtn', 'dzOpenBtn']) $(id).disabled = exporting;
   }
 
   // =====================================================================================
@@ -759,7 +789,7 @@
     ta.style.lineHeight = o.size * o.lineHeight * z + 'px';
     ta.style.letterSpacing = (o.letterSpacing || 0) * z + 'px';
     ta.style.textAlign = o.align;
-    ta.style.color = o.color;
+    ta.style.color = typeof o.color === 'string' ? o.color : o.color.from;   // 漸層字在編輯框裡先用起點色
     ta.style.transformOrigin = `${(o.w * z) / 2}px ${(o.h * z) / 2}px`;
     ta.style.transform = o.rot ? `rotate(${o.rot}deg)` : '';
     ta.style.height = '0px';
@@ -791,7 +821,7 @@
     if (app.hidden) return;
     if (e.key === 'Escape' && drag) { e.preventDefault(); cancelDrag(); return; }
     if (typing()) return;
-    if (document.querySelector('.modal-overlay.open, #confirmOverlay.open')) return;
+    if (document.querySelector('.modal-overlay.open, #confirmOverlay.open') || !$('dzExportDlg').hidden) return;
     const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
     if (e.key === ' ' && overStage) { e.preventDefault(); if (!spaceDown) { spaceDown = true; stageEl().classList.add('dz-panning'); } return; }
     if (drag) return;
@@ -927,7 +957,7 @@
   let bound = [];   // { el, get, kind, out? }：重畫時把值同步回欄位（使用者正在操作的那一格除外）
   function selSig() {
     const objs = selObjs(), p = page();
-    return [p.id, state.selection.join(','), objs.map(o => `${o.type}:${o.kind || ''}:${o.locked}`).join(','),
+    return [p.id, state.selection.join(','), objs.map(o => `${o.type}:${o.kind || ''}:${o.locked}:${paintKind(o.type === 'text' ? o.color : o.fill)}`).join(','),
       p.bg.type, bgMode || '', editing ? 'e' : ''].join('|');
   }
   function refreshPanel() {
@@ -941,12 +971,15 @@
       let v;
       try { v = b.get(); } catch (e) { continue; }
       if (v === undefined) continue;
+      if (b.kind === 'fn') { b.sync(v); continue; }
       if (b.el === document.activeElement && b.kind !== 'check') {   // 使用者正在操作的欄位不改值，只更新旁邊的數字
         if (b.out) b.out.textContent = b.fmt ? b.fmt(v) : String(r1(v));
         continue;
       }
       if (b.kind === 'check') b.el.checked = !!v;
-      else if (b.kind === 'toggle') { for (const x of b.el.querySelectorAll('button')) x.classList.toggle('active', x.dataset.v === String(v)); }
+      else if (b.kind === 'toggle') {
+        for (const x of b.el.querySelectorAll('button')) { const on = x.dataset.v === String(v); x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); }
+      }
       else if (b.kind === 'color') b.el.value = toHex(v);
       else if (b.kind === 'num' || b.kind === 'range') {
         const s = String(r1(v));
@@ -1033,6 +1066,121 @@
   const cur = id => objOf(id) || {};
   const pageBg = () => page().bg;
 
+  // ---- 顏料（純色／線性／放射）----
+  // 物件的 paint：純色字串、{ type:'linear', from, to, angle }、{ type:'radial', from, to, cx, cy, r }。
+  // 背景的寫法不同（{ type:'solid', color }、線性叫 'gradient'），所以編輯器內部一律轉成 { kind, color | from, to, angle | cx, cy, r } 處理。
+  function paintKind(p) {
+    if (p == null) return '';
+    if (typeof p === 'string') return 'solid';
+    return p.type === 'radial' ? 'radial' : p.type === 'solid' ? 'solid' : 'linear';
+  }
+  const numOr = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+  function paintDecode(p, bg) {
+    if (bg) {
+      if (!p || p.type === 'image') return null;
+      if (p.type === 'solid') return { kind: 'solid', color: p.color };
+    } else if (typeof p === 'string') return { kind: 'solid', color: p };
+    if (p && p.type === 'radial') return { kind: 'radial', from: p.from, to: p.to, cx: numOr(p.cx, 0.5), cy: numOr(p.cy, 0.5), r: numOr(p.r, 1) };
+    if (p && (p.type === 'linear' || p.type === 'gradient')) return { kind: 'linear', from: p.from, to: p.to, angle: numOr(p.angle, 180) };
+    return { kind: 'solid', color: '#000000' };
+  }
+  // 寫回時補滿所有欄位（放射的 cx、cy、r 不留空）
+  function paintEncode(q, bg) {
+    if (q.kind === 'solid') return bg ? { type: 'solid', color: q.color } : q.color;
+    if (q.kind === 'linear') return { type: bg ? 'gradient' : 'linear', from: q.from, to: q.to, angle: q.angle };
+    return { type: 'radial', from: q.from, to: q.to, cx: q.cx, cy: q.cy, r: q.r };
+  }
+  // 換類型：純色→漸層時起點沿用原色、終點白（原色本來就是白就改用主色藍，不然看不出變化）；
+  // 漸層之間互換保留兩端顏色；漸層→純色用起點色
+  function paintConvert(q, kind) {
+    if (q.kind === kind) return q;
+    if (kind === 'solid') return { kind, color: q.kind === 'solid' ? q.color : q.from };
+    const from = q.kind === 'solid' ? q.color : q.from;
+    const to = q.kind === 'solid' ? (core().colorKey(from) === '#ffffff' ? '#2f6fed' : '#ffffff') : q.to;
+    return kind === 'linear' ? { kind, from, to, angle: 180 } : { kind, from, to, cx: 0.5, cy: 0.5, r: 1 };
+  }
+  // 物件用的欄位 id：dzF-fill（純色）、dzF-fill-type、dzF-fill-from／-to／-angle／-cx／-cy／-r
+  const paintIds = p => ({ type: p + '-type', color: p, from: p + '-from', to: p + '-to', angle: p + '-angle', cx: p + '-cx', cy: p + '-cy', r: p + '-r' });
+  // 顏料編輯器（形狀填色、文字顏色、背景共用）：回傳一串面板列。
+  // get() 讀原始 paint、set(raw) 在交易裡寫回（回 core 的結果）；改漸層的單一欄位時一律寫回完整的 paint 物件。
+  // 有 ids.type 才畫「純色／線性／放射」切換（背景的切換和「圖片」放在一起，由背景面板自己畫）。
+  function paintEditor(ids, label, get, set, { bg = false, solidLabel = '選色' } = {}) {
+    const q = () => paintDecode(get(), bg);
+    const put = patch => set(paintEncode(Object.assign({}, q(), patch), bg));
+    // 類型對不上（例如剛復原、面板還沒重建）時回 undefined，syncPanel 就不動那一格
+    const g = (kind, f) => () => { const x = q(); return x && x.kind === kind ? f(x) : undefined; };
+    const pct = v => Math.round(v) + '%';
+    const now = q(), kids = [];
+    if (!now) return kids;
+    if (ids.type) {
+      kids.push(toggleField(ids.type, label, [['solid', '純色'], ['linear', '線性'], ['radial', '放射']],
+        () => { const x = q(); return x ? x.kind : undefined; }, v => set(paintEncode(paintConvert(q(), v), bg))));
+    }
+    if (now.kind === 'solid') {
+      kids.push(colorField(ids.color, ids.type ? solidLabel : label, g('solid', x => x.color), v => put({ color: v })));
+    } else if (now.kind === 'linear') {
+      kids.push(colorField(ids.from, '起點色', g('linear', x => x.from), v => put({ from: v })));
+      kids.push(colorField(ids.to, '終點色', g('linear', x => x.to), v => put({ to: v })));
+      kids.push(rangeField(ids.angle, '角度', g('linear', x => x.angle), v => put({ angle: v }), { min: 0, max: 360, step: 1, fmt: v => Math.round(v) + '°' }));
+    } else {
+      kids.push(colorField(ids.from, '中心色', g('radial', x => x.from), v => put({ from: v })));
+      kids.push(colorField(ids.to, '外圍色', g('radial', x => x.to), v => put({ to: v })));
+      kids.push(rangeField(ids.cx, '中心 X', g('radial', x => x.cx * 100), v => put({ cx: v / 100 }), { min: 0, max: 100, step: 1, fmt: pct }));
+      kids.push(rangeField(ids.cy, '中心 Y', g('radial', x => x.cy * 100), v => put({ cy: v / 100 }), { min: 0, max: 100, step: 1, fmt: pct }));
+      kids.push(rangeField(ids.r, '半徑', g('radial', x => x.r * 100), v => put({ r: v / 100 }), { min: 5, max: 200, step: 1, fmt: pct }));
+    }
+    return kids;
+  }
+
+  // ---- 配色（重新著色）：沒選物件時列出本頁／全部頁用到的顏色，點色票換色 ----
+  let recolorScope = 'page';
+  function recolorSec() {
+    const C = core();
+    const opts = () => (recolorScope === 'page' ? { pageId: page().id } : {});
+    const scope = el('div', { class: 'bg-toggle dz-toggle', id: 'dzRecolorScope', role: 'group', 'aria-label': '配色範圍' },
+      [['page', '本頁'], ['all', '全部頁']].map(([v, n]) => el('button', { type: 'button', 'data-v': v, text: n })));
+    scope.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b || b.dataset.v === recolorScope) return;
+      recolorScope = b.dataset.v;
+      syncPanel();
+    });
+    bound.push({ el: scope, get: () => recolorScope, kind: 'toggle' });
+    const grid = el('div', { class: 'dz-swatches', id: 'dzRecolorGrid' });
+    const more = el('p', { class: 'dz-note', id: 'dzRecolorMore' });
+    const apply = (from, value) => {
+      const to = C.colorKey(value);
+      if (!to || to === from) return;
+      const r = act('換色', d => C.recolor(d, { [from]: to }, opts()));
+      if (!r.ok) return;
+      const lockNote = r.skippedLocked ? `${r.skippedLocked} 處在鎖定物件裡沒改` : '';
+      if (!r.changed) say('沒有可替換的顏色' + (lockNote ? `（${lockNote}）` : ''), lockNote ? 'err' : null);
+      else say(`已替換 ${r.changed} 處` + (lockNote ? `；${lockNote}` : ''));
+    };
+    // 顏色或次數變了才重建色票（每次重畫都會檢查，所以復原、別處的修改也會反映）
+    let sig = null;
+    const rebuild = () => {
+      const list = C.docColors(state.doc, opts());
+      const s = recolorScope + '|' + list.map(c => c.color + ':' + c.count).join(',');
+      if (s === sig) return;
+      sig = s;
+      grid.textContent = '';
+      for (const { color, count } of list.slice(0, RECOLOR_MAX)) {
+        const input = el('input', { type: 'color', value: color, 'aria-label': `${color}，用了 ${count} 處，點一下換色` });
+        // 選好才套用（change）：拖色盤時不連續換色，整次只記一筆復原
+        input.addEventListener('change', () => apply(color, input.value));
+        grid.append(el('label', { class: 'dz-swatch', 'data-color': color, title: `${color}（${count} 處）` },
+          input, el('span', { class: 'dz-swatch-n', 'aria-hidden': 'true', text: String(count) })));
+      }
+      more.textContent = list.length > RECOLOR_MAX ? `另有 ${list.length - RECOLOR_MAX} 色（只列出用得最多的 ${RECOLOR_MAX} 色）` : '';
+    };
+    bound.push({ kind: 'fn', get: () => true, sync: rebuild });
+    const s = sec('配色', row('範圍', scope), grid, more,
+      el('p', { class: 'dz-note', text: '點色票選新顏色，畫面上所有這個顏色（含漸層兩端、描邊、陰影）都會換掉；鎖定的物件不改。' }));
+    s.id = 'dzRecolor';
+    return s;
+  }
+
   function buildPanel() {
     const body = $('dzPanelBody');
     bound = [];
@@ -1077,7 +1225,8 @@
     // 背景
     const bg = p.bg, mode = bgMode || bg.type;
     const bgType = el('div', { class: 'bg-toggle dz-toggle', id: 'dzBgType', role: 'group', 'aria-label': '背景類型' },
-      [['solid', '純色'], ['gradient', '漸層'], ['image', '圖片']].map(([v, n]) => el('button', { type: 'button', 'data-bg': v, class: v === mode ? 'active' : null, text: n })));
+      [['solid', '純色'], ['gradient', '線性'], ['radial', '放射'], ['image', '圖片']].map(([v, n]) =>
+        el('button', { type: 'button', 'data-bg': v, class: v === mode ? 'active' : null, 'aria-pressed': String(v === mode), title: v === 'gradient' ? '線性漸層' : v === 'radial' ? '放射漸層' : null, text: n })));
     bgType.addEventListener('click', e => {
       const b = e.target.closest('button');
       if (!b) return;
@@ -1085,17 +1234,15 @@
       if (t === now.type) { bgMode = null; refresh(); return; }
       if (t === 'image') { bgMode = 'image'; refresh(); return; }
       bgMode = null;
-      const base = now.type === 'solid' ? now.color : now.type === 'gradient' ? now.from : '#ffffff';
-      const nb = t === 'solid' ? { type: 'solid', color: base } : { type: 'gradient', from: base, to: base === '#2f6fed' ? '#ffffff' : '#2f6fed', angle: 180 };
+      const q = paintDecode(now, true) || { kind: 'solid', color: '#ffffff' };
+      const nb = paintEncode(paintConvert(q, t === 'gradient' ? 'linear' : t), true);
       act('背景', d => C.setPageProps(d, page().id, { bg: nb }));
     });
     const setBg = patch => C.setPageProps(state.doc, page().id, { bg: Object.assign({}, page().bg, patch) });
     const bgKids = [];
-    if (mode === 'solid') bgKids.push(colorField('dzBgColor', '顏色', () => pageBg().color, v => setBg({ color: v })));
-    else if (mode === 'gradient') {
-      bgKids.push(colorField('dzBgFrom', '起點色', () => pageBg().from, v => setBg({ from: v })));
-      bgKids.push(colorField('dzBgTo', '終點色', () => pageBg().to, v => setBg({ to: v })));
-      bgKids.push(rangeField('dzBgAngle', '角度', () => pageBg().angle, v => setBg({ angle: v }), { min: 0, max: 360, step: 1, fmt: v => Math.round(v) + '°' }));
+    if (mode === 'solid' || mode === 'gradient' || mode === 'radial') {
+      bgKids.push(...paintEditor({ color: 'dzBgColor', from: 'dzBgFrom', to: 'dzBgTo', angle: 'dzBgAngle', cx: 'dzBgCx', cy: 'dzBgCy', r: 'dzBgR' },
+        '顏色', pageBg, raw => C.setPageProps(state.doc, page().id, { bg: raw }), { bg: true }));
     } else {
       const file = el('input', { type: 'file', id: 'dzBgFile', accept: 'image/*', hidden: true });
       file.addEventListener('change', () => { const f = file.files[0]; file.value = ''; if (f) addImageFile(f, { asBg: true }); });
@@ -1114,8 +1261,30 @@
         row('寬×高', wIn, el('span', { class: 'dz-unit', text: '×' }), hIn, apply),
         el('p', { class: 'dz-note', text: `自訂尺寸 ${C.SIDE_MIN}～${C.SIDE_MAX} px。` })),
       sec('背景', row('類型', bgType), ...bgKids),
+      recolorSec(),
       sec(null, el('p', { class: 'dz-note', text: '從左邊加入文字、圖片、形狀、貼圖或馬賽克；點一下物件就能在這裡調整。' })),
     ];
+  }
+
+  // ---- 弧形文字：滑桿＋數字欄位（−360～360）；arc ≠ 0 時對齊停用（弧形固定置中）----
+  // 改 arc 會經過 patchSel → withTextH，用 render.textHeight 更新 h
+  function arcRows(id, up, alignRow) {
+    const apply = v => up({ arc: clamp(Math.round(v), -360, 360) });
+    const rng = el('input', { type: 'range', id: 'dzF-arc', min: -360, max: 360, step: 1, 'aria-label': '弧度' });
+    const num = el('input', { type: 'number', id: 'dzF-arcNum', class: 'dz-arc-num', min: -360, max: 360, step: 1, inputmode: 'numeric', 'aria-label': '弧度（度）' });
+    const out = el('output', { class: 'dz-out', id: 'dzF-arcOut', for: 'dzF-arc' });
+    const note = el('p', { class: 'dz-note', id: 'dzF-arcNote' });
+    liveBind(rng, '弧度', apply);
+    liveBind(num, '弧度', apply);
+    const arcOf = () => cur(id).arc || 0;
+    bound.push({ el: rng, get: arcOf, kind: 'range' }, { el: num, get: arcOf, kind: 'num' });
+    bound.push({ kind: 'fn', get: arcOf, sync: a => {
+      out.textContent = a === 0 ? '不彎' : a > 0 ? '上拱' : '下彎';
+      note.textContent = a === 0 ? '0＝不彎；往右拉字往上拱、往左拉往下彎。' : '弧形文字固定置中（對齊不作用），排成一行、不換行。';
+      const locked = !!cur(id).locked;
+      for (const b of alignRow.querySelectorAll('button')) { b.disabled = locked || a !== 0; b.title = a !== 0 ? '弧形文字固定置中' : ''; }
+    } });
+    return [row('弧度', rng, num, out), note];
   }
 
   // ---- 單一物件 ----
@@ -1139,15 +1308,17 @@
         act('字型', () => up({ font: fid }));
       });
       bound.push({ el: fontSel, get: () => cur(id).font, kind: 'select' });
+      const alignRow = toggleField('dzF-align', '對齊', [['left', '靠左'], ['center', '置中'], ['right', '靠右']], () => cur(id).align, v => up({ align: v }));
       kids.push(sec('文字',
         row('內容', ta),
         row('字型', fontSel),
         el('p', { class: 'dz-note dz-font-state', id: 'dzFontState' }),
         numField('dzF-size', '字級', () => cur(id).size, v => up({ size: v }), { min: 4, max: 1000, step: 1, unit: 'px' }),
-        colorField('dzF-color', '顏色', () => cur(id).color, v => up({ color: v })),
-        toggleField('dzF-align', '對齊', [['left', '靠左'], ['center', '置中'], ['right', '靠右']], () => cur(id).align, v => up({ align: v })),
+        paintEditor(paintIds('dzF-color'), '顏色', () => cur(id).color, v => up({ color: v })),
+        alignRow,
         rangeField('dzF-lineHeight', '行高', () => cur(id).lineHeight, v => up({ lineHeight: v }), { min: 0.8, max: 3, step: 0.05, fmt: v => (Math.round(v * 100) / 100).toFixed(2) }),
-        rangeField('dzF-letterSpacing', '字距', () => cur(id).letterSpacing, v => up({ letterSpacing: v }), { min: -20, max: 100, step: 1 })));
+        rangeField('dzF-letterSpacing', '字距', () => cur(id).letterSpacing, v => up({ letterSpacing: v }), { min: -20, max: 100, step: 1 }),
+        ...arcRows(id, up, alignRow)));
       kids.push(sec('描邊與陰影',
         numField('dzF-strokeW', '描邊粗細', () => cur(id).stroke.w, v => up({ stroke: { w: v } }), { min: 0, max: 60, step: 1, unit: 'px' }),
         colorField('dzF-strokeColor', '描邊顏色', () => cur(id).stroke.color, v => up({ stroke: { color: v } })),
@@ -1167,8 +1338,9 @@
     } else if (o.type === 'shape') {
       const line = o.kind === 'line' || o.kind === 'arrow';
       kids.push(sec('形狀',
-        selectField('dzF-kind', '種類', SHAPES, () => cur(id).kind, v => up({ kind: v })),
-        line ? null : colorField('dzF-fill', '填色', () => cur(id).fill, v => up({ fill: v })),
+        // 線與箭頭的填色只能是純色：從漸層的矩形／橢圓改過去時，填色改用起點色
+        selectField('dzF-kind', '種類', SHAPES, () => cur(id).kind, v => up(x => (v === 'line' || v === 'arrow') && typeof x.fill !== 'string' ? { kind: v, fill: x.fill.from } : { kind: v })),
+        line ? null : paintEditor(paintIds('dzF-fill'), '填色', () => cur(id).fill, v => up({ fill: v })),
         numField('dzF-strokeW', line ? '線條粗細' : '描邊粗細', () => cur(id).stroke.w, v => up({ stroke: { w: v } }), { min: 0, max: 200, step: 1, unit: 'px' }),
         colorField('dzF-strokeColor', line ? '線條顏色' : '描邊顏色', () => cur(id).stroke.color, v => up({ stroke: { color: v } })),
         o.kind === 'rect' ? numField('dzF-radius', '圓角', () => cur(id).radius, v => up({ radius: v }), { min: 0, max: 2000, step: 1, unit: 'px' }) : null));
@@ -1256,7 +1428,8 @@
   // =====================================================================================
   // 匯出、剪貼簿、專案檔
   // =====================================================================================
-  async function runExport(kind) {
+  // spec = { kind:'download'|'copy', fmt, pages:[0 起算], scale, quality(0～1), dpi, name, pack:'each'|'zip' }（由匯出彈窗組出來）
+  async function runExport(spec) {
     if (exporting) return;
     endField();
     if (editing) commitTextEdit();
@@ -1265,25 +1438,167 @@
     say('匯出中…', 'stay');
     try {
       // 匯出期間使用者仍可能在編輯；先深拷貝一份，避免 core 的 replaceInPlace 在同一物件上換掉 pages
-      const d = core().deserialize(core().serialize(state.doc)), i = pageIndex(), env = exportEnv();
-      if (kind === 'png' || kind === 'jpg') {
-        const blob = await X().exportPage(d, i, kind, env);
-        download(blob, `design-${stamp()}.${kind}`);
-        say(`已下載第 ${i + 1} 頁（${kind.toUpperCase()}，300 DPI）`);
-      } else if (kind === 'zip') {
-        const blob = await X().exportZip(d, 'png', env);
-        download(blob, `design-${stamp()}.zip`);
-        say(`已下載全部 ${d.pages.length} 頁（ZIP）`);
-      } else if (kind === 'copy') {
-        const r = await X().copyPage(d, i, env);
-        say(r.ok ? `已複製第 ${i + 1} 頁，可以直接貼上` : r.reason, r.ok ? null : 'err');
+      const d = core().deserialize(core().serialize(state.doc)), env = exportEnv();
+      const opts = { scale: spec.scale, quality: spec.quality, dpi: spec.dpi };
+      const pages = spec.pages, fmt = spec.fmt, FMT = fmt.toUpperCase();
+      const px = i => `${Math.round(d.pages[i].w * spec.scale)}×${Math.round(d.pages[i].h * spec.scale)}`;
+      if (spec.kind === 'copy') {
+        const r = await X().copyPage(d, pages[0], env, opts);
+        say(r.ok ? `已複製第 ${pages[0] + 1} 頁（${px(pages[0])}），可以直接貼上` : r.reason, r.ok ? null : 'err');
+      } else if (pages.length === 1) {
+        const blob = await X().exportPage(d, pages[0], fmt, env, opts);
+        download(blob, `${spec.name}.${fmt}`);
+        say(`已下載第 ${pages[0] + 1} 頁（${FMT}，${px(pages[0])}，${spec.dpi} DPI）`);
+      } else if (spec.pack === 'each') {
+        // 一張一張下載：字型只等第一張，之後每張不再等；每張之間隔一下，瀏覽器才不會漏掉
+        for (let k = 0; k < pages.length; k++) {
+          say(`下載中 ${k + 1}／${pages.length}…`, 'stay');
+          const blob = await X().exportPage(d, pages[k], fmt, env, Object.assign({ skipFontWait: k > 0 }, opts));
+          download(blob, `${spec.name}_${String(pages[k] + 1).padStart(2, '0')}.${fmt}`);
+          if (k < pages.length - 1) await new Promise(r => setTimeout(r, EACH_GAP_MS));
+        }
+        say(`已一張一張下載 ${pages.length} 頁（${FMT}，${spec.dpi} DPI）`);
+      } else {
+        const blob = await X().exportZip(d, fmt, env, Object.assign({ pages }, opts));
+        download(blob, `${spec.name}.zip`);
+        say(`已下載 ${pages.length} 頁（ZIP，每頁 ${FMT}，${spec.dpi} DPI）`);
       }
     } catch (e) {
-      say('匯出失敗：' + ((e && e.message) || e) + '（圖片可能來自不同來源，請改用上傳的圖片）', 'err');
+      const m = (e && e.message) || String(e);
+      say('匯出失敗：' + m + (/太大/.test(m) ? '' : '（圖片可能來自不同來源，請改用上傳的圖片）'), 'err');
     } finally {
       exporting = false;
       syncChrome();
     }
+  }
+
+  // ---- 匯出彈窗 -----------------------------------------------------------------------
+  // 設定一改就記在這台瀏覽器（格式、品質、範圍、頁碼、倍率、DPI）；檔名每次開啟都重給一個時間戳
+  const EXP_KEY = 'qpt.design.export';
+  const EXP_DEFAULT = { fmt: 'png', quality: 95, range: 'cur', pages: '', scale: 1, dpi: 300, pack: 'each' };
+  const EACH_GAP_MS = 600;   // 一張一張下載時每張間隔：連續觸發太快，瀏覽器可能只收到最後幾張
+  let exp = null, expReturnFocus = null;
+  function loadExp() {
+    let v = {};
+    try { v = JSON.parse(localStorage.getItem(EXP_KEY) || '{}') || {}; } catch (e) { /* 私密視窗等讀不到就用預設 */ }
+    const o = Object.assign({}, EXP_DEFAULT, v);
+    if (!['png', 'jpg'].includes(o.fmt)) o.fmt = 'png';
+    if (!['cur', 'all', 'custom'].includes(o.range)) o.range = 'cur';
+    if (!['each', 'zip'].includes(o.pack)) o.pack = 'each';
+    if (![0.5, 1, 2, 3].includes(+o.scale)) o.scale = 1;
+    if (![72, 150, 300].includes(+o.dpi)) o.dpi = 300;
+    o.scale = +o.scale; o.dpi = +o.dpi;
+    o.quality = clamp(Math.round(+o.quality) || 95, 60, 100);
+    return o;
+  }
+  function saveExp() {
+    const { fmt, quality, range, pages, scale, dpi, pack } = exp;
+    try { localStorage.setItem(EXP_KEY, JSON.stringify({ fmt, quality, range, pages, scale, dpi, pack })); } catch (e) { /* 存不了不影響匯出 */ }
+  }
+  const expOpen = () => !$('dzExportDlg').hidden;
+  function expPages() {
+    const n = state.doc.pages.length;
+    if (exp.range === 'cur') return { ok: true, pages: [pageIndex()] };
+    if (exp.range === 'all') return { ok: true, pages: state.doc.pages.map((_, i) => i) };
+    return X().parsePages(exp.pages, n);
+  }
+  const expName = () => (exp.name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim().replace(/\.(png|jpe?g|zip)$/i, '') || `design-${stamp()}`;
+  function syncExportDlg() {
+    for (const [id, v] of [['dzExpFmt', exp.fmt], ['dzExpRange', exp.range], ['dzExpScale', exp.scale], ['dzExpDpi', exp.dpi], ['dzExpPack', exp.pack]]) {
+      for (const b of $(id).querySelectorAll('button')) { const on = b.dataset.v === String(v); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); }
+    }
+    $('dzExpFmtNote').textContent = exp.fmt === 'png' ? 'PNG：畫質無損、保留透明背景。' : 'JPG：檔案比較小，透明的地方會墊白色。';
+    $('dzExpQualityRow').hidden = exp.fmt !== 'jpg';
+    $('dzExpQuality').value = exp.quality;
+    $('dzExpQualityOut').textContent = exp.quality + '%';
+    $('dzExpPagesRow').hidden = exp.range !== 'custom';
+    const r = expPages();
+    let err = r.ok ? '' : r.reason, sizeText = '';
+    if (r.ok) {
+      const ps = r.pages.map(i => state.doc.pages[i]);
+      const dims = ps.map(p => [Math.round(p.w * exp.scale), Math.round(p.h * exp.scale)]);
+      const same = dims.every(d => d[0] === dims[0][0] && d[1] === dims[0][1]);
+      sizeText = same ? `輸出 ${dims[0][0]} × ${dims[0][1]} px` : `依各頁尺寸 × ${exp.scale}（例：第 ${r.pages[0] + 1} 頁 ${dims[0][0]} × ${dims[0][1]} px）`;
+      const big = dims.find(d => Math.max(d[0], d[1]) > X().MAX_OUTPUT_SIDE);
+      if (big) err = `${big[0]} × ${big[1]} px 太大了，長邊不能超過 ${X().MAX_OUTPUT_SIDE}px，請改用較小的尺寸倍率`;
+    }
+    $('dzExpSize').textContent = sizeText;
+    const many = r.ok && r.pages.length > 1, each = many && exp.pack === 'each', FMT = exp.fmt.toUpperCase();
+    $('dzExpPackRow').hidden = !many;
+    $('dzExpPackNote').textContent = each ? '每頁各存成一個檔案，檔名結尾是頁碼（例：_01）。第一次可能會跳出「允許下載多個檔案」，請按允許。' : '';
+    $('dzExpExt').textContent = !many ? '.' + exp.fmt : each ? `_01.${exp.fmt}…` : '.zip';
+    $('dzExpSummary').textContent = !r.ok ? '' : each
+      ? `將一張一張下載 ${r.pages.length} 頁（每頁一個 ${FMT} 檔）`
+      : many ? `將下載 ${r.pages.length} 頁，打包成一個 ZIP（每頁一張 ${FMT}）`
+      : `將下載第 ${r.pages[0] + 1} 頁（${FMT}）`;
+    $('dzExpErr').textContent = err;
+    $('dzExpGo').disabled = !!err || exporting;
+    $('dzExpGo').textContent = each ? `下載 ${r.pages.length} 張` : many ? '下載 ZIP' : '下載';
+    // 剪貼簿只能放一張 PNG：範圍只有一頁時才能複製
+    $('dzExpCopy').disabled = !!err || many || exporting;
+  }
+  function openExportDlg() {
+    if (exporting || expOpen()) return;
+    endField();
+    if (editing) commitTextEdit();
+    exp = loadExp();
+    exp.name = `design-${stamp()}`;
+    $('dzExpPages').value = exp.pages;
+    $('dzExpName').value = exp.name;
+    expReturnFocus = document.activeElement;
+    $('dzExportDlg').hidden = false;
+    syncExportDlg();
+    $('dzExpGo').focus();
+  }
+  function closeExportDlg() {
+    if (!expOpen()) return;
+    $('dzExportDlg').hidden = true;
+    const f = expReturnFocus && document.contains(expReturnFocus) ? expReturnFocus : $('dzExportBtn');
+    if (f && f.focus) f.focus();
+  }
+  function submitExport(kind) {
+    syncExportDlg();
+    if (kind === 'copy' ? $('dzExpCopy').disabled : $('dzExpGo').disabled) return;
+    const r = expPages();
+    const spec = { kind, fmt: kind === 'copy' ? 'png' : exp.fmt, pages: r.pages, scale: exp.scale, quality: exp.quality / 100, dpi: exp.dpi, name: expName(), pack: exp.pack };
+    saveExp();
+    closeExportDlg();
+    runExport(spec);
+  }
+  function wireExportDlg() {
+    const dlg = $('dzExportDlg');
+    const onToggle = (id, key, num) => $(id).addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      exp[key] = num ? Number(b.dataset.v) : b.dataset.v;
+      saveExp();
+      syncExportDlg();
+      if (key === 'range' && exp.range === 'custom') $('dzExpPages').focus();
+    });
+    onToggle('dzExpFmt', 'fmt');
+    onToggle('dzExpRange', 'range');
+    onToggle('dzExpScale', 'scale', true);
+    onToggle('dzExpDpi', 'dpi', true);
+    onToggle('dzExpPack', 'pack');
+    $('dzExpQuality').addEventListener('input', e => { exp.quality = Number(e.target.value); saveExp(); syncExportDlg(); });
+    $('dzExpPages').addEventListener('input', e => { exp.pages = e.target.value; saveExp(); syncExportDlg(); });
+    $('dzExpName').addEventListener('input', e => { exp.name = e.target.value; });
+    $('dzExpGo').addEventListener('click', () => submitExport('download'));
+    $('dzExpCopy').addEventListener('click', () => submitExport('copy'));
+    $('dzExpCancel').addEventListener('click', closeExportDlg);
+    $('dzExpClose').addEventListener('click', closeExportDlg);
+    dlg.addEventListener('mousedown', e => { if (e.target === dlg) closeExportDlg(); });   // 點背景關閉
+    dlg.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeExportDlg(); return; }
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type === 'text') { e.preventDefault(); submitExport('download'); return; }
+      if (e.key === 'Tab') {   // 焦點留在彈窗裡
+        const f = [...dlg.querySelectorAll('button, input')].filter(x => !x.disabled && x.offsetParent !== null);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
   }
   async function saveProject() {
     if (exporting) return;
@@ -1388,10 +1703,8 @@
     $('dzPageAdd').addEventListener('click', addPage);
     $('dzPageDup').addEventListener('click', dupPage);
     $('dzPageDel').addEventListener('click', delPage);
-    $('dzExportPng').addEventListener('click', () => runExport('png'));
-    $('dzExportJpg').addEventListener('click', () => runExport('jpg'));
-    $('dzExportZip').addEventListener('click', () => runExport('zip'));
-    $('dzCopyBtn').addEventListener('click', () => runExport('copy'));
+    $('dzExportBtn').addEventListener('click', openExportDlg);
+    wireExportDlg();
     $('dzSaveBtn').addEventListener('click', saveProject);
     $('dzOpenBtn').addEventListener('click', () => $('dzOpenFile').click());
     $('dzOpenFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; openProject(f); });

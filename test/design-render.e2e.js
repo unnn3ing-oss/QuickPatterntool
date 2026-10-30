@@ -262,3 +262,176 @@ test('scale 0.5 與 1 輸出比例一致', { skip }, async t => {
   assert.deepEqual(r.half.edgeIn.slice(0, 3), [0, 255, 0], '矩形邊界落在 scale 後 (20,10)');
   assert.notDeepEqual(r.half.edgeOut.slice(0, 3), [0, 255, 0]);
 });
+
+// =====================================================================================
+// 漸層填色、弧形文字（像素）
+// =====================================================================================
+const W3 = [255, 255, 255, 255];
+
+test('形狀線性漸層 90°：左端接近 from、右端接近 to', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 200, h: 100, bg: { type: 'solid', color: '#ffffff' }, objects: [
+      T.obj('shape', { kind: 'rect', fill: { type: 'linear', from: '#ff0000', to: '#0000ff', angle: 90 }, x: 0, y: 0, w: 200, h: 100 })] });
+    return [T.px(1, 50), T.px(198, 50), T.px(100, 50), T.px(100, 2), T.px(100, 97)];
+  });
+  assert.ok(near(r[0], [255, 0, 0, 255], 8), '左端 ' + r[0]);
+  assert.ok(near(r[1], [0, 0, 255, 255], 8), '右端 ' + r[1]);
+  assert.ok(near(r[2], [128, 0, 128, 255], 8), '中間 ' + r[2]);
+  assert.ok(near(r[3], r[4], 2), '垂直方向一致');
+  assert.deepEqual(errors, []);
+});
+
+test('形狀放射漸層：中心接近 from、角落接近 to；ellipse 也有漸層', { skip }, async t => {
+  const { page } = await open(t);
+  const r = await page.evaluate(() => {
+    const paint = { type: 'radial', from: '#ffffff', to: '#000000', cx: 0.5, cy: 0.5, r: 1 };
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ff00ff' }, objects: [T.obj('shape', { kind: 'rect', fill: paint, x: 0, y: 0, w: 200, h: 200 })] });
+    const rect = { c: T.px(100, 100), corner: T.px(1, 1), mid: T.px(100, 40) };
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ff00ff' }, objects: [T.obj('shape', { kind: 'ellipse', fill: paint, x: 0, y: 0, w: 200, h: 200 })] });
+    const ell = { c: T.px(100, 100), edge: T.px(100, 3), outside: T.px(2, 2) };
+    return { rect, ell };
+  });
+  assert.ok(near(r.rect.c, [255, 255, 255, 255], 6), '中心 ' + r.rect.c);
+  assert.ok(near(r.rect.corner, [0, 0, 0, 255], 8), '角落 ' + r.rect.corner);
+  assert.ok(r.rect.mid[0] > 20 && r.rect.mid[0] < 235, '中間是灰 ' + r.rect.mid);
+  assert.ok(near(r.ell.c, [255, 255, 255, 255], 6));
+  assert.ok(r.ell.edge[0] < 160, '橢圓邊緣偏暗 ' + r.ell.edge);
+  assert.deepEqual(r.ell.outside.slice(0, 3), [255, 0, 255], '橢圓外是背景');
+});
+
+test('放射漸層的中心與半徑：cx 0 時最亮點在左緣、半徑小就很快變暗', { skip }, async t => {
+  const { page } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 200, h: 100, bg: { type: 'solid', color: '#fff' }, objects: [
+      T.obj('shape', { kind: 'rect', fill: { type: 'radial', from: '#ffffff', to: '#000000', cx: 0, cy: 0.5, r: 0.5 }, x: 0, y: 0, w: 200, h: 100 })] });
+    return [T.px(1, 50), T.px(30, 50), T.px(150, 50)];
+  });
+  assert.ok(r[0][0] > 240, '左緣最亮 ' + r[0]);
+  assert.ok(r[1][0] < r[0][0] && r[1][0] > r[2][0] - 1, '往右變暗');
+  assert.ok(r[2][0] < 5, '半徑外全黑 ' + r[2]);
+});
+
+test('旋轉 90° 的漸層矩形：漸層方向跟著轉', { skip }, async t => {
+  const { page } = await open(t);
+  const r = await page.evaluate(() => {
+    // 200×40 橫條、中心 (100,100)，轉 90° 後佔 x 80~120、y 0~200；本地 90°（左→右）轉成頁面上 上→下
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' }, objects: [
+      T.obj('shape', { kind: 'rect', fill: { type: 'linear', from: '#ff0000', to: '#0000ff', angle: 90 }, x: 0, y: 80, w: 200, h: 40, rot: 90 })] });
+    return { top: T.px(100, 3), bottom: T.px(100, 196), left: T.px(85, 100), right: T.px(115, 100), outside: T.px(40, 100) };
+  });
+  assert.ok(near(r.top, [255, 0, 0, 255], 10), '上端是 from ' + r.top);
+  assert.ok(near(r.bottom, [0, 0, 255, 255], 10), '下端是 to ' + r.bottom);
+  assert.ok(near(r.left, r.right, 3), '水平方向一致');
+  assert.deepEqual(r.outside, [255, 255, 255, 255]);
+});
+
+test('背景放射漸層：中心 from、角落 to；舊的 gradient 不變', { skip }, async t => {
+  const { page } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 200, h: 100, bg: { type: 'radial', from: '#ff0000', to: '#0000ff', cx: 0.5, cy: 0.5, r: 1 }, objects: [] });
+    const a = [T.px(100, 50), T.px(0, 0), T.px(199, 99)];
+    T.draw({ w: 200, h: 100, bg: { type: 'radial', from: '#ff0000', to: '#0000ff' }, objects: [] });
+    const b = T.px(100, 50);
+    T.draw({ w: 200, h: 100, bg: { type: 'gradient', from: '#ff0000', to: '#0000ff', angle: 90 }, objects: [] });
+    return { a, b, g: [T.px(0, 50), T.px(199, 50)] };
+  });
+  assert.ok(near(r.a[0], [255, 0, 0, 255], 6));
+  assert.ok(near(r.a[1], [0, 0, 255, 255], 8));
+  assert.ok(near(r.a[2], [0, 0, 255, 255], 8));
+  assert.ok(near(r.b, [255, 0, 0, 255], 6), 'cx／cy／r 省略用預設');
+  assert.ok(r.g[0][0] > 250 && r.g[1][2] > 250);
+});
+
+test('文字漸層：上下兩端顏色不同，描邊仍是純色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    const o = T.obj('text', { text: '國', font: 'x', size: 160, color: { type: 'linear', from: '#ff0000', to: '#0000ff', angle: 180 },
+      align: 'center', lineHeight: 1.25, letterSpacing: 0, stroke: { w: 0, color: '#000' }, shadow: { x: 0, y: 0, blur: 0, color: '#000' }, x: 0, y: 0, w: 200, h: 200 });
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' }, objects: [o] });
+    const d = window.cv.getContext('2d').getImageData(0, 0, 200, 200).data;
+    const rows = [];
+    for (let y = 0; y < 200; y++) for (let x = 0; x < 200; x++) { const i = (y * 200 + x) * 4; if (d[i + 3] > 250 && (d[i] < 200 || d[i + 2] < 200) && d[i + 1] < 120) rows.push([y, d[i], d[i + 2]]); }
+    const ys = rows.map(q => q[0]), y0 = Math.min(...ys), y1 = Math.max(...ys), span = y1 - y0;
+    const avg = sel => { const s = rows.filter(sel); return [s.reduce((a, q) => a + q[1], 0) / s.length, s.reduce((a, q) => a + q[2], 0) / s.length, s.length]; };
+    const top = avg(q => q[0] < y0 + span * 0.25), bot = avg(q => q[0] > y1 - span * 0.25);
+    // 描邊用純色
+    o.stroke = { w: 6, color: '#00ff00' };
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' }, objects: [o] });
+    const d2 = window.cv.getContext('2d').getImageData(0, 0, 200, 200).data;
+    let green = 0;
+    for (let i = 0; i < d2.length; i += 4) if (d2[i] < 30 && d2[i + 1] > 225 && d2[i + 2] < 30) green++;
+    return { n: rows.length, top, bot, green };
+  });
+  assert.ok(r.n > 200, '有畫出字 ' + r.n);
+  assert.ok(r.top[0] > r.top[1] && r.top[0] > 150, '上端偏紅 ' + r.top);
+  assert.ok(r.bot[1] > r.bot[0] && r.bot[1] > 150, '下端偏藍 ' + r.bot);
+  assert.ok(r.green > 100, '描邊純色 ' + r.green);
+  assert.deepEqual(errors, []);
+});
+
+// 找 (x0..x1, y0..y1) 內有沒有深色像素
+const HAS_INK = `(function(cx, cy, hw, hh) {
+  const c = window.cv, d = c.getContext('2d').getImageData(Math.max(0, Math.round(cx - hw)), Math.max(0, Math.round(cy - hh)), Math.round(hw * 2), Math.round(hh * 2)).data;
+  let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 100 && d[i + 3] > 200) n++; return n; })`;
+
+test('弧形文字 arc 180：弧頂在框中央上緣、兩端彎下來、下方中央是空的', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate((HAS) => {
+    const has = eval(HAS);
+    const o = T.obj('text', { text: '國國國國國', font: 'x', size: 100, color: '#000000', align: 'center', lineHeight: 1.25, letterSpacing: 0,
+      stroke: { w: 0, color: '#000' }, shadow: { x: 0, y: 0, blur: 0, color: '#000' }, arc: 180, x: 0, y: 0, w: 600 });
+    const ctx0 = document.createElement('canvas').getContext('2d');
+    const lay = QPTDesign.render.layoutText(ctx0, o);
+    o.h = Math.ceil(QPTDesign.render.textHeight(o));
+    T.draw({ w: 600, h: o.h, bg: { type: 'solid', color: '#ffffff' }, objects: [o] });
+    const dy = -lay.minY, g = lay.glyphs;
+    const first = [300 + g[0].x, g[0].y + dy], last = [300 + g[4].x, g[4].y + dy];
+    return { h: o.h, R: lay.R, first, last,
+      topMid: has(300, 30, 40, 25), bottomMid: has(300, o.h - 40, 80, 30),
+      leftEnd: has(first[0], first[1], 25, 25), rightEnd: has(last[0], last[1], 25, 25), height: o.h };
+  }, HAS_INK);
+  assert.ok(r.h > 200, '高度算進弧度 ' + r.h);
+  assert.ok(r.topMid > 100, '弧頂有字 ' + r.topMid);
+  assert.ok(r.leftEnd > 100 && r.rightEnd > 100, `兩端有字 ${r.leftEnd}/${r.rightEnd}`);
+  assert.ok(r.first[1] > r.h * 0.4 && r.last[1] > r.h * 0.4, '兩端在框的下半部 ' + r.first + ' ' + r.last);
+  assert.equal(r.bottomMid, 0, '下方中央空的');
+  assert.deepEqual(errors, []);
+});
+
+test('弧形文字 arc −180：弧底貼框下緣、兩端在上半部、上方中央是空的', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate((HAS) => {
+    const has = eval(HAS);
+    const o = T.obj('text', { text: '國國國國國', font: 'x', size: 100, color: '#000000', align: 'left', lineHeight: 1.25, letterSpacing: 0,
+      stroke: { w: 0, color: '#000' }, shadow: { x: 0, y: 0, blur: 0, color: '#000' }, arc: -180, x: 0, y: 0, w: 600 });
+    const ctx0 = document.createElement('canvas').getContext('2d');
+    const lay = QPTDesign.render.layoutText(ctx0, o);
+    o.h = Math.ceil(QPTDesign.render.textHeight(o));
+    T.draw({ w: 600, h: o.h, bg: { type: 'solid', color: '#ffffff' }, objects: [o] });
+    const dy = o.h - lay.maxY, g = lay.glyphs;
+    const first = [300 + g[0].x, g[0].y + dy], last = [300 + g[4].x, g[4].y + dy];
+    return { h: o.h, first, last, bottomMid: has(300, o.h - 30, 40, 25), topMid: has(300, 40, 80, 30),
+      leftEnd: has(first[0], first[1], 25, 25), rightEnd: has(last[0], last[1], 25, 25) };
+  }, HAS_INK);
+  assert.ok(r.bottomMid > 100, '弧底有字 ' + r.bottomMid);
+  assert.ok(r.leftEnd > 100 && r.rightEnd > 100, `兩端有字 ${r.leftEnd}/${r.rightEnd}`);
+  assert.ok(r.first[1] < r.h * 0.6 && r.last[1] < r.h * 0.6, '兩端在框的上半部');
+  assert.equal(r.topMid, 0, '上方中央空的');
+  assert.deepEqual(errors, []);
+});
+
+test('弧形文字：arc 0 與沒有 arc 欄位的畫法一致；旋轉與透明度仍作用', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    const base = { text: '國國', font: 'x', size: 80, color: '#000000', align: 'center', lineHeight: 1.25, letterSpacing: 0,
+      stroke: { w: 0, color: '#000' }, shadow: { x: 0, y: 0, blur: 0, color: '#000' }, x: 20, y: 20, w: 200, h: 100 };
+    const snap = o => { T.draw({ w: 240, h: 140, bg: { type: 'solid', color: '#fff' }, objects: [T.obj('text', o)] }); return window.cv.toDataURL(); };
+    const a = snap(base), b = snap(Object.assign({ arc: 0 }, base));
+    const c = snap(Object.assign({ arc: 90 }, base)), d = snap(Object.assign({ arc: 90, opacity: 0.5 }, base));
+    const e = snap(Object.assign({ arc: 90, rot: 90 }, base));
+    return { same: a === b, diff: a !== c, alpha: c !== d, rot: c !== e };
+  });
+  assert.ok(r.same && r.diff && r.alpha && r.rot, JSON.stringify(r));
+  assert.deepEqual(errors, []);
+});

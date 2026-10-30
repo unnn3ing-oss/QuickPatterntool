@@ -289,3 +289,54 @@ test('parseProject：外層 version 大於 1 時拒絕，原因含「較新版�
   assert.match(r.reason, /較新版本/);
   assert.equal(migrated, 0);
 });
+
+// ---- 匯出規格（彈窗用）：倍率、JPG 品質、DPI、頁面範圍 ----------------------------------
+function specEnv(log) {
+  return {
+    images: {}, stickers: {},
+    render: { render: (ctx, page, opts) => { log.push({ scale: opts.scale }); return { pending: false }; } },
+    createCanvas: () => {
+      const c = { width: 0, height: 0, getContext: () => ({ clearRect() {}, fillRect() {} }),
+        toBlob: (cb, type, q) => { log.push({ w: c.width, h: c.height, type, q }); cb(new Blob([type === 'image/png' ? PNG1 : new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0])], { type })); } };
+      return c;
+    },
+  };
+}
+
+test('exportPage：scale 改變輸出像素並傳給 render；JPG 品質與 DPI 可調', async () => {
+  const log = [];
+  const doc = { pages: [{ id: 'p1', w: 100, h: 50, objects: [] }] };
+  const png = new Uint8Array(await (await X.exportPage(doc, 0, 'png', specEnv(log), { scale: 2, dpi: 72 })).arrayBuffer());
+  assert.deepEqual(log.slice(0, 2), [{ scale: 2 }, { w: 200, h: 100, type: 'image/png', q: undefined }]);
+  const phys = chunks(png).find(c => c.type === 'pHYs');
+  assert.equal(dv(png).getUint32(phys.off + 8), Math.round(72 / 0.0254));
+  log.length = 0;
+  const jpg = new Uint8Array(await (await X.exportPage(doc, 0, 'jpg', specEnv(log), { quality: 0.8, dpi: 72 })).arrayBuffer());
+  assert.equal(log[1].q, 0.8);
+  assert.equal(jpg[14] * 256 + jpg[15], 72);
+});
+
+test('exportPage：倍率讓長邊超過 MAX_OUTPUT_SIDE 時回繁中錯誤', async () => {
+  const doc = { pages: [{ id: 'p1', w: 4096, h: 100, objects: [] }] };
+  await assert.rejects(X.exportPage(doc, 0, 'png', specEnv([]), { scale: 3 }), e => HAS_ZH.test(e.message));
+  assert.equal(X.MAX_OUTPUT_SIDE, 8192);
+});
+
+test('exportZip：只匯出指定頁，檔名用原本的頁碼', async () => {
+  const doc = { pages: [1, 2, 3, 4].map(i => ({ id: 'p' + i, w: 8, h: 8, objects: [] })) };
+  const zip = new Uint8Array(await (await X.exportZip(doc, 'jpg', specEnv([]), { pages: [1, 3] })).arrayBuffer());
+  assert.equal(dv(zip).getUint16(zip.length - 22 + 10, true), 2);
+  const text = Buffer.from(zip).toString('latin1');
+  assert.ok(text.includes('page-02.jpg') && text.includes('page-04.jpg') && !text.includes('page-01.jpg'));
+});
+
+test('parsePages：範圍字串轉成 0 起算的頁碼', () => {
+  assert.deepEqual(X.parsePages('1-3, 5', 6), { ok: true, pages: [0, 1, 2, 4] });
+  assert.deepEqual(X.parsePages('3,1,3', 4), { ok: true, pages: [0, 2] });
+  assert.deepEqual(X.parsePages(' ２－３ ', 4), { ok: true, pages: [1, 2] });   // 全形數字與連字號
+  for (const bad of ['', '0', '7', '3-1', 'a', '1-', '1,,2']) {
+    const r = X.parsePages(bad, 6);
+    assert.equal(r.ok, false, bad);
+    assert.match(r.reason, HAS_ZH);
+  }
+});

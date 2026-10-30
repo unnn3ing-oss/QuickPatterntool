@@ -1,7 +1,7 @@
 // =====================================================================================
 // 設計：匯出與專案檔（網頁版專用，外掛不需要；updater.js／deploy.js 的 SKIP 會略過 design-*）
 //
-// - PNG：在 IHDR 後插入 pHYs（300 DPI）；JPG：品質 0.95、墊白底、JFIF 密度 300 DPI。
+// - PNG：在 IHDR 後插入 pHYs；JPG：墊白底、寫入 JFIF 密度。預設 300 DPI、品質 0.95、1 倍；匯出彈窗可改倍率、品質、DPI、頁面範圍。
 // - ZIP：只儲存、不壓縮的寫入器（CRC-32、本地檔頭、中央目錄）。
 // - 專案檔：{app:'QuickPatterntool-design', version:1, doc}，資產以 data URL 內嵌，最長邊縮到 2048。
 // 依接縫原則，CRC-32／ZIP／pHYs／JFIF 都自備一份（不引用 app.js、deploy.js、collage.js）。
@@ -14,6 +14,7 @@
   const APP_ID = 'QuickPatterntool-design';
   const MAX_ASSET_SIDE = 2048;
   const JPG_QUALITY = 0.95;
+  const MAX_OUTPUT_SIDE = 8192;          // 匯出倍率放大後的長邊上限（瀏覽器 canvas 太大會畫不出來）
   const NOT_PROJECT = '不是有效的設計專案檔';
   const NO_CLIPBOARD = '這個瀏覽器不支援複製圖片，請改用下載';
 
@@ -125,57 +126,84 @@
   // env = { fonts, images, stickers, loadImages(doc) → Promise, render?, createCanvas? }（由 UI 提供）
   async function renderPage(doc, pageIndex, env, opts) {
     const fmt = (opts && opts.fmt) || 'png';
+    const scale = (opts && opts.scale) || 1;
     const page = doc.pages[pageIndex];
     if (!page) throw new Error('找不到這一頁');
+    const W = Math.round(page.w * scale), H = Math.round(page.h * scale);
+    if (!(scale > 0) || Math.max(W, H) > MAX_OUTPUT_SIDE) throw new Error(`輸出尺寸 ${W}×${H} 太大，長邊不能超過 ${MAX_OUTPUT_SIDE}px，請改用較小的倍率`);
     // 一律先等字型與影像，避免第一次匯出悄悄換成備用字型
     if (!(opts && opts.skipFontWait) && env.fonts && env.fonts.ready) await env.fonts.ready(doc);
     if (env.loadImages) await env.loadImages(doc);
     const R = env.render || lazy('render');
     if (!R) throw new Error('渲染模組尚未載入');
-    const canvas = env.createCanvas ? env.createCanvas(page.w, page.h) : root.document.createElement('canvas');
-    canvas.width = page.w; canvas.height = page.h;
+    const canvas = env.createCanvas ? env.createCanvas(W, H) : root.document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
     const draw = () => {
-      ctx.clearRect(0, 0, page.w, page.h);
-      if (fmt === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, page.w, page.h); }   // JPG 沒有透明，墊白
-      return R.render(ctx, page, { scale: 1, images: env.images, stickers: env.stickers, fonts: env.fonts });
+      ctx.clearRect(0, 0, W, H);
+      if (fmt === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H); }   // JPG 沒有透明，墊白
+      return R.render(ctx, page, { scale, images: env.images, stickers: env.stickers, fonts: env.fonts });
     };
     let res = draw();
     if (res && res.pending && env.loadImages) { await env.loadImages(doc); res = draw(); }
     return canvas;
   }
 
-  function canvasToBlob(canvas, fmt) {
+  function canvasToBlob(canvas, fmt, quality) {
     return new Promise((resolve, reject) => canvas.toBlob(
       b => (b ? resolve(b) : reject(new Error('產生圖片失敗'))),
-      fmt === 'jpg' ? 'image/jpeg' : 'image/png', fmt === 'jpg' ? JPG_QUALITY : undefined));
+      fmt === 'jpg' ? 'image/jpeg' : 'image/png', fmt === 'jpg' ? quality : undefined));
   }
+  // opts = { scale=1, quality=0.95（只有 JPG）, dpi=300, skipFontWait }（匯出彈窗的設定）
   async function exportPage(doc, i, fmt, env, opts) {
+    opts = opts || {};
     fmt = fmt === 'jpg' ? 'jpg' : 'png';
-    const canvas = await renderPage(doc, i, env, { fmt, skipFontWait: !!(opts && opts.skipFontWait) });
-    const bytes = await toBytes(await canvasToBlob(canvas, fmt));
-    return new Blob([fmt === 'jpg' ? jpgWithDpi(bytes, 300) : pngWithDpi(bytes, 300)], { type: fmt === 'jpg' ? 'image/jpeg' : 'image/png' });
+    const quality = Math.min(1, Math.max(0.5, opts.quality || JPG_QUALITY));
+    const dpi = opts.dpi || 300;
+    const canvas = await renderPage(doc, i, env, { fmt, scale: opts.scale || 1, skipFontWait: !!opts.skipFontWait });
+    const bytes = await toBytes(await canvasToBlob(canvas, fmt, quality));
+    return new Blob([fmt === 'jpg' ? jpgWithDpi(bytes, dpi) : pngWithDpi(bytes, dpi)], { type: fmt === 'jpg' ? 'image/jpeg' : 'image/png' });
   }
-  async function exportZip(doc, fmt, env) {
+  // opts 同 exportPage，另加 pages（0 起算的頁碼陣列；不給就是全部頁）。檔名用原本的頁碼 page-02.png…
+  async function exportZip(doc, fmt, env, opts) {
+    opts = opts || {};
     fmt = fmt === 'jpg' ? 'jpg' : 'png';
+    const pages = opts.pages || doc.pages.map((_, i) => i);
     const entries = [];
     // 字型只等一次（字型請求卡住時，不會每頁各等一次）；之後每頁不再等
     if (env && env.fonts && env.fonts.ready) await env.fonts.ready(doc);
-    for (let i = 0; i < doc.pages.length; i++) {
-      const blob = await exportPage(doc, i, fmt, env, { skipFontWait: true });
+    for (const i of pages) {
+      const blob = await exportPage(doc, i, fmt, env, Object.assign({}, opts, { skipFontWait: true }));
       entries.push({ name: `page-${pad2(i + 1)}.${fmt}`, bytes: await toBytes(blob) });
     }
     return new Blob([buildZip(entries)], { type: 'application/zip' });
   }
-  async function copyPage(doc, i, env) {
+  async function copyPage(doc, i, env, opts) {
     const nav = (env && env.navigator) || root.navigator;
     const CI = (env && env.ClipboardItem) || root.ClipboardItem;
     if (!nav || !nav.clipboard || !nav.clipboard.write || typeof CI !== 'function') return { ok: false, reason: NO_CLIPBOARD };
     try {
-      const blob = await exportPage(doc, i, 'png', env);
+      const blob = await exportPage(doc, i, 'png', env, opts);
       await nav.clipboard.write([new CI({ 'image/png': blob })]);
       return { ok: true };
     } catch (e) { return { ok: false, reason: NO_CLIPBOARD }; }
+  }
+
+  // 頁面範圍「1-3, 5」→ { ok:true, pages:[0,1,2,4] }（0 起算、排序去重）；全形數字與連字號也收
+  function parsePages(str, total) {
+    const s = String(str || '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+      .replace(/[－—–~～]/g, '-').replace(/[，、]/g, ',').replace(/\s+/g, '');
+    const bad = { ok: false, reason: `頁面範圍看不懂，請寫成像「1-3, 5」這樣（共 ${total} 頁）` };
+    if (!s) return bad;
+    const set = new Set();
+    for (const part of s.split(',')) {
+      const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+      if (!m) return bad;
+      const a = +m[1], b = m[2] ? +m[2] : a;
+      if (a < 1 || b > total || a > b) return { ok: false, reason: `頁面範圍要在 1～${total} 之間，而且前面的數字不能比後面大` };
+      for (let i = a; i <= b; i++) set.add(i - 1);
+    }
+    return { ok: true, pages: [...set].sort((x, y) => x - y) };
   }
 
   // ---- 專案檔 -------------------------------------------------------------------------
@@ -284,7 +312,7 @@
 
   const api = {
     crc32, pngWithDpi, jpgWithDpi, buildZip,
-    renderPage, exportPage, exportZip, copyPage,
+    renderPage, exportPage, exportZip, copyPage, parsePages, MAX_OUTPUT_SIDE,
     serializeProject, parseProject, downscaleBlob,
     APP_ID,
   };

@@ -44,7 +44,7 @@
   // ---- 預設值 ------------------------------------------------------------------------
   const common = () => ({ rot: 0, opacity: 1, locked: false, hidden: false });
   const DEFAULTS = {
-    text: () => ({ text: '輸入文字', font: 'WHZ-Heavy', size: 80, color: '#111111', align: 'center', lineHeight: 1.25, letterSpacing: 0,
+    text: () => ({ text: '輸入文字', font: 'WHZ-Heavy', size: 80, color: '#111111', align: 'center', lineHeight: 1.25, letterSpacing: 0, arc: 0,
       stroke: { w: 0, color: '#000000' }, shadow: { x: 0, y: 0, blur: 0, color: 'rgba(0,0,0,0.5)' }, w: 800, h: 100 }),
     image: () => ({ fit: 'cover', view: { ox: 0.5, oy: 0.5, scale: 1 }, radius: 0, gray: false }),
     shape: () => ({ kind: 'rect', fill: '#2f6fed', stroke: { w: 0, color: '#000000' }, radius: 0, w: 400, h: 300 }),
@@ -88,10 +88,20 @@
     return null;
   }
   const strokeOk = s => isObj(s) && fin(s.w) && s.w >= 0 && str(s.color);
+  // 顏料（paint）：純色字串，或線性／放射漸層物件。放射的 cx、cy（0～1）、r（0.05～2）可省略（渲染時用預設值）
+  const inRange = (v, lo, hi) => v === undefined || (fin(v) && v >= lo && v <= hi);
+  function paintOk(p) {
+    if (typeof p === 'string') return str(p);
+    if (!isObj(p) || !str(p.from) || !str(p.to)) return false;
+    if (p.type === 'linear') return fin(p.angle);
+    if (p.type === 'radial') return inRange(p.cx, 0, 1) && inRange(p.cy, 0, 1) && inRange(p.r, 0.05, 2);
+    return false;
+  }
   function bgProblem(bg, assets) {
     if (!isObj(bg)) return '頁面背景設定不正確';
     if (bg.type === 'solid') return str(bg.color) ? null : '背景顏色不正確';
     if (bg.type === 'gradient') return str(bg.from) && str(bg.to) && fin(bg.angle) ? null : '漸層背景設定不正確';
+    if (bg.type === 'radial') return paintOk(bg) ? null : '放射漸層背景設定不正確';
     if (bg.type === 'image') {
       if (!str(bg.asset) || !Object.prototype.hasOwnProperty.call(assets, bg.asset)) return '找不到背景圖片的資產';
       if (!FITS.includes(bg.fit)) return '背景圖片的填滿方式不正確';
@@ -113,7 +123,8 @@
         if (typeof o.text !== 'string') return '文字內容不正確';
         if (!str(o.font)) return '字型不正確';
         if (!fin(o.size) || o.size <= 0) return '字級必須大於 0';
-        if (!str(o.color)) return '文字顏色不正確';
+        if (!paintOk(o.color)) return '文字顏色不正確';
+        if (o.arc !== undefined && !(fin(o.arc) && o.arc >= -360 && o.arc <= 360)) return '弧形文字的彎曲角度必須在 −360～360 之間';
         if (!ALIGNS.includes(o.align)) return '文字對齊方式不正確';
         if (!fin(o.lineHeight) || o.lineHeight <= 0) return '行高必須大於 0';
         if (!fin(o.letterSpacing)) return '字距不正確';
@@ -128,7 +139,8 @@
         return viewProblem(o.view);
       case 'shape':
         if (!SHAPE_KINDS.includes(o.kind)) return `不支援的形狀：${o.kind}`;
-        if (!str(o.fill)) return '形狀填色不正確';
+        if (!paintOk(o.fill)) return '形狀填色不正確';
+        if ((o.kind === 'line' || o.kind === 'arrow') && typeof o.fill !== 'string') return '線條與箭頭的填色必須是純色';
         if (!strokeOk(o.stroke)) return '形狀描邊設定不正確';
         if (!fin(o.radius) || o.radius < 0) return '圓角不能小於 0';
         return null;
@@ -607,6 +619,102 @@
   }
 
   // =====================================================================================
+  // 顏色：colorKey／docColors／recolor
+  // =====================================================================================
+  const hex2 = n => (n < 16 ? '0' : '') + n.toString(16);
+  // 解析顏色字串 → { r, g, b, a }；看不懂回 null。支援 #rgb／#rgba／#rrggbb／#rrggbbaa／rgb()／rgba()
+  function parseColor(c) {
+    if (typeof c !== 'string') return null;
+    const t = c.trim().toLowerCase();
+    let m = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(t);
+    if (m) {
+      let h = m[1];
+      if (h.length <= 4) h = h.replace(/./g, ch => ch + ch);
+      return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16), a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1 };
+    }
+    m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(\d*\.?\d+)\s*)?\)$/.exec(t);
+    if (m) {
+      const r = +m[1], g = +m[2], b = +m[3], a = m[4] === undefined ? 1 : +m[4];
+      if (r > 255 || g > 255 || b > 255 || !(a >= 0 && a <= 1)) return null;
+      return { r, g, b, a };
+    }
+    return null;
+  }
+  // 顏色 → '#rrggbb'（小寫、忽略透明度）；看不懂回 null
+  function colorKey(c) {
+    const p = parseColor(c);
+    return p ? '#' + hex2(p.r) + hex2(p.g) + hex2(p.b) : null;
+  }
+  // 列出一頁所有「顏色欄位」：{ get(), set(v), locked }，背景的 locked 一律是 false
+  function colorSlots(page) {
+    const out = [];
+    const slot = (holder, key, locked) => out.push({ get: () => holder[key], set: v => { holder[key] = v; }, locked });
+    const paint = (holder, key, locked) => {
+      const v = holder[key];
+      if (isObj(v)) { slot(v, 'from', locked); slot(v, 'to', locked); } else slot(holder, key, locked);
+    };
+    const bg = page.bg;
+    if (isObj(bg)) {
+      if (bg.type === 'solid') slot(bg, 'color', false);
+      else if (bg.type === 'gradient' || bg.type === 'radial') { slot(bg, 'from', false); slot(bg, 'to', false); }
+    }
+    for (const o of page.objects) {
+      // 看不見的顏色不列、也不換：描邊粗細 0、沒有位移也沒有模糊的陰影（預設值就是這樣，不然配色區會一直多一格黑）
+      const strokeOn = o => isObj(o.stroke) && o.stroke.w > 0;
+      const shadowOn = o => isObj(o.shadow) && (o.shadow.blur > 0 || o.shadow.x !== 0 || o.shadow.y !== 0);
+      if (o.type === 'shape') { paint(o, 'fill', o.locked); if (strokeOn(o)) slot(o.stroke, 'color', o.locked); }
+      else if (o.type === 'text') {
+        paint(o, 'color', o.locked);
+        if (strokeOn(o)) slot(o.stroke, 'color', o.locked);
+        if (shadowOn(o)) slot(o.shadow, 'color', o.locked);
+      }
+    }
+    return out;
+  }
+  function pagesOf(doc, pageId) {
+    return pageId == null ? doc.pages : doc.pages.filter(p => p.id === pageId);
+  }
+  // 文件（或某一頁）用到的顏色與次數；次數多到少，同次數依色碼。隱藏與鎖定的物件也算；看不見的描邊與陰影不算
+  function docColors(doc, { pageId } = {}) {
+    const counts = new Map();
+    for (const p of pagesOf(doc, pageId)) {
+      for (const s of colorSlots(p)) {
+        const k = colorKey(s.get());
+        if (k) counts.set(k, (counts.get(k) || 0) + 1);
+      }
+    }
+    return [...counts].map(([color, count]) => ({ color, count }))
+      .sort((a, b) => b.count - a.count || (a.color < b.color ? -1 : a.color > b.color ? 1 : 0));
+  }
+  // 用 map 換色（key 與值都用 colorKey 正規化）；保留原本的透明度，鎖定物件不改。全有或全無。
+  function recolor(doc, map, { pageId } = {}) {
+    return tx(doc, d => {
+      if (!isObj(map)) bail('換色的顏色對照表不正確');
+      const table = new Map();
+      for (const [from, to] of Object.entries(map)) {
+        const fk = colorKey(from), tk = parseColor(to);
+        if (!fk) bail(`看不懂要被換掉的顏色：${from}`);
+        if (!tk) bail(`看不懂要換成的顏色：${to}`);
+        table.set(fk, tk);
+      }
+      if (pageId != null && !d.pages.some(p => p.id === pageId)) bail('找不到頁面');
+      let changed = 0, skippedLocked = 0;
+      for (const p of pagesOf(d, pageId)) {
+        for (const s of colorSlots(p)) {
+          const cur = parseColor(s.get());
+          if (!cur) continue;
+          const to = table.get(colorKey(s.get()));
+          if (!to) continue;
+          if (s.locked) { skippedLocked++; continue; }
+          s.set(cur.a >= 1 ? '#' + hex2(to.r) + hex2(to.g) + hex2(to.b) : `rgba(${to.r},${to.g},${to.b},${+cur.a.toFixed(4)})`);
+          changed++;
+        }
+      }
+      return { changed, skippedLocked };
+    });
+  }
+
+  // =====================================================================================
   // 復原／重做
   // =====================================================================================
   const bus = typeof EventTarget === 'function' ? new EventTarget() : null;
@@ -702,6 +810,8 @@
     addObject, updateObjects, removeObjects, duplicateObjects, pasteObjects, reorder, findObject,
     // 幾何
     corners, bounds, toLocal, hitTest, inRect, resizeRect, rotateAngle, snapCandidates, snapBox, align, distribute,
+    // 顏色
+    colorKey, docColors, recolor,
     // 復原
     createHistory, bus,
   };

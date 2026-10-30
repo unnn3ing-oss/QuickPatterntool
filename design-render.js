@@ -22,21 +22,83 @@
     return c;
   }
 
+  // ---- 顏料（純色／線性／放射漸層）------------------------------------------------------
+  // 在物件自己的框（未旋轉、左上為原點、w×h）內建立 fillStyle；純色字串原樣回傳。scale 目前用不到
+  // （漸層座標跟著 canvas 的 transform 走，預覽與匯出倍率不同也一致），保留給之後需要像素座標的情況。
+  // 線性：angle 照 CSS（0°＝由下往上、90°＝由左往右），漸層線長＝|w·sinθ|+|h·cosθ|。
+  // 放射：cx、cy 以框的寬高為準（預設 0.5），r 以「中心到角落」為 1（預設 1）。
+  function paintStyle(ctx, paint, w, h, scale) {
+    if (typeof paint === 'string' && paint) return paint;
+    if (!paint || typeof paint !== 'object') return '#000000';
+    const from = paint.from || '#ffffff', to = paint.to || '#000000';
+    let g;
+    if (paint.type === 'linear') {
+      const t = num(paint.angle, 180) * Math.PI / 180;
+      const sx = Math.sin(t), sy = -Math.cos(t);
+      const L = Math.abs(w * Math.sin(t)) + Math.abs(h * Math.cos(t));
+      const cx = w / 2, cy = h / 2;
+      g = ctx.createLinearGradient(cx - sx * L / 2, cy - sy * L / 2, cx + sx * L / 2, cy + sy * L / 2);
+    } else if (paint.type === 'radial') {
+      const cx = num(paint.cx, 0.5) * w, cy = num(paint.cy, 0.5) * h;
+      const R = Math.max(1e-6, num(paint.r, 1) * Math.hypot(w / 2, h / 2));
+      g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    } else return '#000000';
+    g.addColorStop(0, from); g.addColorStop(1, to);
+    return g;
+  }
+
   // ---- 文字排版 -----------------------------------------------------------------
   const layoutCache = new Map();
   function fontStr(fonts, obj) {
     const size = num(obj.size, 80);
     return fonts && fonts.fontCss ? fonts.fontCss(obj.font, size) : `${size}px sans-serif`;
   }
+  // 弧形文字排版：單行（\n 當空白、不換行、不看 align）。每個字以自己寬度的中點放在圓弧上並轉成切線方向。
+  // glyphs 的 x 是相對框水平中心、y 是「未平移」座標（arc>0 時弧頂的字心在 -R，arc<0 時弧底在 +R），rot 是弧度。
+  // minY／maxY 是所有字的格子（字寬 × 行高）四個角的 y 包絡；height ＝ maxY − minY。
+  // 畫的時候 arc>0 把 minY 貼到框上緣，arc<0 把 maxY 貼到框下緣。
+  function arcLayout(ctx, text, lineH, ls, arc) {
+    const chars = [...text.replace(/\n/g, ' ')];
+    const ws = chars.map(ch => ctx.measureText(ch).width);
+    const L = ws.reduce((a, b) => a + b, 0) + ls * Math.max(0, chars.length - 1);
+    const theta = Math.abs(arc) * Math.PI / 180;
+    const R = L > 0 ? L / theta : 0;
+    const up = arc > 0, hh = lineH / 2;
+    const glyphs = [];
+    let minY = Infinity, maxY = -Infinity, acc = 0;
+    chars.forEach((ch, i) => {
+      const s = acc + ws[i] / 2 - L / 2;          // 字心沿弧的位置（以整行中點為 0）
+      acc += ws[i] + ls;
+      const phi = R > 0 ? s / R : 0;
+      const g = up ? { x: R * Math.sin(phi), y: -R * Math.cos(phi), rot: phi }
+        : { x: R * Math.sin(phi), y: R * Math.cos(phi), rot: -phi };
+      const c = Math.cos(g.rot), sn = Math.sin(g.rot);
+      for (const [dx, dy] of [[-ws[i] / 2, -hh], [ws[i] / 2, -hh], [ws[i] / 2, hh], [-ws[i] / 2, hh]]) {
+        const y = g.y + dx * sn + dy * c;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      glyphs.push({ ch, w: ws[i], x: g.x, y: g.y, rot: g.rot });
+    });
+    if (!glyphs.length) { minY = -hh; maxY = hh; }
+    return { lines: [chars.join('')], lineH, height: maxY - minY, arc, L, R, glyphs, minY, maxY };
+  }
   // 逐字量測（全形英數混排都適用）；累計超過 obj.w 就換行，'\n' 強制換行。
   function layoutText(ctx, obj, fonts) {
     const size = num(obj.size, 80), ls = num(obj.letterSpacing, 0), lh = num(obj.lineHeight, 1.25);
     const gen = fonts && fonts.gen ? fonts.gen() : 0;
     const text = String(obj.text == null ? '' : obj.text);
-    const key = [text, obj.font, size, obj.w, ls, lh, gen].join('|');
+    const arc = num(obj.arc, 0);
+    const key = [text, obj.font, size, obj.w, ls, lh, gen, arc].join('|');
     const hit = layoutCache.get(key);
     if (hit) return hit;
     ctx.font = fontStr(fonts, obj);
+    if (arc) {
+      const out = arcLayout(ctx, text, size * lh, ls, arc);
+      if (layoutCache.size > 500) layoutCache.clear();
+      layoutCache.set(key, out);
+      return out;
+    }
     const lines = [];
     for (const para of text.split('\n')) {
       let cur = '', acc = 0;
@@ -99,15 +161,10 @@
   function drawBg(ctx, page, opts) {
     const bg = page.bg || { type: 'solid', color: '#ffffff' };
     const W = page.w, H = page.h;
-    if (bg.type === 'gradient') {
-      // CSS 角度：0°＝由下往上、90°＝由左往右；漸層線長＝|w·sinθ|+|h·cosθ|
-      const t = num(bg.angle, 180) * Math.PI / 180;
-      const sx = Math.sin(t), cy = -Math.cos(t);
-      const L = Math.abs(W * Math.sin(t)) + Math.abs(H * Math.cos(t));
-      const cx = W / 2, cyy = H / 2;
-      const g = ctx.createLinearGradient(cx - sx * L / 2, cyy - cy * L / 2, cx + sx * L / 2, cyy + cy * L / 2);
-      g.addColorStop(0, bg.from || '#ffffff'); g.addColorStop(1, bg.to || '#000000');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (bg.type === 'gradient' || bg.type === 'radial') {
+      // 線性（gradient）的角度同 CSS；放射（radial）的中心與半徑見 paintStyle
+      ctx.fillStyle = paintStyle(ctx, bg.type === 'gradient' ? Object.assign({}, bg, { type: 'linear', angle: num(bg.angle, 180) }) : bg, W, H, 1);
+      ctx.fillRect(0, 0, W, H);
       return false;
     }
     if (bg.type === 'image') {
@@ -170,7 +227,20 @@
     ctx.lineJoin = 'round';
     const align = o.align === 'left' || o.align === 'right' ? o.align : 'center';
 
+    const dy = lay.glyphs ? (num(o.arc, 0) > 0 ? -lay.minY : o.h - lay.maxY) : 0;
     const pass = (stroke) => {
+      if (lay.glyphs) {
+        // 弧形文字：逐字平移＋旋轉到切線方向，字心對齊弧上的位置（陰影位移不受旋轉影響）
+        ctx.textAlign = 'center';
+        for (const g of lay.glyphs) {
+          ctx.save();
+          ctx.translate(o.w / 2 + g.x, g.y + dy);
+          ctx.rotate(g.rot);
+          if (stroke) ctx.strokeText(g.ch, 0, 0); else ctx.fillText(g.ch, 0, 0);
+          ctx.restore();
+        }
+        return;
+      }
       lay.lines.forEach((line, i) => {
         const y = i * lay.lineH + lay.lineH / 2;
         if (!ls) {
@@ -204,12 +274,12 @@
       pass(true);
       setShadow(false);
     } else setShadow(!!sh);
-    ctx.fillStyle = o.color || '#111111';
+    ctx.fillStyle = paintStyle(ctx, o.color || '#111111', o.w, o.h, scale);
     pass(false);
     setShadow(false);
   }
 
-  function drawShape(ctx, o) {
+  function drawShape(ctx, o, scale) {
     const w = o.w, h = o.h, sw = o.stroke && o.stroke.w > 0 ? o.stroke.w : 0;
     const hasFill = o.fill && o.fill !== 'none' && o.fill !== 'transparent';
     if (o.kind === 'line' || o.kind === 'arrow') {
@@ -225,7 +295,7 @@
     }
     if (o.kind === 'ellipse') { ctx.beginPath(); ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); }
     else roundRectPath(ctx, 0, 0, w, h, o.radius);
-    if (hasFill) { ctx.fillStyle = o.fill; ctx.fill(); }
+    if (hasFill) { ctx.fillStyle = paintStyle(ctx, o.fill, w, h, scale); ctx.fill(); }
     if (sw) { ctx.lineWidth = sw; ctx.strokeStyle = o.stroke.color || '#000000'; ctx.lineJoin = 'round'; ctx.stroke(); }
   }
 
@@ -288,7 +358,7 @@
       ctx.translate(-o.w / 2, -o.h / 2);
       if (o.type === 'image') { if (drawImageObj(ctx, o, opts, scale)) pending = true; }
       else if (o.type === 'text') drawText(ctx, o, opts, scale);
-      else if (o.type === 'shape') drawShape(ctx, o);
+      else if (o.type === 'shape') drawShape(ctx, o, scale);
       else if (o.type === 'sticker') { if (drawSticker(ctx, o, opts)) pending = true; }
       ctx.restore();
     }
@@ -296,7 +366,7 @@
     return { pending };
   }
 
-  const api = { render, layoutText, textHeight, place };
+  const api = { render, layoutText, textHeight, place, paintStyle };
   const Q = root.QPTDesign = root.QPTDesign || {};
   Q.render = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

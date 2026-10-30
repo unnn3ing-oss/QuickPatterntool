@@ -585,6 +585,16 @@ async function download(page, sel) {
   const file = await dl.path();
   return { name: dl.suggestedFilename(), bytes: fs.readFileSync(file), file };
 }
+// 開匯出彈窗、照 o 設定（fmt／range／pages／scale／dpi），回傳彈窗裡的按鈕 selector 給 download() 點
+async function openExport(page, o = {}) {
+  await page.click('#dzExportBtn');
+  await page.waitForSelector('#dzExportDlg:not([hidden])');
+  for (const [k, id] of [['fmt', 'dzExpFmt'], ['range', 'dzExpRange'], ['pages', null], ['pack', 'dzExpPack'], ['scale', 'dzExpScale'], ['dpi', 'dzExpDpi']]) {
+    if (k === 'pages') { if (o.pages != null) await page.fill('#dzExpPages', o.pages); continue; }
+    if (o[k] != null) await page.click(`#${id} button[data-v="${o[k]}"]`);
+  }
+  return '#dzExpGo';
+}
 // 在頁面裡把圖片檔解碼，回傳指定點的像素
 const decodePx = (page, bytes, mime, pts) => page.evaluate(async ([b64, mime, pts]) => {
   const im = new Image(); im.src = `data:${mime};base64,${b64}`; await im.decode();
@@ -611,7 +621,7 @@ const PTS = [[250, 250], [750, 750], [50, 1030], [1030, 50], [540, 540]];
 test('匯出 PNG：下載檔第 33 位元組起是 pHYs、像素和畫布一致', { skip }, async t => {
   const { page, errors } = await open(t);
   await sampleDoc(page);
-  const { name, bytes } = await download(page, '#dzExportPng');
+  const { name, bytes } = await download(page, await openExport(page, { fmt: 'png' }));
   assert.match(name, /^design-\d{8}-\d{4}\.png$/);
   assert.equal(bytes.toString('latin1', 37, 41), 'pHYs');
   assert.equal(bytes.readUInt32BE(41), 11811);
@@ -630,7 +640,7 @@ test('匯出 PNG：下載檔第 33 位元組起是 pHYs、像素和畫布一致'
 test('匯出 JPG 的 JFIF 密度是 300', { skip }, async t => {
   const { page, errors } = await open(t);
   await sampleDoc(page);
-  const { name, bytes } = await download(page, '#dzExportJpg');
+  const { name, bytes } = await download(page, await openExport(page, { fmt: 'jpg' }));
   assert.match(name, /^design-\d{8}-\d{4}\.jpg$/);
   assert.equal(bytes[0], 0xFF); assert.equal(bytes[1], 0xD8);
   assert.equal(bytes.toString('latin1', 6, 10), 'JFIF');
@@ -650,8 +660,8 @@ test('匯出 ZIP：兩頁時中央目錄檔名是 page-01.png、page-02.png', { 
   const [dl] = await Promise.all([
     page.waitForEvent('download'),
     (async () => {
-      await page.click('#dzExportZip');
-      const st = await page.evaluate(() => ({ dis: document.getElementById('dzExportPng').disabled, msg: document.getElementById('dzStatus').textContent }));
+      await page.click(await openExport(page, { fmt: 'png', range: 'all', pack: 'zip' }));
+      const st = await page.evaluate(() => ({ dis: document.getElementById('dzExportBtn').disabled, msg: document.getElementById('dzStatus').textContent }));
       assert.ok(st.dis, '匯出中按鈕停用');
       assert.match(st.msg, /匯出中/);
     })(),
@@ -665,7 +675,7 @@ test('匯出 ZIP：兩頁時中央目錄檔名是 page-01.png、page-02.png', { 
     names.push(bytes.toString('utf8', i + 46, i + 46 + n));
   }
   assert.deepEqual(names, ['page-01.png', 'page-02.png']);
-  await page.waitForFunction(() => !document.getElementById('dzExportPng').disabled);
+  await page.waitForFunction(() => !document.getElementById('dzExportBtn').disabled);
   assert.deepEqual(errors, []);
 });
 
@@ -804,7 +814,8 @@ test('複製：stub navigator.clipboard.write 後收到 image/png', { skip }, as
   };
   const { page, errors } = await open(t, { init });
   await sampleDoc(page);
-  await page.click('#dzCopyBtn');
+  await openExport(page);
+  await page.click('#dzExpCopy');
   await page.waitForFunction(() => window.__clip.length > 0);
   const clip = await page.evaluate(() => window.__clip);
   assert.equal(clip[0][0], 'image/png');
@@ -912,8 +923,429 @@ test('字型 ready 回 false：匯出 PNG 仍會完成並下載', { skip }, asyn
   const { page, errors } = await open(t);
   await sampleDoc(page);
   await page.evaluate(() => { QPTDesign.fonts.ready = () => Promise.resolve(false); });
-  const { name, bytes } = await download(page, '#dzExportPng');
+  const { name, bytes } = await download(page, await openExport(page, { fmt: 'png' }));
   assert.match(name, /^design-\d{8}-\d{4}\.png$/);
   assert.equal(bytes.toString('latin1', 37, 41), 'pHYs');
+  assert.deepEqual(errors, []);
+});
+
+// ---- 匯出彈窗 -------------------------------------------------------------------------
+test('匯出彈窗：2× 與 72 DPI 輸出 2160 px、pHYs 是 72 DPI；檔名可改', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await sampleDoc(page);
+  const go = await openExport(page, { fmt: 'png', scale: 2, dpi: 72 });
+  assert.match(await page.textContent('#dzExpSize'), /2160 × 2160 px/);
+  await page.fill('#dzExpName', 'weekend/cover');   // 無頭 Chromium 會把非英文的下載檔名改成 download，所以這裡用英文驗證「斜線會被拿掉」
+  const { name, bytes } = await download(page, go);
+  assert.equal(name, 'weekendcover.png');
+  assert.equal(bytes.readUInt32BE(16), 2160);   // IHDR 寬
+  assert.equal(bytes.toString('latin1', 37, 41), 'pHYs');
+  assert.equal(bytes.readUInt32BE(41), Math.round(72 / 0.0254));
+  assert.ok(await page.isHidden('#dzExportDlg'), '下載後關閉彈窗');
+  assert.deepEqual(errors, []);
+});
+
+test('匯出彈窗：指定頁「2」只下載第 2 頁；「1,3」打包 ZIP；超出範圍顯示繁中錯誤並停用下載', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await sampleDoc(page);
+  await page.click('#dzPageAdd');
+  await page.click('#dzPageAdd');
+  let go = await openExport(page, { range: 'custom', pages: '2' });
+  assert.match(await page.textContent('#dzExpSummary'), /第 2 頁/);
+  let r = await download(page, go);
+  assert.match(r.name, /\.png$/);
+  go = await openExport(page, { range: 'custom', pages: '1,3', pack: 'zip' });
+  assert.equal(await page.textContent('#dzExpGo'), '下載 ZIP');
+  assert.ok(await page.isDisabled('#dzExpCopy'), '多頁不能複製');
+  r = await download(page, go);
+  assert.match(r.name, /\.zip$/);
+  const text = r.bytes.toString('latin1');
+  assert.ok(text.includes('page-01.png') && text.includes('page-03.png') && !text.includes('page-02.png'));
+  await openExport(page, { range: 'custom', pages: '5' });
+  assert.match(await page.textContent('#dzExpErr'), /1～3/);
+  assert.ok(await page.isDisabled('#dzExpGo'));
+  assert.deepEqual(errors, []);
+});
+
+test('匯出彈窗：3× 讓長邊超過 8192 時停用下載並說明', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.click('#dzExportBtn');
+  await page.click('#dzExpScale button[data-v="3"]');
+  assert.equal(await page.textContent('#dzExpErr'), '');   // 1080×3 = 3240 沒超過
+  await page.click('#dzExpClose');
+  await page.evaluate(() => { const u = QPTDesign.ui, c = QPTDesign.core; u.state.history.run('改尺寸', d => c.setPageProps(d, u.state.pageId, { w: 4000, h: 1000 })); u.rerender(); });
+  await page.click('#dzExportBtn');
+  assert.match(await page.textContent('#dzExpErr'), /8192/);
+  assert.ok(await page.isDisabled('#dzExpGo'));
+  assert.deepEqual(errors, []);
+});
+
+test('匯出彈窗：Esc 關閉、開著時快捷鍵不作用、設定會記住', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await sampleDoc(page);
+  await page.evaluate(() => QPTDesign.ui.select([QPTDesign.ui.getDoc().pages[0].objects[0].id]));
+  const count = () => page.evaluate(() => QPTDesign.ui.getDoc().pages[0].objects.length);
+  const n = await count();
+  await openExport(page, { fmt: 'jpg', scale: 2 });
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Control+z');
+  assert.equal(await count(), n, '彈窗開著時 Delete／Ctrl+Z 不動文件');
+  await page.keyboard.press('Escape');
+  assert.ok(await page.isHidden('#dzExportDlg'));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'dzExportBtn', '焦點回到匯出按鈕');
+  await page.click('#dzExportBtn');
+  assert.ok(await page.isVisible('#dzExpQualityRow'), 'JPG 才顯示品質');
+  assert.equal(await page.getAttribute('#dzExpScale button[data-v="2"]', 'aria-pressed'), 'true');
+  await page.click('#dzExpCancel');
+  assert.ok(await page.isHidden('#dzExportDlg'));
+  assert.deepEqual(errors, []);
+});
+
+test('匯出彈窗：多頁預設一張一張下載，檔名結尾是頁碼；只有多頁才顯示「多頁時」', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await sampleDoc(page);
+  await page.click('#dzExportBtn');
+  assert.ok(await page.isHidden('#dzExpPackRow'), '目前頁只有一頁，不顯示多頁選項');
+  await page.click('#dzExpClose');
+  await page.click('#dzPageAdd');
+  await page.click('#dzPageAdd');
+  const go = await openExport(page, { range: 'custom', pages: '1, 3' });
+  assert.ok(await page.isVisible('#dzExpPackRow'));
+  assert.equal(await page.getAttribute('#dzExpPack button[data-v="each"]', 'aria-pressed'), 'true', '預設一張一張');
+  assert.equal(await page.textContent('#dzExpGo'), '下載 2 張');
+  await page.fill('#dzExpName', 'trip');
+  const names = [];
+  const got = new Promise(res => page.on('download', d => { names.push(d.suggestedFilename()); if (names.length === 2) res(); }));
+  await page.click(go);
+  await got;
+  assert.deepEqual(names, ['trip_01.png', 'trip_03.png']);
+  await page.waitForFunction(() => /已一張一張下載 2 頁/.test(document.getElementById('dzStatus').textContent));
+  assert.deepEqual(errors, []);
+});
+
+// =====================================================================================
+// 漸層填色、重新著色、弧形文字（規格 2026-10-30-design-paint-recolor-arc 第 4、5 節）
+// =====================================================================================
+// 改欄位的值並送出 input＋change（color、range、number 都適用）
+const setInput = (page, sel, v) => page.locator(sel).evaluate((el, v) => {
+  el.value = v;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}, String(v));
+const near = (a, b, tol = 24) => a.slice(0, 3).every((v, k) => Math.abs(v - b[k]) <= tol);
+const BLUE = [0x2f, 0x6f, 0xed];
+
+test('顏料編輯器：形狀改放射與線性，像素跟著變；復原一次回到純色；拉角度只記一筆', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const id = await add(page, 'shape:rect');
+  const o = await obj(page, id);
+  const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+  const P = { c: [cx, cy], tl: [o.x + 4, o.y + 4], top: [cx, o.y + 6], bottom: [cx, o.y + o.h - 6], left: [o.x + 6, cy], right: [o.x + o.w - 6, cy] };
+  const solidC = await px(page, ...P.c);
+  assert.ok(near(solidC, BLUE), '預設藍色 ' + solidC);
+  assert.ok(await page.isVisible('#dzF-fill-type'), '有純色／線性／放射切換');
+  assert.equal(await page.getAttribute('#dzF-fill-type button[data-v="solid"]', 'aria-pressed'), 'true');
+
+  // 放射：中心是原本的顏色、角落是終點色（預設白）
+  await page.click('#dzF-fill-type [data-v="radial"]');
+  await flush(page);
+  assert.deepEqual((await obj(page, id)).fill, { type: 'radial', from: '#2f6fed', to: '#ffffff', cx: 0.5, cy: 0.5, r: 1 });
+  assert.ok(near(await px(page, ...P.c), BLUE), '中心接近起點色');
+  const corner = await px(page, ...P.tl);
+  assert.ok(corner[0] > 200 && corner[1] > 200, '角落接近白 ' + corner);
+  for (const s of ['#dzF-fill-from', '#dzF-fill-to', '#dzF-fill-cx', '#dzF-fill-cy', '#dzF-fill-r']) assert.ok(await page.isVisible(s), s);
+  assert.equal(await page.isVisible('#dzF-fill-angle'), false, '放射沒有角度');
+  await page.click('#dzUndoBtn');
+  await flush(page);
+  assert.equal((await obj(page, id)).fill, '#2f6fed', '復原一次回到純色');
+  assert.deepEqual(await px(page, ...P.c), solidC);
+  assert.ok(await page.isVisible('#dzF-fill'), '面板也回到純色');
+
+  // 線性：預設 180°（上→下）
+  await page.click('#dzF-fill-type [data-v="linear"]');
+  await flush(page);
+  assert.deepEqual((await obj(page, id)).fill, { type: 'linear', from: '#2f6fed', to: '#ffffff', angle: 180 });
+  const top = await px(page, ...P.top), bottom = await px(page, ...P.bottom);
+  assert.ok(near(top, BLUE, 30) && bottom[0] > 200, `上 ${top} 下 ${bottom}`);
+  // 改終點色：整個 paint 物件一起寫回
+  await setInput(page, '#dzF-fill-to', '#ff0000');
+  assert.deepEqual((await obj(page, id)).fill, { type: 'linear', from: '#2f6fed', to: '#ff0000', angle: 180 });
+  // 拉角度滑桿：一次拖動只記一筆
+  const sl = page.locator('#dzF-fill-angle');
+  const b = await sl.boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(b.x + b.width / 2 - i * 12, b.y + b.height / 2);
+  await page.mouse.up();
+  const ang = (await obj(page, id)).fill.angle;
+  assert.ok(ang < 180, '角度 ' + ang);
+  await setInput(page, '#dzF-fill-angle', 90);
+  await flush(page);
+  const L = await px(page, ...P.left), Rt = await px(page, ...P.right);
+  assert.ok(near(L, BLUE, 30) && Rt[0] > 200 && Rt[2] < 80, `90° 左 ${L} 右 ${Rt}`);
+  await page.click('#dzUndoBtn');
+  assert.equal((await obj(page, id)).fill.angle, ang, '復原一次回到拖動後的角度');
+  await page.click('#dzUndoBtn');
+  assert.equal((await obj(page, id)).fill.angle, 180, '再一次回到拖動前（拖動只記一筆）');
+  // 切回純色：用起點色
+  await page.click('#dzF-fill-type [data-v="solid"]');
+  assert.equal((await obj(page, id)).fill, '#2f6fed');
+  assert.deepEqual(errors, []);
+});
+
+test('顏料編輯器：線與箭頭只有純色；漸層矩形改成線時填色變回純色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const id = await add(page, 'shape:rect');
+  await page.click('#dzF-fill-type [data-v="radial"]');
+  await page.selectOption('#dzF-kind', 'line');
+  const o = await obj(page, id);
+  assert.equal(o.kind, 'line');
+  assert.equal(o.fill, '#2f6fed');
+  assert.equal(await page.locator('#dzF-fill-type').count(), 0, '線沒有漸層切換');
+  const aid = await add(page, 'shape:arrow');
+  assert.ok(aid);
+  assert.equal(await page.locator('#dzF-fill-type').count(), 0, '箭頭沒有漸層切換');
+  assert.deepEqual(errors, []);
+});
+
+test('顏料編輯器：文字顏色可以改成線性漸層，描邊仍是純色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const id = await add(page, 'text');
+  assert.ok(await page.isVisible('#dzF-color-type'));
+  await page.click('#dzF-color-type [data-v="linear"]');
+  let o = await obj(page, id);
+  assert.deepEqual(o.color, { type: 'linear', from: '#111111', to: '#ffffff', angle: 180 });
+  await setInput(page, '#dzF-color-to', '#ff0000');
+  o = await obj(page, id);
+  assert.equal(o.color.to, '#ff0000');
+  assert.equal(typeof o.stroke.color, 'string');
+  assert.equal(await page.locator('#dzF-strokeColor-type').count(), 0, '描邊沒有漸層');
+  assert.deepEqual(errors, []);
+});
+
+test('背景：放射漸層，中心是起點色、角落是終點色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.click('#dzBgType [data-bg="solid"]');
+  await setInput(page, '#dzBgColor', '#ff0000');
+  await page.click('#dzBgType [data-bg="radial"]');
+  await flush(page);
+  const bg = (await curPage(page)).bg;
+  assert.deepEqual(bg, { type: 'radial', from: '#ff0000', to: '#ffffff', cx: 0.5, cy: 0.5, r: 1 });
+  const c = await px(page, 540, 540), k = await px(page, 4, 4);
+  assert.ok(c[0] > 240 && c[1] < 30, '中心紅 ' + c);
+  assert.ok(k[1] > 200, '角落接近白 ' + k);
+  await setInput(page, '#dzBgR', 50);
+  assert.equal((await curPage(page)).bg.r, 0.5);
+  await setInput(page, '#dzBgCx', 0);
+  assert.equal((await curPage(page)).bg.cx, 0);
+  // 放射 → 線性 保留兩端顏色
+  await page.click('#dzBgType [data-bg="gradient"]');
+  assert.deepEqual((await curPage(page)).bg, { type: 'gradient', from: '#ff0000', to: '#ffffff', angle: 180 });
+  await page.click('#dzBgType [data-bg="solid"]');
+  assert.deepEqual((await curPage(page)).bg, { type: 'solid', color: '#ff0000' });
+  assert.deepEqual(errors, []);
+});
+
+// 兩頁：第 1 頁底色 #ffeecc、紅色矩形、紅色橢圓、紅字、鎖定的紅色矩形；第 2 頁一個紅色矩形
+async function redDoc(page) {
+  await page.click('#dzBgType [data-bg="solid"]');
+  await setInput(page, '#dzBgColor', '#ffeecc');
+  await page.click('#dzPageAdd');
+  await page.evaluate(() => {
+    const U = QPTDesign.ui, C = QPTDesign.core, H = U.state.history, pid = U.state.pageId;
+    H.run('t', d => C.addObject(d, pid, { type: 'shape', kind: 'rect', x: 100, y: 100, w: 300, h: 300, fill: '#ff0000' }));
+  });
+  await page.click('#dzPages .dz-thumb >> nth=0');
+  await page.evaluate(() => {
+    const U = QPTDesign.ui, C = QPTDesign.core, H = U.state.history, pid = U.state.pageId;
+    H.run('t', d => C.addObject(d, pid, { type: 'shape', kind: 'rect', x: 100, y: 100, w: 300, h: 300, fill: '#ff0000' }));
+    H.run('t', d => C.addObject(d, pid, { type: 'shape', kind: 'ellipse', x: 600, y: 600, w: 300, h: 300, fill: 'rgba(255,0,0,0.5)' }));
+    H.run('t', d => C.addObject(d, pid, { type: 'text', text: '標題', x: 600, y: 100, w: 400, h: 100, color: '#ff0000' }));
+    H.run('t', d => C.addObject(d, pid, { type: 'shape', kind: 'rect', x: 100, y: 700, w: 200, h: 200, fill: '#ff0000', locked: true }));
+    U.select([]);
+    U.rerender();
+  });
+  await flush(page);
+}
+const swatchCount = (page, c) => page.locator(`#dzRecolor [data-color="${c}"] .dz-swatch-n`).textContent();
+
+test('配色：本頁換色一次換掉、鎖定的不改；Ctrl+Z 一次全部復原；全部頁也會換', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await redDoc(page);
+  assert.ok(await page.isVisible('#dzRecolor'), '沒選物件時有配色區');
+  assert.equal(await page.getAttribute('#dzRecolorScope button[data-v="page"]', 'aria-pressed'), 'true', '預設本頁');
+  assert.equal(await swatchCount(page, '#ff0000'), '4');
+  const before = await docJson(page);
+  const undoBefore = await page.evaluate(() => QPTDesign.ui.state.history.canUndo);
+
+  await page.focus('#dzRecolor [data-color="#ff0000"] input');
+  await setInput(page, '#dzRecolor [data-color="#ff0000"] input', '#00ff00');
+  await flush(page);
+  assert.match(await status(page), /已替換 3 處/);
+  assert.match(await status(page), /1 處在鎖定物件裡沒改/);
+  assert.deepEqual((await px(page, 250, 250)).slice(0, 3), [0, 255, 0]);
+  const e = await px(page, 750, 750);
+  assert.ok(e[1] > e[0] + 60, '半透明橢圓也變綠 ' + e);
+  assert.deepEqual((await px(page, 200, 800)).slice(0, 3), [255, 0, 0], '鎖定的不改');
+  const p1 = await curPage(page);
+  assert.equal(p1.objects[1].fill, 'rgba(0,255,0,0.5)', '保留透明度');
+  const d = await page.evaluate(() => QPTDesign.ui.getDoc().pages[1].objects[0].fill);
+  assert.equal(d, '#ff0000', '本頁模式不改第 2 頁');
+  // 色票重建
+  assert.equal(await swatchCount(page, '#00ff00'), '3');
+  assert.equal(await swatchCount(page, '#ff0000'), '1');
+
+  // 一次 Ctrl+Z 全部復原
+  await page.keyboard.press('Control+z');
+  await flush(page);
+  assert.equal(await docJson(page), before);
+  assert.deepEqual((await px(page, 250, 250)).slice(0, 3), [255, 0, 0]);
+  assert.equal(await swatchCount(page, '#ff0000'), '4', '復原後色票也更新');
+  assert.ok(undoBefore);
+
+  // 全部頁
+  await page.click('#dzRecolorScope [data-v="all"]');
+  assert.equal(await swatchCount(page, '#ff0000'), '5');
+  await setInput(page, '#dzRecolor [data-color="#ff0000"] input', '#0000ff');
+  assert.match(await status(page), /已替換 4 處/);
+  assert.equal(await page.evaluate(() => QPTDesign.ui.getDoc().pages[1].objects[0].fill), '#0000ff');
+  await page.click('#dzUndoBtn');
+  assert.equal(await docJson(page), before, '一次復原兩頁都回來');
+  assert.deepEqual(errors, []);
+});
+
+test('配色：超過 24 色只顯示 24 格並註明另有幾色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.evaluate(() => {
+    const U = QPTDesign.ui, C = QPTDesign.core, H = U.state.history, pid = U.state.pageId;
+    H.run('t', d => {
+      for (let i = 0; i < 30; i++) {
+        const r = C.addObject(d, pid, { type: 'shape', kind: 'rect', x: i * 30, y: 0, w: 20, h: 20, fill: '#' + (0x100000 + i * 4099).toString(16).slice(-6) });
+        if (!r.ok) return r;
+      }
+      return { ok: true };
+    });
+    U.select([]);
+    U.rerender();
+  });
+  await flush(page);
+  // 30 個形狀色＋背景白＝31 色（粗細 0 的描邊看不見，不算）
+  assert.equal(await page.locator('#dzRecolor .dz-swatch').count(), 24);
+  assert.match(await page.textContent('#dzRecolorMore'), /另有 7 色/);
+  assert.deepEqual(errors, []);
+});
+
+test('弧度：拉弧度後 h 改變、對齊停用；一次復原；數字欄位；匯出 PNG 和畫布一致', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const id = await add(page, 'text');
+  await page.evaluate(() => document.fonts.ready);
+  const h0 = (await obj(page, id)).h;
+  assert.equal(await page.textContent('#dzF-arcOut'), '不彎');
+  assert.equal(await page.locator('#dzF-align button:disabled').count(), 0);
+
+  // 拖滑桿：一筆
+  const sl = page.locator('#dzF-arc');
+  const b = await sl.boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(b.x + b.width / 2 + i * 8, b.y + b.height / 2);
+  await page.mouse.up();
+  const a1 = (await obj(page, id)).arc;
+  assert.ok(a1 > 0, 'arc ' + a1);
+  await page.click('#dzUndoBtn');
+  assert.equal((await obj(page, id)).arc, 0, '拖動只記一筆');
+  assert.equal((await obj(page, id)).h, h0);
+
+  await setInput(page, '#dzF-arcNum', 120);
+  await flush(page);
+  const o = await obj(page, id);
+  assert.equal(o.arc, 120);
+  assert.notEqual(o.h, h0, 'h 改變');
+  const want = await page.evaluate(id => { const f = QPTDesign.core.findObject(QPTDesign.ui.getDoc(), id); return QPTDesign.render.textHeight(f.obj, QPTDesign.fonts); }, id);
+  assert.ok(Math.abs(o.h - want) < 0.5, `h ${o.h} ≈ textHeight ${want}`);
+  assert.equal(await page.inputValue('#dzF-arc'), '120', '滑桿同步');
+  assert.equal(await page.textContent('#dzF-arcOut'), '上拱');
+  assert.equal(await page.locator('#dzF-align button:disabled').count(), 3, '對齊停用');
+  assert.match(await page.textContent('#dzF-arcNote'), /弧形文字固定置中/);
+  // 範圍限制
+  await setInput(page, '#dzF-arcNum', 999);
+  assert.equal((await obj(page, id)).arc, 360);
+  await setInput(page, '#dzF-arcNum', -90);
+  assert.equal((await obj(page, id)).arc, -90);
+  assert.equal(await page.textContent('#dzF-arcOut'), '下彎');
+  await setInput(page, '#dzF-arcNum', 120);
+  // 改字級也用 textHeight 更新 h
+  await setInput(page, '#dzF-size', 120);
+  const o2 = await obj(page, id);
+  const want2 = await page.evaluate(id => { const f = QPTDesign.core.findObject(QPTDesign.ui.getDoc(), id); return QPTDesign.render.textHeight(f.obj, QPTDesign.fonts); }, id);
+  assert.ok(Math.abs(o2.h - want2) < 0.5 && o2.h > o.h, `改字級後 h ${o2.h}`);
+
+  // 匯出 PNG 和畫布一致（把匯出圖縮到畫布大小，比較文字框範圍的平均差與「有字」像素數）
+  await page.evaluate(() => QPTDesign.ui.select([]));
+  await flush(page);
+  const { bytes } = await download(page, await openExport(page, { fmt: 'png', range: 'cur', scale: 1 }));
+  const cmp = await page.evaluate(async ([b64, box]) => {
+    const im = new Image(); im.src = 'data:image/png;base64,' + b64; await im.decode();
+    const cv = document.getElementById('dzCanvas'), k = cv.width / 1080;
+    const c2 = document.createElement('canvas'); c2.width = cv.width; c2.height = cv.height;
+    c2.getContext('2d').drawImage(im, 0, 0, c2.width, c2.height);
+    const sx = Math.floor(box.x * k), sy = Math.floor(box.y * k), sw = Math.ceil(box.w * k), sh = Math.ceil(box.h * k);
+    const a = cv.getContext('2d').getImageData(sx, sy, sw, sh).data, b = c2.getContext('2d').getImageData(sx, sy, sw, sh).data;
+    let diff = 0, inkA = 0, inkB = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      diff += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+      if (a[i] < 128) inkA++;
+      if (b[i] < 128) inkB++;
+    }
+    return { avg: diff / (a.length / 4) / 3, inkA, inkB };
+  }, [bytes.toString('base64'), o2]);
+  assert.ok(cmp.inkA > 50, '畫布有字 ' + cmp.inkA);
+  assert.ok(Math.abs(cmp.inkA - cmp.inkB) / cmp.inkA < 0.15, `有字像素：畫布 ${cmp.inkA}、匯出 ${cmp.inkB}`);
+  assert.ok(cmp.avg < 12, '平均差 ' + cmp.avg);
+  assert.deepEqual(errors, []);
+});
+
+test('專案檔存了再開：漸層與弧度都保留', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.click('#dzBgType [data-bg="radial"]');
+  const sid = await add(page, 'shape:rect');
+  await page.click('#dzF-fill-type [data-v="radial"]');
+  await setInput(page, '#dzF-fill-r', 60);
+  const tid = await add(page, 'text');
+  await page.click('#dzF-color-type [data-v="linear"]');
+  await setInput(page, '#dzF-arcNum', 120);
+  const docA = await docJson(page);
+  const { file } = await download(page, '#dzSaveBtn');
+  const saved = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qpt-dz-')), 'proj.json');
+  fs.copyFileSync(file, saved);
+  const b = await open(t);
+  await b.page.setInputFiles('#dzOpenFile', saved);
+  await b.page.waitForFunction(() => /已匯入/.test(document.getElementById('dzStatus').textContent));
+  assert.equal(await docJson(b.page), docA);
+  const s = await obj(b.page, sid), x = await obj(b.page, tid);
+  assert.equal(s.fill.type, 'radial'); assert.equal(s.fill.r, 0.6);
+  assert.equal(x.color.type, 'linear'); assert.equal(x.arc, 120);
+  assert.equal((await curPage(b.page)).bg.type, 'radial');
+  assert.deepEqual(errors, []);
+  assert.deepEqual(b.errors, []);
+});
+
+test('390×844 手機：顏料編輯器與配色區不會撐出水平捲軸', { skip }, async t => {
+  const { page, errors } = await open(t, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  await add(page, 'shape:rect');
+  await page.click('#dzF-fill-type [data-v="radial"]');
+  const m1 = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, r: document.getElementById('dzF-fill-r').getBoundingClientRect().right }));
+  assert.equal(m1.sw, m1.cw);
+  assert.ok(m1.r <= m1.cw, '半徑滑桿在畫面內');
+  await page.evaluate(() => QPTDesign.ui.select([]));
+  await redDoc(page);
+  const m2 = await page.evaluate(() => {
+    const p = document.getElementById('dzPanel').getBoundingClientRect();
+    const sw = [...document.querySelectorAll('#dzRecolor .dz-swatch')].map(e => e.getBoundingClientRect());
+    return { sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, inside: sw.every(r => r.left >= p.left && r.right <= p.right), n: sw.length, h: sw[0] && sw[0].height };
+  });
+  assert.equal(m2.sw, m2.cw);
+  assert.ok(m2.n > 0 && m2.inside, '色票在面板內');
+  assert.ok(m2.h >= 36, '色票夠大好點 ' + m2.h);
   assert.deepEqual(errors, []);
 });

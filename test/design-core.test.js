@@ -634,3 +634,238 @@ test('distribute 少於 3 個回 ok:false', () => {
   const b = add(doc, { type: 'shape', x: 300, y: 0 });
   unchanged(doc, () => core.distribute(doc, P(doc), [a, b], 'h'), /至少 3 個/);
 });
+
+// =====================================================================================
+// 漸層填色、重新著色、弧形文字（規格 2026-10-30-design-paint-recolor-arc）
+// =====================================================================================
+const LIN = { type: 'linear', from: '#ff0000', to: '#0000ff', angle: 90 };
+const RAD = { type: 'radial', from: '#ffffff', to: '#000000', cx: 0.5, cy: 0.5, r: 1 };
+
+test('paint：形狀填色接受純色、線性、放射漸層', () => {
+  const doc = core.createDoc();
+  const id = add(doc, { type: 'shape', fill: LIN });
+  assert.deepStrictEqual(O(doc, id).fill, LIN);
+  assert.ok(core.updateObjects(doc, P(doc), { id, fill: RAD }).ok);
+  assert.deepStrictEqual(O(doc, id).fill, RAD);
+  assert.ok(core.updateObjects(doc, P(doc), { id, fill: '#123456' }).ok);
+  assert.ok(core.updateObjects(doc, P(doc), { id, fill: { type: 'radial', from: '#fff', to: '#000' } }).ok, 'cx／cy／r 可省略（用預設）');
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('paint：不合法的形狀填色被擋下且文件不變', () => {
+  const doc = core.createDoc();
+  const id = add(doc, { type: 'shape' });
+  const bad = [
+    { type: 'conic', from: '#fff', to: '#000' },
+    { type: 'linear', from: '#fff', to: '#000' },                       // 少 angle
+    { type: 'linear', from: '#fff', to: '#000', angle: NaN },
+    { type: 'linear', from: '', to: '#000', angle: 0 },
+    { type: 'linear', from: 1, to: '#000', angle: 0 },
+    { type: 'radial', from: '#fff', to: '#000', cx: 1.5 },
+    { type: 'radial', from: '#fff', to: '#000', cy: -0.1 },
+    { type: 'radial', from: '#fff', to: '#000', r: 0.01 },
+    { type: 'radial', from: '#fff', to: '#000', r: 2.5 },
+    { type: 'radial', from: '#fff', to: '#000', r: 'x' },
+    [LIN], null, 5, '',
+  ];
+  for (const f of bad) unchanged(doc, () => core.updateObjects(doc, P(doc), { id, fill: f }));
+  unchanged(doc, () => core.addObject(doc, P(doc), { type: 'shape', fill: bad[0] }));
+});
+
+test('paint：文字顏色可用漸層，壞的被擋下', () => {
+  const doc = core.createDoc();
+  const id = add(doc, { type: 'text', color: LIN });
+  assert.ok(core.updateObjects(doc, P(doc), { id, color: RAD }).ok);
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id, color: { type: 'linear', from: '#fff', to: '#000', angle: Infinity } }));
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id, color: { type: 'radial', from: '#fff', to: '#000', r: 3 } }));
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id, color: {} }));
+});
+
+test('paint：stroke.color、shadow.color 仍須是純色字串', () => {
+  const doc = core.createDoc();
+  const t = add(doc, { type: 'text' });
+  const s = add(doc, { type: 'shape' });
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id: t, stroke: { color: LIN } }));
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id: t, shadow: { color: LIN } }));
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id: s, stroke: { color: RAD } }));
+  const line = add(doc, { type: 'shape', kind: 'line' });
+  unchanged(doc, () => core.updateObjects(doc, P(doc), { id: line, fill: LIN }), /填色/);
+});
+
+test('背景新增 radial，舊的 gradient 仍可用', () => {
+  const doc = core.createDoc();
+  const bgs = [RAD, { type: 'gradient', from: '#fff', to: '#000', angle: 180 }, { type: 'radial', from: '#fff', to: '#000' }];
+  for (const bg of bgs) assert.ok(core.setPageProps(doc, P(doc), { bg }).ok);
+  unchanged(doc, () => core.setPageProps(doc, P(doc), { bg: { type: 'radial', from: '#fff', to: '#000', r: 5 } }), /背景/);
+  unchanged(doc, () => core.setPageProps(doc, P(doc), { bg: { type: 'radial', from: '#fff', cx: 0.5 } }), /背景/);
+  unchanged(doc, () => core.setPageProps(doc, P(doc), { bg: { type: 'radial', from: '#fff', to: '#000', cx: 2 } }), /背景/);
+});
+
+test('migrate：舊檔純色原樣保留、文字補上 arc:0，新檔漸層保留', () => {
+  const old = { version: 1, pages: [{ id: 'p1', w: 100, h: 100, objects: [
+    { id: 'o1', type: 'text', x: 0, y: 0, w: 50, h: 50, text: 'a', color: '#abcdef' },
+    { id: 'o2', type: 'shape', x: 0, y: 0, w: 50, h: 50, fill: LIN },
+  ] }] };
+  const r = core.migrate(old);
+  assert.ok(r.ok, r.reason);
+  const objs = r.doc.pages[0].objects;
+  assert.strictEqual(objs[0].color, '#abcdef');
+  assert.strictEqual(objs[0].arc, 0);
+  assert.deepStrictEqual(objs[1].fill, LIN);
+  assert.strictEqual(r.doc.version, core.DOC_VERSION);
+  const bad = core.migrate({ version: 1, pages: [{ id: 'p1', w: 100, h: 100, objects: [{ id: 'o1', type: 'shape', x: 0, y: 0, w: 5, h: 5, fill: { type: 'x' } }] }] });
+  assert.strictEqual(bad.ok, false);
+  assert.match(bad.reason, /[一-鿿]/);
+});
+
+test('text.arc：預設 0，範圍 −360～360', () => {
+  assert.strictEqual(core.defaults('text').arc, 0);
+  const doc = core.createDoc();
+  const id = add(doc, { type: 'text' });
+  assert.strictEqual(O(doc, id).arc, 0);
+  for (const v of [360, -360, 0, 90.5, -1]) { assert.ok(core.updateObjects(doc, P(doc), { id, arc: v }).ok, String(v)); assert.strictEqual(O(doc, id).arc, v); }
+  for (const v of [361, -360.5, NaN, Infinity, '90', null]) {
+    unchanged(doc, () => core.updateObjects(doc, P(doc), { id, arc: v }), /弧/);
+  }
+});
+
+test('colorKey：解析 #rgb／#rrggbb／rgb()／rgba()，忽略透明度', () => {
+  assert.strictEqual(core.colorKey('#ABC'), '#aabbcc');
+  assert.strictEqual(core.colorKey('#2F6FED'), '#2f6fed');
+  assert.strictEqual(core.colorKey('rgb(255, 0, 16)'), '#ff0010');
+  assert.strictEqual(core.colorKey('rgba(0,0,0,0.5)'), '#000000');
+  assert.strictEqual(core.colorKey('rgba(0 , 128,255 ,1)'), '#0080ff');
+  assert.strictEqual(core.colorKey('  #fff '), '#ffffff');
+  for (const v of ['', 'red', 'none', 'transparent', '#12', '#12345', 'rgb(1,2)', 'rgb(300,0,0)', null, undefined, 5, {}]) assert.strictEqual(core.colorKey(v), null, String(v));
+});
+
+// 一份有各種顏色的文件
+function colorDoc() {
+  const doc = core.createDoc();
+  core.setPageProps(doc, 'p1', { bg: { type: 'gradient', from: '#ff0000', to: '#0000ff', angle: 0 } });
+  const ids = {};
+  ids.s1 = add(doc, { type: 'shape', fill: '#ff0000', stroke: { w: 2, color: '#000000' } });
+  ids.s2 = add(doc, { type: 'shape', fill: RAD, stroke: { w: 0, color: '#000000' } });
+  ids.t1 = add(doc, { type: 'text', color: 'rgba(255,0,0,0.5)', stroke: { w: 0, color: '#ffffff' }, shadow: { x: 1, y: 1, blur: 2, color: 'rgba(0,0,0,0.5)' } });
+  ids.t2 = add(doc, { type: 'text', color: LIN });
+  ids.img = null;
+  const r = core.addPage(doc);
+  ids.p2 = r.id;
+  ids.s3 = add(doc, { type: 'shape', fill: '#FF0000' }, r.id);
+  return { doc, ids };
+}
+
+test('docColors：全部頁計數，依次數多到少、同次數依色碼', () => {
+  const { doc } = colorDoc();
+  const all = core.docColors(doc);
+  const get = c => (all.find(x => x.color === c) || {}).count;
+  // 紅：p1 背景 from、s1 fill、t1 color、t2 LIN.from、s3 fill(大寫) ＝ 5
+  assert.strictEqual(get('#ff0000'), 5);
+  // 黑：s1 stroke（粗細 2）、s2 RAD.to、t1 shadow（有位移）＝ 3；粗細 0 的描邊與預設陰影看不見，不算
+  assert.strictEqual(get('#000000'), 3);
+  assert.strictEqual(get('#0000ff'), 2);   // 背景 to、LIN.to
+  for (let i = 1; i < all.length; i++) {
+    const a = all[i - 1], b = all[i];
+    assert.ok(a.count > b.count || (a.count === b.count && a.color < b.color), `排序 ${a.color}/${b.color}`);
+  }
+  for (const x of all) assert.match(x.color, /^#[0-9a-f]{6}$/);
+});
+
+test('docColors：pageId 只看該頁；隱藏與鎖定物件也算；看不懂的顏色略過', () => {
+  const { doc, ids } = colorDoc();
+  assert.deepStrictEqual(core.docColors(doc, { pageId: ids.p2 }).find(x => x.color === '#ff0000'), { color: '#ff0000', count: 1 });
+  const only2 = core.docColors(doc, { pageId: ids.p2 }).reduce((s, x) => s + x.count, 0);
+  const all = core.docColors(doc).reduce((s, x) => s + x.count, 0);
+  assert.ok(only2 < all);
+  core.updateObjects(doc, 'p1', [{ id: ids.s1, hidden: true }, { id: ids.t1, locked: true }]);
+  assert.strictEqual(core.docColors(doc, { pageId: 'p1' }).find(x => x.color === '#ff0000').count, 4);
+  core.updateObjects(doc, 'p1', { id: ids.s1, fill: 'none' });
+  assert.ok(!core.docColors(doc).some(x => x.color === 'none'));
+  assert.deepStrictEqual(core.docColors(doc, { pageId: 'nope' }), []);
+});
+
+test('recolor：換色並保留透明度，漸層兩端與背景都換', () => {
+  const { doc, ids } = colorDoc();
+  const r = core.recolor(doc, { '#FF0000': '#00ff00' });
+  assert.ok(r.ok, r.reason);
+  assert.ok(r.changed >= 5);
+  assert.strictEqual(r.skippedLocked, 0);
+  assert.strictEqual(O(doc, ids.s1).fill, '#00ff00');
+  assert.strictEqual(O(doc, ids.t1).color, 'rgba(0,255,0,0.5)');
+  assert.strictEqual(O(doc, ids.t2).color.from, '#00ff00');
+  assert.strictEqual(O(doc, ids.t2).color.to, '#0000ff');
+  assert.strictEqual(doc.pages[0].bg.from, '#00ff00');
+  assert.strictEqual(O(doc, ids.s3).fill, '#00ff00');
+  assert.strictEqual(core.validate(doc), null);
+  assert.ok(!core.docColors(doc).some(x => x.color === '#ff0000'));
+});
+
+test('recolor：rgba 的黑色換成紅色，alpha 不變', () => {
+  const { doc, ids } = colorDoc();
+  assert.ok(core.recolor(doc, { '#000000': '#ff0000' }).ok);
+  assert.strictEqual(O(doc, ids.t1).shadow.color, 'rgba(255,0,0,0.5)');
+  assert.strictEqual(O(doc, ids.s1).stroke.color, '#ff0000');
+});
+
+test('recolor：只換指定頁', () => {
+  const { doc, ids } = colorDoc();
+  const r = core.recolor(doc, { '#ff0000': '#00ff00' }, { pageId: ids.p2 });
+  assert.ok(r.ok);
+  assert.strictEqual(r.changed, 1);
+  assert.strictEqual(O(doc, ids.s3).fill, '#00ff00');
+  assert.strictEqual(O(doc, ids.s1).fill, '#ff0000');
+  assert.strictEqual(doc.pages[0].bg.from, '#ff0000');
+  unchanged(doc, () => core.recolor(doc, { '#ff0000': '#00ff00' }, { pageId: 'nope' }), /頁面/);
+});
+
+test('recolor：略過鎖定物件並回報數量，背景照換', () => {
+  const { doc, ids } = colorDoc();
+  core.updateObjects(doc, 'p1', [{ id: ids.s1, locked: true }, { id: ids.t2, locked: true }]);
+  const r = core.recolor(doc, { '#ff0000': '#00ff00' });
+  assert.ok(r.ok);
+  assert.strictEqual(O(doc, ids.s1).fill, '#ff0000');
+  assert.strictEqual(O(doc, ids.t2).color.from, '#ff0000');
+  assert.strictEqual(O(doc, ids.t1).color, 'rgba(0,255,0,0.5)');
+  assert.strictEqual(doc.pages[0].bg.from, '#00ff00');
+  assert.strictEqual(r.skippedLocked, 2);
+});
+
+test('recolor：沒有可換的顏色回 changed:0，文件不變', () => {
+  const { doc } = colorDoc();
+  const before = core.serialize(doc);
+  const r = core.recolor(doc, { '#123456': '#654321' });
+  assert.deepStrictEqual({ ok: r.ok, changed: r.changed }, { ok: true, changed: 0 });
+  assert.strictEqual(core.serialize(doc), before);
+  assert.deepStrictEqual(core.recolor(doc, {}).changed, 0);
+});
+
+test('recolor：map 有壞色碼時全有或全無，回中文原因', () => {
+  const { doc } = colorDoc();
+  unchanged(doc, () => core.recolor(doc, { '#ff0000': '#00ff00', '#0000ff': 'banana' }), /顏色/);
+  unchanged(doc, () => core.recolor(doc, { 'red': '#00ff00' }), /顏色/);
+  unchanged(doc, () => core.recolor(doc, null), /顏色/);
+  unchanged(doc, () => core.recolor(doc, [['#ff0000', '#00ff00']]), /顏色/);
+});
+
+test('recolor：復原一次就全部回來（交給 history.run 包起來）', () => {
+  const { state, h } = withHistory();
+  state.doc = colorDoc().doc;
+  const before = core.serialize(state.doc);
+  const r = h.run('換色', d => core.recolor(d, { '#ff0000': '#00ff00' }));
+  assert.ok(r.ok && r.changed > 0);
+  assert.notStrictEqual(core.serialize(state.doc), before);
+  assert.ok(h.undo());
+  assert.strictEqual(core.serialize(state.doc), before);
+});
+
+test('docColors／recolor：粗細 0 的描邊、沒有位移與模糊的陰影不列也不換', () => {
+  const doc = core.createDoc();
+  const pid = doc.pages[0].id;
+  assert.ok(core.addObject(doc, pid, { type: 'text', color: '#ff0000' }).ok);   // 預設描邊 0、陰影 0
+  assert.ok(core.addObject(doc, pid, { type: 'shape', kind: 'rect', fill: '#00ff00', stroke: { w: 4, color: '#0000ff' } }).ok);
+  const colors = core.docColors(doc).map(c => c.color).sort();
+  assert.deepEqual(colors, ['#0000ff', '#00ff00', '#ff0000', '#ffffff']);
+  const r = core.recolor(doc, { '#000000': '#123456' });
+  assert.equal(r.ok, true);
+  assert.equal(r.changed, 0, '看不見的黑色描邊與陰影不會被換');
+});
