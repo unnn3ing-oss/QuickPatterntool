@@ -55,6 +55,8 @@ h1.topbar-title {
 .wm-corners button:nth-child(3) svg { transform: rotate(270deg); }   /* ↙ */
 .wm-corners button:hover:not(.active) { color: var(--accent); }
 .wm-corners button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.wm-corners button.auto-pick { border-color: var(--accent); border-style: dashed; color: var(--accent); }   /* 自動模式下這張挑到的角 */
+.wm-corners .wm-auto { grid-column: 1 / -1; height: 40px; align-self: center; font-size: 13px; font-weight: 600; color: var(--muted); }
 #watermarkApp label { display: flex; justify-content: space-between; align-items: baseline; }
 #watermarkApp output { font-weight: 600; color: var(--accent); font-size: 14px; }
 #watermarkApp input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }

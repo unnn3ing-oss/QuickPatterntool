@@ -171,6 +171,7 @@
             <button type="button" data-px="1" data-py="0" aria-label="右上"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 18 7 7M7 15.5V7h8.5"/></svg></button>
             <button type="button" data-px="0" data-py="1" aria-label="左下"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 18 7 7M7 15.5V7h8.5"/></svg></button>
             <button type="button" data-px="1" data-py="1" aria-label="右下"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 18 7 7M7 15.5V7h8.5"/></svg></button>
+            <button type="button" id="wmAutoBtn" class="wm-auto" title="每張照片各自把浮水印放在四個角裡最暗的地方">自動（最暗的角）</button>
           </div>
           <div class="hint" id="wmPosHint"></div>
         </div>
@@ -535,8 +536,8 @@
       <h3>浮水印</h3>
       <ul>
         <li>把照片拖到左上角的區域（或點擊選取、Ctrl+V 貼上），<b>可以一次放多張</b>；多張時預覽下方會出現展示窗，點一張就能預覽，也能按 ✕ 移除。</li>
-        <li>預設在右上角疊上新版 TVBS NEWS Logo（大小 13%、邊距 3%、不透明）；「浮水印圖」可以切換成舊版「新聞網」Logo，或自己上傳的圖（建議用背景透明的 PNG 或 SVG）。</li>
-        <li>位置只有四個角（左上、右上、左下、右下）。<b>在預覽上直接拖曳 Logo（抓的範圍比 Logo 大）只會改目前這一張</b>，它會吸附到最近的角；<b>按左側的位置鈕則是全部照片一起改</b>，如果有照片已經單獨調整過，會先問你要不要全部改掉。「大小」「透明度」「邊距」套用到所有照片。</li>
+        <li>預設<b>自動把 Logo 放在每張照片四個角裡最暗的地方</b>（每張各自判斷，幾乎一樣暗時放右上角），疊上新版 TVBS NEWS Logo（大小 13%、邊距 3%、不透明）；「浮水印圖」可以切換成舊版「新聞網」Logo，或自己上傳的圖（建議用背景透明的 PNG 或 SVG）。</li>
+        <li>位置只有四個角（左上、右上、左下、右下）。<b>在預覽上直接拖曳 Logo（抓的範圍比 Logo 大）只會改目前這一張</b>，它會吸附到最近的角；<b>按左側的位置鈕則是全部照片一起改</b>（按四個角＝全部放同一角，按「自動（最暗的角）」＝回到每張各自判斷），如果有照片已經單獨調整過，會先問你要不要全部改掉。「大小」「透明度」「邊距」套用到所有照片。</li>
         <li>下載的檔案維持原圖尺寸，格式可「沿用原圖」或指定 JPG（品質 95%）／PNG，檔名是「原檔名_浮水印」。「下載本張」維持原檔名；「全部下載」的檔名是「YYMMDDHHMM_第幾張」（例如 2610122312_1，時間是按下按鈕那一刻的，每張間隔 0.5～1 秒），瀏覽器第一次可能會詢問是否允許下載多個檔案。</li>
       </ul>
       <h3>拼圖</h3>
