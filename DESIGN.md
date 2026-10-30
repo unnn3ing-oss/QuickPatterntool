@@ -296,3 +296,29 @@
 - 瀏覽器要開著、電腦不能休眠；Facebook 要已登入且已切換成粉專身分。
 - 自動操作介面不是 Facebook 官方方式，有被判定為自動化行為的風險；粉專官方排程（Meta Business Suite）不用開瀏覽器，是更穩的替代方案。
 - 模擬頁面只驗證「流程邏輯」，不代表真實 Facebook 的元素與文字一定吻合。
+
+## 11. 設計（網頁版，`design-*.js`）
+
+檔案：`design-core.js`（文件模型、編輯操作、復原、幾何與吸附，純函式）、`design-fonts.js`（字型註冊表與載入器）、`design-render.js`（畫布渲染，預覽與匯出共用）、`design-export.js`（PNG `pHYs`、ZIP 寫入器、專案檔）、`design-ui.js`（互動與畫面）、`design.css`（樣式）。全部只在網頁版使用，外掛更新時會略過（`SKIP` 的 `design(-[a-z]+)?\.(js|css)` 規則）。
+
+### 為什麼這樣切
+- 核心邏輯（文件、編輯、復原、吸附）都是不碰 DOM 的純函式，所以能直接用 `node --test` 測，不必開瀏覽器；畫面與互動只負責把滑鼠事件轉成核心的呼叫。
+- 渲染只有一個函式 `render`，預覽與匯出都呼叫它，所見即所得，不會出現預覽正常、匯出卻換了字型或位置的情況。
+- 這組檔案彼此不依賴主工具，日後要獨立成網站時，可以整批搬走（清單見規格第 4.2 節），不必拆開共用的程式。
+
+### 接縫（和主工具的連接點）
+- 只碰到兩個既有檔案：`watermark.js` 的 `apps`／`funcBtns` 表多一個「設計」項目，`index.html` 多一顆分頁按鈕與容器 `#designApp`。
+- `design-*` 不引用 `app.js`、`stickers.js`、`watermark.js`。PNG 的 `pHYs` 與 CRC-32、ZIP 寫入器各自寫一份，貼圖只讀 `stickers/<id>.png` 檔案。
+- 字型 `WHZ-Heavy` 靠 `style.css` 的 `@font-face`，獨立成站時要自帶這份 `@font-face` 與 `whz-heavy.ttf`。
+- 實作中定下的事實：貼圖物件的貼圖名稱放在 `sticker` 欄位，`id` 只是物件自己的 id，兩者不能共用。匯入專案時，資產 id 若和目前的撞到會改名（連同物件引用一起改），資產只增不減，避免復原後舊物件拿到錯的圖。
+- `index.html` 的 CSP 為 Google Fonts 放寬：`style-src` 加 `https://fonts.googleapis.com`、`font-src` 加 `https://fonts.gstatic.com`，其他連線範圍不變。
+
+### 字型載入策略
+- 選用才下載：`WHZ-Heavy` 與系統黑體不發請求；思源宋體（Google Fonts）與仙人掌明體（`fonts/cactus-classical-serif.woff2`）只在選到或文件用到時才載入，沒用到的完全不發請求。
+- Google Fonts 會依 `unicode-range` 分片，只抓用到的字。樣式表在第一次需要時才動態插入頁面，並且等樣式表載好才呼叫 `document.fonts.load`；文字出現新字時用 `ensureText` 只補新字的分片。
+- 匯出前一律 `await ready(doc)`，最多等 10 秒；超時就以備用字型繼續匯出（`ready` 回 `false`），不會因為字型而卡住匯出。字型失敗時維持備用字型，不阻擋編輯與匯出。
+
+### 馬賽克規則
+- 馬賽克作用在它下方的所有圖層：渲染時讀取目前畫布上已畫好的像素，所以放在照片、文字、形狀上面都會糊到底下的東西，不會只糊照片。
+- 方塊大小為短邊÷5，但至少 14px；每格取真實平均色（`getImageData`）。
+- 畫布若被污染、讀不到像素，就改用灰色（`#808080`）蓋住，避免匯出時露出原圖，也不會因此整張失敗。

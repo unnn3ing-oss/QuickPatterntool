@@ -15,8 +15,8 @@
   $('modeBatchBtn').click();
 
   // ---- 功能切換 ------------------------------------------------------------------
-  const apps = { layout: layoutApp, watermark: wmApp, collage: $('collageApp'), resize: $('resizeApp'), edit: $('editApp') };
-  const funcBtns = { layout: $('funcLayoutBtn'), watermark: $('funcWatermarkBtn'), collage: $('funcCollageBtn'), resize: $('funcResizeBtn'), edit: $('funcEditBtn') };
+  const apps = { layout: layoutApp, watermark: wmApp, collage: $('collageApp'), resize: $('resizeApp'), design: $('designApp'), edit: $('editApp') };
+  const funcBtns = { layout: $('funcLayoutBtn'), watermark: $('funcWatermarkBtn'), collage: $('funcCollageBtn'), resize: $('funcResizeBtn'), design: $('funcDesignBtn'), edit: $('funcEditBtn') };
   function setFunc(name) {
     for (const [key, el] of Object.entries(apps)) if (el) el.hidden = key !== name;
     for (const [key, btn] of Object.entries(funcBtns)) {

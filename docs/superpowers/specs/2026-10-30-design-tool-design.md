@@ -32,7 +32,7 @@
 | 字重 | Noto Serif TC 提供一般（400）與粗體（700）［決定］ |
 | 仙人掌明體 | 列入字型選單，選用才下載（自架 `fonts/cactus-classical-serif.woff2`，約 10MB）［決定］ |
 | 專案檔內嵌圖片 | 縮到最長邊 2048px［決定］ |
-| 規格書是否推上 repo | 先不推，留在工作區［決定］ |
+| 規格書是否推上 repo | 隨設計功能第一次上線（7.40）一起推，`docs/` 加入 `SKIP`［決定，方案 A］ |
 
 ## 3. 功能範圍
 
@@ -167,7 +167,7 @@ bg   { type: 'solid', color } | { type: 'gradient', from, to, angle } | { type: 
 ## 11. CSP、版號與更新清單
 
 - **`index.html` 的 CSP** 需放寬：`style-src` 加 `https://fonts.googleapis.com`、`font-src` 加 `https://fonts.gstatic.com`；`index.html` 是網頁版專用檔，不升版［事實：CLAUDE.md］。另外專案檔匯入用 `<input type=file>` 與 `FileReader`，不需要 `connect-src`。
-- **`updater.js` 與 `deploy.js` 的 `SKIP` 兩邊一致**新增規則 `/^design(-[a-z]+)?\.(js|css)$/`，日後新增 `design-*` 檔不必再改。這次動到 `updater.js`，所以**第一次上線要升個位數版號**（`7.30` → `7.31`），並同步 `changelog.json`（繁中一筆）與 `test/manifest.test.js` 寫死的版本號；之後只改 `design-*` 與其他網頁版專用檔就不升版。
+- **`updater.js` 與 `deploy.js` 的 `SKIP` 兩邊一致**新增規則 `/^design(-[a-z]+)?\.(js|css)$/`，日後新增 `design-*` 檔不必再改。這次動到 `updater.js`，所以第一次上線要升版；因為是新增主要功能，使用者決定升十位數（`7.30` → `7.40`），並同步 `changelog.json`（繁中一筆）與 `test/manifest.test.js` 寫死的版本號；之後只改 `design-*` 與其他網頁版專用檔就不升版。
 - **`docs/` 目錄**不在目前的網頁版專用清單內。使用者決定規格先不推；日後若要推，需把 `docs/` 一併加入 `SKIP`（併入上面那次升版）。見第 14 節。
 - 仙人掌明體 woff2 在 `fonts/`，而 `fonts/` **已經在** `updater.js` 與 `deploy.js` 的 `SKIP` 內（`/^fonts\//`）［事實，已確認］，所以外掛更新不會下載這個 10MB 檔，不需要額外處理。
 
@@ -188,5 +188,5 @@ bg   { type: 'solid', color } | { type: 'gradient', from, to, angle } | { type: 
 
 | 項目 | 目前狀態 |
 |---|---|
-| 本規格檔是否進 repo | 使用者決定先不推；`docs/` 暫不加入 `SKIP`，等設計功能第一次上線再一併決定 |
+| 本規格檔是否進 repo | 已決定：隨 7.40 上線，`docs/` 已加入 `SKIP` |
 | P1 項目 | 整體完成後各自另開規格 |

@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- 內容安全政策：只允許本站的腳本；網路只連 GitHub（安裝插件功能用）；沒有任何第三方資源。
+<!-- 內容安全政策：只允許本站的腳本；網路只連 GitHub（安裝插件功能用）。
+     唯一的第三方資源是「設計」分頁的思源宋體（Google Fonts）：選到這個字型時才會載入樣式表與字型檔。
      style-src 保留 unsafe-inline 是因為頁面裡有 style="…" 屬性。 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src https://api.github.com https://raw.githubusercontent.com https://qpt-article-proxy.19jpz-3.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' https://fonts.gstatic.com; connect-src https://api.github.com https://raw.githubusercontent.com https://qpt-article-proxy.19jpz-3.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>圖片套版產生器</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -22,6 +23,7 @@
 <link rel="stylesheet" href="sched.css">
 <link rel="stylesheet" href="schedweb.css">
 <link rel="stylesheet" href="qfweb.css">
+<link rel="stylesheet" href="design.css">
 </head>
 <body>
 <!-- 上排：名稱靠左、中間切換功能（圖片套版／浮水印／拼圖）、右側說明與安裝插件按鈕 -->
@@ -33,6 +35,7 @@
       <button type="button" class="func-btn" id="funcWatermarkBtn" aria-pressed="false">浮水印</button>
       <button type="button" class="func-btn" id="funcCollageBtn" aria-pressed="false">拼圖</button>
       <button type="button" class="func-btn" id="funcResizeBtn" aria-pressed="false">尺寸</button>
+      <button type="button" class="func-btn" id="funcDesignBtn" aria-pressed="false">設計</button>
       <button type="button" class="func-btn" id="funcEditBtn" aria-pressed="false">剪輯</button>
     </div>
     <div class="topbar-actions">
@@ -284,6 +287,9 @@
       <div class="hint preview-hint">點一格選取，拖曳照片調整位置，<span class="hint-desk">滑鼠停在格子上滾動滾輪可放大縮小；</span><span class="hint-touch">用上面的「照片縮放」滑桿放大縮小；</span>雙擊格子可以換照片，也能把照片直接拖到格子上。等分時拖曳格子之間的分隔線調整比例；自由框時可以拉出、移動、縮放每一個框。</div>
     </div>
   </div>
+
+  <!-- 設計（網頁版專用，平面設計）：內容由 design-ui.js 在載入時建立；程式在 design-*.js、樣式在 design.css，不引用主工具的程式。 -->
+  <section class="dz" id="designApp" aria-label="平面設計" hidden></section>
 
   <!-- 剪輯：原本的剪輯工具已獨立成專屬網站 QuickCut（https://unnn3ing-oss.github.io/quickcut/），這個分頁只放「搬家說明＋功能介紹」，
        介紹是自動輪播的 4 則功能（版型與示意動畫沿用「安裝插件」全螢幕教學的 deploy.css .ds-*；輪播邏輯在 deploy.js 的 qcIntro），右下角是前往 QuickCut 的連結。
@@ -1042,5 +1048,10 @@
 <script src="quickfill.js"></script>
 <script src="qfweb.js"></script>
 <script src="stickers.js"></script>
+<script src="design-core.js"></script>
+<script src="design-fonts.js"></script>
+<script src="design-render.js"></script>
+<script src="design-export.js"></script>
+<script src="design-ui.js"></script>
 </body>
 </html>

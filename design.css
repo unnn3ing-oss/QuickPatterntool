@@ -1,0 +1,199 @@
+/* =====================================================================================
+   設計分頁（網頁版專用，design-ui.js）：左工具列、中間畫布舞台＋頁面列、右屬性面板。
+   沿用 style.css 的 CSS 變數與按鈕樣式（不改 style.css）；手機（≤820px）收成單欄、畫布在最上面。
+   ===================================================================================== */
+.dz {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+.dz[hidden] { display: none; }
+.dz button { font-size: 13px; padding: 7px 12px; }
+
+/* ---- 左：工具列 ---- */
+.dz-tools {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 10px 8px; border-radius: 22px;
+  background: var(--card-bg); border: 1px solid rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(18px) saturate(1.2); box-shadow: var(--shadow);
+  position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: none;
+}
+.dz-tools::-webkit-scrollbar { display: none; }
+.dz-tool {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 7px 4px !important; border-radius: 14px !important; border: 1px solid transparent; background: transparent;
+  font-size: 12px !important; font-weight: 600; color: var(--text); line-height: 1.2;
+}
+.dz-tool:hover:not(:disabled) { background: var(--accent-soft); border-color: rgba(0, 74, 173, 0.25); color: var(--accent); }
+.dz-tool svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.dz-sticker { padding: 4px !important; }
+.dz-sticker img { width: 40px; height: 40px; object-fit: contain; display: block; pointer-events: none; }
+.dz-tool-label { font-size: 11px; color: var(--muted); text-align: center; margin-top: 6px; letter-spacing: .05em; }
+
+/* ---- 中：檢視列、舞台、頁面列 ---- */
+.dz-main { min-width: 0; }
+.dz-viewbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.dz-group {
+  display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 999px;
+  background: rgba(0, 74, 173, 0.06);
+}
+.dz-group button { border: none; background: transparent; box-shadow: none; }
+.dz-group button:hover:not(:disabled) { background: var(--field-bg); color: var(--accent); }
+.dz-group .dz-sq { width: 34px; padding: 7px 0; font-size: 16px; line-height: 1; }
+#dzZoomOut { min-width: 52px; text-align: center; font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.dz-stage {
+  position: relative; overflow: hidden;
+  height: max(420px, calc(100vh - 300px));
+  border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.95);
+  background:
+    linear-gradient(45deg, rgba(0, 74, 173, 0.035) 25%, transparent 25%, transparent 75%, rgba(0, 74, 173, 0.035) 75%) 0 0 / 24px 24px,
+    linear-gradient(45deg, rgba(0, 74, 173, 0.035) 25%, transparent 25%, transparent 75%, rgba(0, 74, 173, 0.035) 75%) 12px 12px / 24px 24px,
+    rgba(255, 255, 255, 0.5);
+  box-shadow: var(--shadow);
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  outline: none;
+}
+.dz-stage.drag { box-shadow: 0 0 0 3px rgba(0, 74, 173, 0.35), var(--shadow); }
+.dz-stage.dz-panning { cursor: grab; }
+.dz-stage.dz-grabbing { cursor: grabbing; }
+/* style.css 對所有 canvas 設了 max-width／圓角／陰影，這裡的畫布要照縮放比例原樣顯示 */
+.dz-stage canvas {
+  position: absolute; left: 0; top: 0; transform-origin: 0 0;
+  max-width: none; border-radius: 0; box-shadow: 0 18px 40px -22px rgba(0, 30, 70, 0.55);
+}
+
+/* 蓋在畫布上的 DOM（不會輸出） */
+.dz-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.dz-sel, .dz-group-box { position: absolute; box-sizing: border-box; pointer-events: none; transform-origin: 50% 50%; }
+.dz-sel { outline: 1.5px solid var(--accent); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7); }
+.dz-sel.locked { outline: 1.5px dashed #d97706; }
+.dz-sel.is-hidden { outline-style: dotted; }
+.dz-group-box { outline: 1px dashed var(--accent); outline-offset: 4px; }
+.dz-lock { position: absolute; top: -12px; right: -12px; font-size: 14px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
+.dz-handle {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; box-sizing: border-box;
+  border-radius: 3px; border: 1.5px solid var(--accent); background: #fff; pointer-events: auto; touch-action: none;
+}
+.dz-rot {
+  position: absolute; left: 50%; top: -34px; width: 16px; height: 16px; margin-left: -8px; box-sizing: border-box;
+  border-radius: 50%; border: 1.5px solid var(--accent); background: #fff; cursor: grab; pointer-events: auto; touch-action: none;
+}
+.dz-rot::after { content: ""; position: absolute; left: 50%; top: 14px; width: 1.5px; height: 20px; margin-left: -0.75px; background: var(--accent); }
+.dz-guide { position: absolute; background: #ff2d75; pointer-events: none; }
+.dz-guide[data-axis="x"] { top: 0; bottom: 0; width: 1px; }
+.dz-guide[data-axis="y"] { left: 0; right: 0; height: 1px; }
+.dz-marquee { position: absolute; border: 1px dashed var(--accent); background: rgba(0, 74, 173, 0.08); pointer-events: none; }
+
+/* 文字編輯框：字型、字級、行高由 design-ui.js 依畫布設定（inline style） */
+.dz .dz-text-edit {
+  position: absolute; z-index: 3; box-sizing: border-box; margin: 0; padding: 0; min-height: 0;
+  border: none; border-radius: 0; background: transparent; box-shadow: none;
+  outline: 1.5px dashed var(--accent); outline-offset: 2px;
+  resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all;
+  caret-color: var(--accent);
+}
+.dz .dz-text-edit:focus { box-shadow: none; }
+
+/* 頁面列 */
+.dz-pagebar { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.dz-pages {
+  display: flex; gap: 8px; overflow-x: auto; flex: 1 1 260px; min-width: 0;
+  padding: 6px 4px 8px; scrollbar-width: thin;
+}
+.dz-thumb {
+  position: relative; flex: 0 0 auto; padding: 4px !important; border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.7); border: 2px solid transparent; line-height: 0; cursor: pointer;
+}
+.dz-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 74, 173, 0.12); }
+.dz-thumb canvas { max-width: none; border-radius: 6px; box-shadow: 0 2px 8px -4px rgba(0, 30, 70, 0.5); display: block; }
+.dz-thumb span {
+  position: absolute; left: 6px; bottom: 6px; min-width: 18px; padding: 2px 5px; border-radius: 999px;
+  background: rgba(31, 42, 61, 0.75); color: #fff; font-size: 11px; line-height: 1.2; text-align: center;
+}
+.dz-page-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.dz-status { min-height: 1.4em; margin-top: 8px; font-size: 14px; color: var(--text); text-align: center; }
+.dz-status.err { color: #c62828; font-weight: 600; }
+.dz-hint { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--muted); text-align: center; }
+.dz-touch { display: none; }
+@media (hover: none) {
+  .dz-desk { display: none; }
+  .dz-touch { display: inline; }
+}
+
+/* ---- 右：屬性面板 ---- */
+.dz-panel {
+  border-radius: 22px; padding: 14px 14px 18px;
+  background: var(--card-bg); border: 1px solid rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(18px) saturate(1.2); box-shadow: var(--shadow);
+  position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: thin;
+}
+.dz-sec { padding: 10px 2px 12px; border-bottom: 1px solid var(--border); }
+.dz-sec:last-child { border-bottom: none; }
+.dz-sec h3 { margin: 0 0 8px; font-size: 14px; color: #22324d; }
+.dz-sec h4 { margin: 10px 0 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.dz-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.dz-lbl { flex: 0 0 64px; font-size: 13px; color: var(--text); }
+.dz-ctl { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.dz-ctl > input[type="number"] { width: 100%; min-width: 0; }
+.dz-ctl > input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+.dz-ctl > select, .dz-ctl > textarea { width: 100%; min-width: 0; }
+.dz-panel input[type="number"], .dz-panel select {
+  font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--field-bg); color: var(--text);
+}
+.dz-panel input[type="color"] { width: 44px; height: 30px; padding: 2px; border-radius: 8px; border: 1px solid var(--border); background: var(--field-bg); cursor: pointer; }
+.dz-panel textarea { min-height: 64px; font-size: 14px; line-height: 1.5; padding: 8px 10px; }
+.dz-panel input:disabled, .dz-panel select:disabled, .dz-panel textarea:disabled { opacity: .55; cursor: not-allowed; }
+.dz-out { flex: 0 0 44px; font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.dz-unit { font-size: 12px; color: var(--muted); }
+.dz-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.dz-grid2 .dz-lbl { flex-basis: 30px; }
+.dz-toggle { width: 100%; margin: 0; }
+.dz-toggle button { font-size: 13px !important; padding: 6px 4px !important; }
+.dz-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.dz-btns > button { flex: 1 1 auto; }
+.dz-icon-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.dz-icon-row button { flex: 1 1 30%; padding: 6px 4px; font-size: 12px; }
+.dz-checks { display: flex; gap: 16px; margin: 10px 0 2px; }
+.dz-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 0; cursor: pointer; }
+.dz-check input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.dz-note { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.dz-note:empty { display: none; }
+.dz-note.err { color: #c62828; }
+.dz-locked-note { margin: 4px 0 6px; padding: 8px 10px; border-radius: 12px; background: #fff7e6; color: #8a4b00; font-size: 12px; line-height: 1.5; }
+.dz-danger { color: #c62828; }
+.dz-danger:hover:not(:disabled) { border-color: rgba(198, 40, 40, 0.5) !important; }
+.dz-sticker-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.dz-sticker-pick button { padding: 4px !important; border-radius: 12px !important; }
+.dz-sticker-pick button.active { border-color: var(--accent); background: var(--accent-soft); }
+.dz-sticker-pick img { width: 100%; height: 40px; object-fit: contain; display: block; pointer-events: none; }
+.dz-export h3 { margin-bottom: 4px; }
+
+/* ---- 窄一點的桌機：面板縮窄 ---- */
+@media (max-width: 1100px) {
+  .dz { grid-template-columns: 84px minmax(0, 1fr) 260px; gap: 14px; }
+}
+
+/* ---- 手機（≤820px）：單欄，畫布在最上面，工具列橫向捲動，屬性面板在畫布下方 ---- */
+@media (max-width: 820px) {
+  .dz { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .dz-main { order: 1; }
+  .dz-tools {
+    order: 2; position: static; max-height: none;
+    flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    padding: 8px; border-radius: 18px;
+  }
+  .dz-tool { flex: 0 0 auto; min-width: 56px; }
+  .dz-tool-label { flex: 0 0 auto; margin: 0 2px; writing-mode: vertical-rl; letter-spacing: .1em; }
+  .dz-panel { order: 3; position: static; max-height: none; overflow: visible; }
+  .dz-stage { height: min(68vh, 440px); border-radius: 18px; }
+  .dz-viewbar { gap: 6px; }
+  .dz-group button { padding: 8px 10px; }
+  .dz-handle { width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; }
+  .dz-rot { width: 24px; height: 24px; margin-left: -12px; top: -42px; }
+  .dz-rot::after { top: 22px; height: 18px; }
+  .dz-lbl { flex-basis: 72px; font-size: 14px; }
+  .dz-pagebar { gap: 8px; }
+}

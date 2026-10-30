@@ -7,8 +7,8 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const manifest = JSON.parse(read('manifest.json'));
 const changelog = JSON.parse(read('changelog.json'));
 
-test('manifest 版本是 7.30', () => {
-  assert.strictEqual(manifest.version, '7.30');
+test('manifest 版本是 7.40', () => {
+  assert.strictEqual(manifest.version, '7.40');
 });
 
 test('content_scripts 只注入熱門新聞庫、Facebook（粉專排程）與網頁版（排程橋接）', () => {
@@ -89,6 +89,14 @@ test('deploy.js 的 SKIP 與 updater.js 一致（都略過 test/）', () => {
     return new Function('return [' + m[1] + ']')().map(String);
   };
   assert.deepStrictEqual(get('deploy.js'), get('updater.js'));
+});
+
+test('updater SKIP 會略過網頁版「設計」分頁的檔案（design-core.js、design.css、docs/）但不略過 app.js', () => {
+  const m = read('updater.js').match(/const SKIP = \[([\s\S]*?)\];/);
+  const skip = new Function('return [' + m[1] + ']')();
+  const skipped = p => skip.some(re => re.test(p));
+  for (const f of ['design-core.js', 'design.css', 'docs/x.md']) assert.strictEqual(skipped(f), true, f);
+  assert.strictEqual(skipped('app.js'), false);
 });
 
 test('updater SKIP 會略過網頁版剪輯檔案（edit.css、edit-*.js、fonts/）', () => {
