@@ -383,6 +383,34 @@ test('馬賽克：方塊像素、只糊框裡的照片；拖曳移動、滾輪�
   assert.deepEqual(errors, []);
 });
 
+test('抽色：一排裡的開關，把照片抽色成單色黑白（標題／邊框仍是彩色）；再按還原；下載時一致；全部清除會關掉', { skip }, async t => {
+  const { page, downloads, errors } = await open(t);
+  await loadStripedBg(page);
+  await page.click('#qfFxBtn');
+  const tile = page.locator('#qfFxStrip .fx-gray-tile');
+  assert.equal(await tile.getAttribute('aria-pressed'), 'false');
+  const sat = async () => { const p = await canvasPixels(page, 520, 520, 40, 40); let m = 0; for (let i = 0; i < p.length; i += 4) m = Math.max(m, Math.max(p[i], p[i + 1], p[i + 2]) - Math.min(p[i], p[i + 1], p[i + 2])); return m; };
+  assert.ok(await sat() > 80, '紅色圓點是彩色的');
+  const colored = await canvasUrl(page);
+  await tile.click();
+  assert.equal(await tile.getAttribute('aria-pressed'), 'true');
+  assert.ok(await sat() <= 2, '紅色圓點變成灰階');
+  assert.ok(await page.locator('#qfFxBtn').evaluate(el => el.classList.contains('has-items')), '按鈕標示有東西');
+  const gray = await canvasUrl(page);
+  await page.click('#downloadBtn');
+  const t0 = Date.now();
+  while (!downloads.length && Date.now() - t0 < 5000) await page.waitForTimeout(100);
+  assert.equal(downloads.length, 1);
+  assert.equal(await canvasUrl(page), gray, '下載時畫布仍是抽色後的樣子');
+  await tile.click();
+  assert.equal(await canvasUrl(page), colored, '再按一次還原彩色');
+  await tile.click();
+  await page.click('#resetBtn');
+  await page.click('#confirmOkBtn');
+  await page.waitForFunction(() => document.querySelector('#qfFxStrip .fx-gray-tile').getAttribute('aria-pressed') === 'false');
+  assert.deepEqual(errors, []);
+});
+
 test('貼圖會跟著輸出：按「下載圖片」時畫布內容和預覽一致（畫布讀得到像素、沒被污染）', { skip }, async t => {
   const { page, downloads, errors } = await open(t);
   await loadStripedBg(page);

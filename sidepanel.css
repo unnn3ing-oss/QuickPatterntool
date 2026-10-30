@@ -271,11 +271,13 @@ html.up-lock, html.up-lock body { overflow: hidden; }
 .qf-fx .fx-tile { flex: 0 0 auto; margin: 0; cursor: pointer; border: 1px solid rgba(0, 74, 173, 0.18); background: #fff; border-radius: calc(14px * var(--sp)); }
 .qf-fx .fx-sticker-tile { width: calc(48px * var(--sp)); height: calc(48px * var(--sp)); padding: calc(4px * var(--sp)); }
 .qf-fx .fx-sticker-tile img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
-.qf-fx .fx-mosaic-tile { display: flex; align-items: center; gap: calc(6px * var(--sp)); height: calc(48px * var(--sp)); padding: 0 calc(12px * var(--sp)); font-size: calc(12px * var(--fs)); font-weight: 600; white-space: nowrap; }
+.qf-fx .fx-mosaic-tile, .qf-fx .fx-gray-tile { display: flex; align-items: center; gap: calc(6px * var(--sp)); height: calc(48px * var(--sp)); padding: 0 calc(12px * var(--sp)); font-size: calc(12px * var(--fs)); font-weight: 600; white-space: nowrap; }
 .qf-fx .fx-mini {   /* 馬賽克的小圖示：幾個灰階方塊 */
   width: calc(22px * var(--sp)); height: calc(22px * var(--sp)); border-radius: 4px;
   background: conic-gradient(#8d99ae 25%, #d4dae4 0 50%, #b6c0d0 0 75%, #6c7a96 0) 0 0 / 50% 50%;
 }
+.qf-fx .fx-mini.gray { background: linear-gradient(90deg, #fff, #000); border: 1px solid rgba(0, 0, 0, 0.25); }
+.qf-fx .fx-gray-tile.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .qf-fx .fx-sep { flex: 0 0 1px; align-self: stretch; background: rgba(0, 74, 173, 0.18); }
 .qf-fx .fx-tile:hover { border-color: var(--accent); }
 .qf-fx .fx-hint { margin-top: calc(5px * var(--sp)); font-size: calc(11.5px * var(--fs)); color: var(--muted); }

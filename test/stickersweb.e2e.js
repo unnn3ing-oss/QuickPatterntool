@@ -49,11 +49,11 @@ async function loadBg(page, file, title = '標題') {
 const canvasSig = page => page.evaluate(() => { const c = document.getElementById('batchCanvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let i = 0; i < d.length; i += 997) h = (h * 31 + d[i]) | 0; return h; });
 const rect = (page, sel) => page.locator(sel).first().boundingBox();
 
-test('網頁版預覽下方有「貼圖與馬賽克」一排（1 個馬賽克＋7 張貼圖）；還沒有背景時停用，載入背景後可以按', { skip }, async t => {
+test('網頁版預覽下方有「貼圖與馬賽克」一排（馬賽克、抽色＋7 張貼圖）；還沒有背景時停用，載入背景後可以按', { skip }, async t => {
   const { page, errors } = await open(t);
-  assert.equal(await page.locator(`${SLOT} .fx-tile`).count(), 8);
+  assert.equal(await page.locator(`${SLOT} .fx-tile`).count(), 9);
   assert.equal(await page.locator(`${SLOT} .fx-sticker-tile img`).count(), 7);
-  assert.equal(await page.locator(`${SLOT} .fx-tile:disabled`).count(), 8, '沒有背景時全部停用');
+  assert.equal(await page.locator(`${SLOT} .fx-tile:disabled`).count(), 9, '沒有背景時全部停用');
   await loadBg(page, await makeBg(page));
   assert.equal(await page.locator(`${SLOT} .fx-tile:disabled`).count(), 0);
   // 位置：在預覽畫布下方
@@ -121,7 +121,7 @@ test('每一組各自一份：換到別組看不到上一組的貼圖，換回�
   const withSticker = await canvasSig(page);
   await page.click('#addBatchItemBtn');
   assert.equal(await page.locator(BOXES).count(), 0, '新的一組沒有貼圖');
-  assert.equal(await page.locator(`${SLOT} .fx-tile:disabled`).count(), 8, '新的一組還沒有背景，貼圖列停用');
+  assert.equal(await page.locator(`${SLOT} .fx-tile:disabled`).count(), 9, '新的一組還沒有背景，貼圖列停用');
   await page.setInputFiles('#layoutApp .batch-item-block input[type=file]', bg);
   await page.fill('#layoutApp .batch-item-block textarea', '第二組');
   await page.waitForTimeout(500);
@@ -164,6 +164,64 @@ test('按「完成」存下來的圖包含貼圖與馬賽克；完成後再改�
   await page.locator(BOXES).last().click({ position: { x: 20, y: 20 } });   // 最上面那個（馬賽克）
   await page.keyboard.press('Delete');
   assert.equal(await page.evaluate(() => batchItems[0].done), false, '改了貼圖，要重新按完成');
+  assert.deepEqual(errors, []);
+});
+
+// 取畫布上某個區塊的「最大飽和度」（max-min），用來判斷是不是單色
+const satIn = (page, x, y, w, h) => page.evaluate(([x, y, w, h]) => { const c = document.getElementById('batchCanvas'); const d = c.getContext('2d').getImageData(x, y, w, h).data;
+  let m = 0; for (let i = 0; i < d.length; i += 4) m = Math.max(m, Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2])); return m; }, [x, y, w, h]);
+
+test('抽色：照片抽色成單色，再按一次還原；每一組各自一份；完成後存下來的圖也是抽色；邊框仍是彩色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const bg = await makeBg(page);
+  await loadBg(page, bg, '抽色測試');   // 要有標題才能按「完成」
+  const gray = `${SLOT} .fx-gray-tile`;
+  const colored = await canvasSig(page);
+  assert.ok(await satIn(page, 300, 300, 400, 200) > 60, '原圖是綠色的');
+  assert.equal(await page.getAttribute(gray, 'aria-pressed'), 'false');
+  await page.click(gray);
+  assert.equal(await page.getAttribute(gray, 'aria-pressed'), 'true');
+  assert.ok(await page.locator(gray).evaluate(el => el.classList.contains('on')));
+  assert.ok(await satIn(page, 300, 300, 400, 200) <= 2, '照片變成單色');
+  assert.ok(await satIn(page, 0, 0, 1080, 1080) > 40, '角落的邊框不受影響，仍是彩色');
+  assert.match(await page.locator(`${SLOT} .fx-count`).textContent(), /抽色/);
+  assert.equal(await page.locator(BOXES).count(), 0, '抽色不是方框，不占貼圖數量');
+  // 抽色時還能照常加貼圖
+  await page.click(`${SLOT} .fx-sticker-tile >> nth=0`);
+  await page.waitForSelector(BOXES);
+  assert.ok(await satIn(page, 20, 400, 150, 200) <= 2, '加了貼圖後照片仍是抽色（貼圖本身是彩色，取樣避開貼圖）');
+  await page.keyboard.press('Delete');
+  // 第二組不受影響
+  await page.click('#addBatchItemBtn');
+  assert.equal(await page.getAttribute(gray, 'aria-pressed'), 'false', '新的一組沒開抽色');
+  await page.setInputFiles('#layoutApp .batch-item-block input[type=file]', bg);
+  await page.fill('#layoutApp .batch-item-block textarea', '');
+  await page.waitForTimeout(500);
+  assert.ok(await satIn(page, 300, 300, 400, 200) > 60, '第二組仍是彩色');
+  await page.click('#batchThumbs > *:nth-child(1)');
+  await page.waitForFunction(() => document.querySelector('#batchFxSlot .fx-gray-tile').getAttribute('aria-pressed') === 'true');
+  assert.ok(await satIn(page, 300, 300, 400, 200) <= 2, '換回第一組仍是抽色');
+  // 完成後存下來的圖
+  await page.click('#layoutApp .batch-item-block button:text-is("完成")');
+  await page.waitForFunction(() => batchItems[0] && batchItems[0].done && batchItems[0].resultDataUrl);
+  const savedSat = await page.evaluate(async () => {
+    const img = new Image(); img.src = batchItems[0].resultDataUrl; await img.decode();
+    const c = document.createElement('canvas'); c.width = c.height = 1080; const x = c.getContext('2d'); x.drawImage(img, 0, 0, 1080, 1080);
+    const d = x.getImageData(300, 300, 400, 200).data; let m = 0;
+    for (let i = 0; i < d.length; i += 4) m = Math.max(m, Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2])); return m; });
+  assert.ok(savedSat <= 2, `完成後存的圖是抽色（${savedSat}）`);
+  // 完成後再關掉抽色 → 變回未完成，畫面還原
+  await page.click('#batchThumbs > *:nth-child(1)');
+  await page.waitForFunction(() => document.querySelector('#batchFxSlot .fx-gray-tile:not(:disabled)'));
+  await page.click(gray);
+  assert.equal(await page.evaluate(() => batchItems[0].done), false, '改了抽色，要重新按完成');
+  assert.equal(await canvasSig(page), colored, '關掉抽色後回到原本的彩色畫面');
+  assert.deepEqual(errors, []);
+});
+
+test('抽色：還沒有背景時按不了', { skip }, async t => {
+  const { page, errors } = await open(t);
+  assert.equal(await page.locator(`${SLOT} .fx-gray-tile`).isDisabled(), true);
   assert.deepEqual(errors, []);
 });
 

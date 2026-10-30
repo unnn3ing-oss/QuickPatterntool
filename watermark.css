@@ -149,8 +149,10 @@ h1.topbar-title {
 .fx-bar .fx-tile:disabled { cursor: not-allowed; }
 .fx-bar .fx-sticker-tile { width: 52px; height: 52px; padding: 4px; }
 .fx-bar .fx-sticker-tile img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
-.fx-bar .fx-mosaic-tile { display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 14px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.fx-bar .fx-mosaic-tile, .fx-bar .fx-gray-tile { display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 14px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .fx-bar .fx-mini { width: 22px; height: 22px; border-radius: 4px; background: conic-gradient(#8d99ae 25%, #d4dae4 0 50%, #b6c0d0 0 75%, #6c7a96 0) 0 0 / 50% 50%; }
+.fx-bar .fx-mini.gray { background: linear-gradient(90deg, #fff, #000); border: 1px solid rgba(0, 0, 0, 0.25); }
+.fx-bar .fx-gray-tile.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .fx-bar .fx-sep { flex: 0 0 1px; align-self: stretch; background: rgba(0, 74, 173, 0.18); }
 .fx-bar .fx-tile:hover:not(:disabled) { border-color: var(--accent); }
 .fx-bar .fx-hint { margin: 6px 4px 0; font-size: 12px; color: var(--muted); }
@@ -167,6 +169,6 @@ h1.topbar-title {
 .fx-item.selected .fx-del { display: block; }
 @media (max-width: 820px) {
   .fx-item .fx-del { top: -14px; right: -14px; width: 28px; height: 28px; font-size: 17px; }   /* 手指點得到 */
-  .fx-bar .fx-sticker-tile, .fx-bar .fx-mosaic-tile { height: 48px; }
+  .fx-bar .fx-sticker-tile, .fx-bar .fx-mosaic-tile, .fx-bar .fx-gray-tile { height: 48px; }
   .fx-bar .fx-sticker-tile { width: 48px; }
 }

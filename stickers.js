@@ -3,6 +3,7 @@
 //   - 網頁版「圖片套版」：批次模式，**每一組各自有一份**貼圖／馬賽克（預覽的是哪一組就編輯哪一組），一排貼圖固定在預覽畫布下方。
 //
 // 做法：貼圖／馬賽克的資料存在這裡（位置與大小用 1080×1080 畫布座標），畫的時候由 app.js 透過 fx 物件叫回來：
+//   - 抽色（照片抽色）在「照片畫完」的時候就套，後面的漸層、邊框、標題、貼圖都不受影響，一定是彩色；
 //   - 馬賽克在「背景畫完、邊框與標題還沒畫」的時候畫，所以只糊照片，不糊標題字；
 //   - 貼圖在最後畫，蓋在標題與邊框上面。
 // 因為是畫進同一張畫布，下載、複製圖片、直接下載、排程帶入、批次「完成」存下來的圖都會自動包含它們。
@@ -65,9 +66,21 @@
     c.restore();
   }
 
-  // 給 app.js 的 renderComposite 用：畫某一份清單裡的馬賽克（背景之後、標題之前）與貼圖（最後）
+  // 照片抽色：用「飽和度」混合模式把已畫好的照片去色（只留明度）。不讀像素，所以畫布被污染也能用；
+  // 照片是 cover 鋪滿整張畫布，沒有透明的地方，不會把空白也染黑。
+  function grayscale(c) {
+    c.save();
+    c.globalCompositeOperation = 'saturation';
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, SIZE, SIZE);
+    c.restore();
+  }
+
+  // 給 app.js 的 renderComposite 用：照片畫完先抽色（抽色開著時）、畫某一份清單裡的馬賽克（背景之後、標題之前）與貼圖（最後）
+  // 「抽色」是清單陣列上的旗標 list.gray（每一組各自一份，跟著清單走）
   function drawFx(list) {
     return {
+      photo(c) { if (list.gray) grayscale(c); },
       mosaic(c) { list.forEach(it => { if (it.kind === 'mosaic') pixelate(c, it); }); },
       stickers(c) {
         list.forEach(it => {
@@ -94,7 +107,7 @@
   }
 
   // ---- 預覽上的操作方框（DOM，不會輸出）：一個畫布一個 editor ----
-  // host: { canvas, items() -> 目前要編輯的清單（陣列，原地修改）或 null（沒有目標）, ready() -> 目前能不能放（有背景）, changed() -> 使用者改了內容（要重畫，批次還要讓那一組變回未完成）, redraw() -> 只重畫, onLayout?(n) }
+  // host: { canvas, items() -> 目前要編輯的清單（陣列，原地修改）或 null（沒有目標）, ready() -> 目前能不能放（有背景）, changed() -> 使用者改了內容（要重畫，批次還要讓那一組變回未完成）, redraw() -> 只重畫, onLayout?(n, gray) }
   function createEditor(host) {
     const canvasEl = host.canvas;
     const wrap = canvasEl.closest('.canvas-wrap');
@@ -137,7 +150,7 @@
           box.classList.toggle('selected', it.id === selectedId);
         });
       }
-      if (host.onLayout) host.onLayout(list.length);
+      if (host.onLayout) host.onLayout(list.length, !!list.gray);
     }
 
     const select = id => { selectedId = id; layout(); };
@@ -243,6 +256,16 @@
       host.changed();
     }
 
+    // 抽色：整張照片抽色的開關（不是方框，不占 MAX_ITEMS）
+    function toggleGray() {
+      const list = host.items();
+      if (!list || !host.ready()) return;
+      sync();
+      list.gray = !list.gray;
+      layout();
+      host.changed();
+    }
+
     // 點到畫布（沒點到方框）就取消選取；Delete 刪掉選取的
     canvasEl.addEventListener('pointerdown', () => { if (selectedId !== null) select(null); });
     document.addEventListener('keydown', e => {
@@ -254,7 +277,7 @@
     });
     new ResizeObserver(layout).observe(canvasEl);
 
-    const ed = { sync, layout, add, redraw: host.redraw, count: () => (shown ? shown.length : 0) };
+    const ed = { sync, layout, add, toggleGray, redraw: host.redraw, count: () => (shown ? shown.length : 0) };
     editors.push(ed);
     return ed;
   }
@@ -277,6 +300,11 @@
     const mosaicTile = tile('fx-mosaic-tile', '馬賽克：加一個方塊馬賽克到預覽');
     mosaicTile.innerHTML = '<span class="fx-mini"></span><span>馬賽克</span>';
     mosaicTile.addEventListener('click', () => editor.add('mosaic'));
+    const grayTile = tile('fx-gray-tile', '抽色：把照片去掉顏色變成單色黑白（再按一次還原）；標題、邊框、貼圖仍是彩色');
+    grayTile.innerHTML = '<span class="fx-mini gray"></span><span>抽色</span>';
+    grayTile.setAttribute('aria-pressed', 'false');
+    grayTile.addEventListener('click', () => editor.toggleGray());
+    const setGray = on => { grayTile.classList.toggle('on', on); grayTile.setAttribute('aria-pressed', String(on)); };
     const sep = document.createElement('span');
     sep.className = 'fx-sep';
     row.appendChild(sep);
@@ -294,7 +322,7 @@
       row.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       e.preventDefault();
     }, { passive: false });
-    return { row, tiles };
+    return { row, tiles, setGray };
   }
   const touchOnly = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
   const hintText = touchOnly ? '點一下加到預覽；在預覽上拖曳移動、兩指縮放；按 × 刪除' : '點一下加到預覽；在預覽上拖曳移動、滾輪縮放；按 × 或 Delete 刪除';
@@ -302,25 +330,31 @@
   // ---- 側邊欄：單張預覽 ----
   if (useSingle) {
     const items = [];
+    let setGray = () => {};
     const single = createEditor({
       canvas,
       items: () => items,
       ready: () => typeof hasBackground === 'function' && hasBackground(singleBg),
       changed: () => render(),
       redraw: () => render(),
-      onLayout: n => {
-        sideBtn.classList.toggle('has-items', n > 0);
+      onLayout: (n, gray) => {
+        sideBtn.classList.toggle('has-items', n > 0 || gray);
         sideBtn.textContent = n ? `貼圖 ${n}` : '貼圖';
+        setGray(gray);
       }
     });
     singleFx = { ...drawFx(items), onRender: () => single.sync() };
     single.sync();
     document.addEventListener('qpt:reset', () => {   // 「全部清除」
       items.length = 0;
+      items.gray = false;
       single.sync(true);
       render();
     });
-    const { row } = buildRow(single);
+    const built = buildRow(single);
+    const row = built.row;
+    setGray = built.setGray;
+    single.layout();
     const hint = document.createElement('div');
     hint.className = 'fx-hint';
     hint.textContent = hintText;
@@ -340,6 +374,7 @@
     const current = () => batchItems.find(it => it.id === expandedBatchItemId) || null;
     let count;
     let tiles = [];
+    let setGray = () => {};
     const setDisabled = () => {
       const off = !(current() && hasBackground(current().bg));
       tiles.forEach(b => { b.disabled = off; });
@@ -356,7 +391,11 @@
         previewBatchItem(it);
       },
       redraw: () => { const it = current(); if (it && !it.done && listOf(it).length) previewBatchItem(it); },
-      onLayout: n => { if (count) count.textContent = n ? `這一組已加 ${n} 個` : ''; setDisabled(); }
+      onLayout: (n, gray) => {
+        if (count) count.textContent = [n ? `這一組已加 ${n} 個` : '', gray ? '抽色' : ''].filter(Boolean).join('・');
+        setGray(gray);
+        setDisabled();
+      }
     });
     batchFx = { forItem: item => drawFx(listOf(item)), onView: () => batch.sync() };
 
@@ -370,6 +409,7 @@
     head.appendChild(count);
     const built = buildRow(batch);
     tiles = built.tiles;
+    setGray = built.setGray;
     const hint = document.createElement('div');
     hint.className = 'fx-hint';
     hint.textContent = hintText;

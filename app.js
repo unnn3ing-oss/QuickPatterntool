@@ -309,7 +309,7 @@ function drawTitle(targetCtx, lines, baseSize, centerY, color = TITLE_LIGHT) {
 
 // source: { type: 'image', image } | { type: 'color', color }
 // frame: 'entertainment' (pink) | 'news' (blue) — only affects the image-mode corner ribbon
-// fx（只有側邊欄的單張用，見 stickers.js）：{ mosaic(ctx) 在背景畫完、邊框與標題之前叫；stickers(ctx) 在最後叫 }
+// fx（見 stickers.js）：{ photo(ctx) 照片畫完馬上叫（照片抽色）；mosaic(ctx) 在背景畫完、邊框與標題之前叫；stickers(ctx) 在最後叫 }
 function renderComposite(targetCtx, source, titleText, fontSize, frame, fx) {
   targetCtx.clearRect(0, 0, SIZE, SIZE);
   targetCtx.canvas.classList.toggle('pannable', !!(source && source.type === 'image' && source.image));
@@ -321,6 +321,7 @@ function renderComposite(targetCtx, source, titleText, fontSize, frame, fx) {
     drawTitle(targetCtx, parseLines(titleText), fontSize, SIZE / 2, usesDarkTitle(source) ? TITLE_DARK : TITLE_LIGHT);
   } else {
     drawImageCover(targetCtx, source.image, source.view);
+    if (fx && fx.photo) fx.photo(targetCtx);
     if (fx && fx.mosaic) fx.mosaic(targetCtx);
     drawGradient(targetCtx);
     drawRibbon(targetCtx, frame);
