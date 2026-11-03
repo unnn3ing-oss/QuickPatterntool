@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<!-- data-sched="off"：FB 粉專排程暫時關閉（右側「排程」抽屜不建立）。要恢復就把這個屬性拿掉，見 DESIGN.md「排程暫停」 -->
+<html lang="zh-Hant" data-sched="off">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -89,9 +90,10 @@
       </div>
 
       <div id="batchFields" style="display:none">
-        <div class="btn-row" style="margin-top:0; margin-bottom:20px">
-          <button class="success" id="batchGenerateBtn" style="flex:1">全部完成</button>
-          <button class="primary" id="batchDownloadAllBtn" style="flex:1">全部下載</button>
+        <div class="btn-row batch-actions" id="batchActions" style="margin-top:0; margin-bottom:20px">
+          <!-- 手機版（≤820px）這一列固定在畫面底部，見 watermark.css 最後的手機區塊。顏色由 app.js 的 syncBatchActions() 依狀態切換：還有未完成時「全部完成」是主要動作（藍）；全部完成後它變成綠色的完成狀態，「全部下載」改成藍色主要動作 -->
+          <button class="primary" id="batchGenerateBtn" style="flex:1">全部完成</button>
+          <button id="batchDownloadAllBtn" style="flex:1">全部下載</button>
         </div>
 
         <div id="batchItemsList"></div>

@@ -40,5 +40,8 @@
     return out;
   }
 
+  // 排程暫時關閉：<html data-sched="off"> 時卡片維持隱藏、不掛介面（測試用 window.QPT_SCHED_FORCE_ON 打開）
+  if (document.documentElement.dataset.sched === 'off' && !window.QPT_SCHED_FORCE_ON) return;
+  $('schedCard').hidden = false;
   QptSchedUI.mount($('schedCard'), { api, compose, confirm: askConfirm });
 })();

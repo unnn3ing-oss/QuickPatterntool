@@ -90,7 +90,11 @@
 - 版本號和 `changelog.json` 決定「要不要通知」：所以只改網頁版專用檔案時**不升版**。
 
 ## 8. 視覺系統
-- 主色 `#004aad`（深藍），深色 `#003a87`，淺底 `#e8f0fc`；文字 `#1f2a3d`、次要文字 `#6b7890`；背景 `#f2f6fc`；卡片半透明白加柔和陰影。
+- 主色 `#004aad`（深藍），深色 `#003a87`，淺底 `#e8f0fc`；文字 `#1f2a3d`、次要文字 `#5f6b82`；完成綠 `#15803d`；背景 `#f2f6fc`；卡片半透明白加柔和陰影。
+  - **對比度（7.50 起）**：次要文字原本 `#6b7890`，白底只有 4.45:1、`--bg` 上 4.11:1，差一點達不到 WCAG AA（4.5:1）；改成 `#5f6b82`（白底 5.37:1、`--bg` 上 4.95:1）。綠色按鈕原本 `#1f9d55`／`#16a34a`，白字只有 3.3:1；改成 `#15803d`（5.02:1）。兩個都是 `style.css` 的變數，一處改全站生效。
+- **按鈕顏色規則（7.50 起）**：**藍（`.primary`）＝這一區的主要動作；綠（`.success`）＝「已經完成」的狀態**，不拿來當動作按鈕。原本綠、藍都拿來當主要動作（全部完成、複製內文是綠，全部下載、快速產圖是藍），並排時使用者分不出該先按哪個。
+  - 網頁版「全部完成／全部下載」依狀態換色（`app.js` 的 `syncBatchActions()`，在 `renderBatchThumbs()` 裡呼叫，任何一組完成／變回未完成／新增／刪除都會經過）：還有沒完成的 → 「全部完成」藍、「全部下載」白；全部都完成 → 「全部完成」變綠（告訴你都好了）、「全部下載」變藍（下一步）。
+  - 側邊欄「複製內文」、排程的「帶入目前圖文」從綠改藍。
 - 介面字型用系統內建中文字（字重完整、小字清晰）；專用粗體字 `WHZ-Heavy` 只用在標題與套版上。
 - 控制項統一用**圓角膠囊**，切換開關有滑動的白色圓塊，動畫只用 `transform`、尊重「減少動態效果」。
 - 側邊欄用 `--sp`（版面倍率，0.85）、`--fs`（字級倍率）兩個變數整體縮放，想調大小只改這兩個數字。
@@ -104,6 +108,7 @@
   - 網頁版樣式在 `watermark.css` 最後面（網頁版專用檔），側邊欄的在 `sidepanel.css`，兩邊各一份。
 - **手機版面（網頁版，≤820px，規則在 `watermark.css` 最後面）**：
   - **為什麼會橫向捲動**：`style.css` 的 Soft Studio 區塊有 `.layout { grid-template-columns: 380px 1fr }`，排在 820px 單欄規則（`1fr`）**後面**，同樣的權重後者贏，單欄被蓋掉，手機上永遠是「380px＋右欄」。`style.css` 是外掛共用的，所以不去改它，改在網頁版專用的 `watermark.css` 最後面（載入順序在 `style.css` 之後）用 `minmax(0, 1fr)` 重新收成單欄。
+  - **「全部完成／全部下載」固定在畫面底部**（`#batchActions`）：預覽在最上面之後，這兩顆要往下捲一個半螢幕才看得到。用 `position: fixed` 貼底，加上 iOS 安全區（`env(safe-area-inset-bottom)`）；外層卡片的 `backdrop-filter` 會讓 fixed 變成相對卡片定位（不會貼在畫面底部），所以手機上這張卡片拿掉毛玻璃、改成較不透明的白底。只在圖片套版顯示（其他功能時 `#layoutApp` 是 `hidden`，整列一起消失）；頁面底部留白、右下角「N」往上移到操作列上方，都用 `body:has(#layoutApp:not([hidden]) #batchActions)` 判斷。
   - 圖片套版的預覽用 `order: -1` 放到欄位上方（預覽本身可以直接點兩下輸入標題、拖曳、雙指縮放）；其他分頁維持「欄位在上、預覽在下」，因為它們的預覽要先放照片才有東西。
   - 輸入框字級 16px：iOS 對小於 16px 的輸入框會在聚焦時放大整個頁面。預覽上的標題框（`.title-overlay`）字級是跟著畫布算的，不動。
   - 滑鼠專用的說明（Ctrl+V、滾輪）包在 `.hint-desk`，觸控說明包在 `.hint-touch`，用 `@media (hover: none)` 切換，不靠猜螢幕寬度。
@@ -229,6 +234,12 @@
 
 ## 10. FB 粉專排程（外掛）
 檔案：`scheduler.js`（資料、驗證、粉專預設與追蹤碼）、`poster.js`（背景執行）、`fbpost.js`（facebook.com 內容腳本）、`schedui.js`＋`sched.css`（排程介面，側邊欄與網頁版共用）、`schedpanel.js`（側邊欄接資料）、`schedbridge.js`（網頁版橋接內容腳本）、`schedweb.js/css`（網頁版右側抽屜，網頁版專用）。
+
+### 排程暫停（7.50 起）
+- **目前先關閉、隱藏**：`sidepanel.html` 與 `index.html` 的 `<html data-sched="off">`。側邊欄的 `#schedCard` 預設 `hidden`，`schedpanel.js` 看到 `off` 就不掛介面；網頁版 `schedweb.js` 看到 `off` 就不建立右側抽屜。
+- **只關介面，不刪資料、不動背景**：`scheduler.js`／`poster.js`／`fbpost.js`／`schedbridge.js` 照常載入。已經在佇列裡的「等待中」排程，到時間**還是會發**（介面看不到）；要完全停掉，得先恢復介面把它們刪掉，或之後另外加背景端的開關。
+- `schedweb.js` 的擋點放在「抽屜」那段之前，不放在檔案開頭：前半段的 `QptWebBridge` 是網頁版快速產圖（`qfweb.js`）請外掛代抓文章要用的，排程關了它也要在。外掛送來的 `sched-ready` 也要跳過，不然 `detect()` 會碰到還沒宣告的變數。
+- **恢復**：兩個 HTML 拿掉 `data-sched="off"` 即可（側邊欄的 `#schedCard` 會由 `schedpanel.js` 打開）。測試用 `window.QPT_SCHED_FORCE_ON = true` 強制打開（`test/web-harness.js`、`test/schedpanel.e2e.js`），所以排程的 e2e 照樣在跑；`schedOn: false` 測「真的關閉時」的網頁。
 
 ### 流程
 1. 側邊欄把排程寫進 `chrome.storage.local` 的 `fbQueue`（含圖片 data URL，所以需要 `unlimitedStorage`）。背景監聽佇列變動，替每筆 `pending` 建鬧鐘 `post:<id>`（對帳：多的清掉、少的補上）。

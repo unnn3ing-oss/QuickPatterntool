@@ -431,3 +431,12 @@ test('網頁版（index.html）與側邊欄都載入貼圖功能（網頁版是�
   assert.ok(/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')));
   assert.ok(/stickers\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'sidepanel.html'), 'utf8')));
 });
+
+test('排程暫時關閉：側邊欄的 FB 粉專排程卡片隱藏、沒有掛介面；「複製內文」是藍色主要按鈕', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.waitForSelector('#qfCopyBtn');
+  assert.equal(await page.isVisible('#schedCard'), false);
+  assert.equal(await page.$eval('#schedCard', el => el.children.length), 0);
+  assert.equal(await page.$eval('#qfCopyBtn', el => el.className), 'primary');
+  assert.deepEqual(errors, []);
+});

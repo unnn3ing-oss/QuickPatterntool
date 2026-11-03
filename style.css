@@ -9,12 +9,12 @@
     --card-bg: rgba(255, 255, 255, 0.78);
     --field-bg: #ffffff;
     --text: #1f2a3d;
-    --muted: #6b7890;
+    --muted: #5f6b82;   /* 白底 5.3:1、--bg 上 4.9:1，達 WCAG AA（舊的 #6b7890 只有 4.45） */
     --border: rgba(0, 74, 173, 0.12);
     --accent: #004aad;
     --accent-dark: #003a87;
     --accent-soft: #e8f0fc;
-    --success: #16a34a;
+    --success: #15803d; /* 白字 5.0:1；綠色只用在「已完成」狀態，主要動作一律用藍（--accent） */
     --shadow: 0 24px 60px -30px rgba(0, 43, 102, 0.35);
     /* UI text uses the OS's own CJK face (real light/regular/bold weights, crisp
        at small sizes); the heavy template face is kept for the page title only. */
@@ -501,14 +501,15 @@
   button { border-radius: 999px; background: var(--field-bg); transition: background .15s, border-color .15s, box-shadow .15s; }
   button:hover:not(:disabled) { border-color: rgba(0, 74, 173, 0.35); }
   button.primary { border: none; box-shadow: 0 10px 24px -12px rgba(0, 74, 173, 0.75); }
+  /* 按鈕顏色規則：藍（.primary）＝這一區的主要動作；綠（.success）＝「已經完成」的狀態，不拿來當動作按鈕。 */
   button.success {
-    background: #1f9d55;
+    background: var(--success);
     border: none;
     color: #fff;
     font-weight: 600;
-    box-shadow: 0 10px 24px -12px rgba(31, 157, 85, 0.8);
+    box-shadow: 0 10px 24px -12px rgba(21, 128, 61, 0.8);
   }
-  button.success:hover:not(:disabled) { background: #178246; }
+  button.success:hover:not(:disabled) { background: #166534; }
   .help-btn, .batch-item-head button { padding-left: 14px; padding-right: 14px; }
 
   /* 移除: round red "×", same pill/circle language as the other controls. */

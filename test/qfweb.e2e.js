@@ -44,7 +44,7 @@ test.after(async () => { if (browser) await browser.close(); });
 
 // imgs：{ 檔名: { status, w, h, type } }；回傳記錄所有請求的 log
 // proxy：true＝瀏覽器的 /article、/image 由「真的」worker.mjs 處理（它對 TVBS 的請求由 stubTvbs 假的 fetch 回答）；'down'＝代理連不上
-async function open(t, { html, imgs = { 'good.png': { w: 1200, h: 900 } }, withExtension = true, proxy = false, proxyJson } = {}) {
+async function open(t, { html, imgs = { 'good.png': { w: 1200, h: 900 } }, withExtension = true, proxy = false, proxyJson, schedOn } = {}) {
   const log = { article: [], image: [], proxy: [], other: [] };
   if (proxy === true) await stubTvbs(t, log, html || article(), imgs);
   const routes = async page => {
@@ -69,7 +69,7 @@ async function open(t, { html, imgs = { 'good.png': { w: 1200, h: 900 } }, withE
     }
     page_other(page, log);
   };
-  const r = await openWeb(browser, t, { withExtension, routes });
+  const r = await openWeb(browser, t, { withExtension, routes, schedOn });
   await r.page.waitForSelector('.qfw-input');
   return Object.assign(r, { log });
 }
@@ -367,4 +367,16 @@ test('標題在快速產圖後又改過：帶入排程時第一行【標題】�
   await page.click('#schFillBtn');
   await page.waitForFunction(() => document.getElementById('schText').value !== '');
   assert.equal(await page.inputValue('#schText'), '【我自己改的標題】\n（圖／TVBS）\n#霸凌 #宮廟 #張善政');
+});
+
+test('排程關閉（網頁原本的 data-sched="off"）：沒有排程抽屜，但快速產圖照樣透過外掛帶入標題與圖片、沒有錯誤', { skip }, async t => {
+  const { page, log, errors } = await open(t, { schedOn: false });
+  assert.equal(await page.$('#schedTab'), null);
+  assert.equal(await page.evaluate(() => typeof window.QptWebBridge), 'object');
+  await run(page);
+  await waitDone(page, /完成：標題、圖片都帶入了/);
+  assert.equal(await page.evaluate(() => batchItems[0].bg.type), 'image');
+  assert.equal(log.article.length, 1);
+  assert.deepEqual(log.proxy, [], '走外掛，不是代理');
+  assert.deepEqual(errors, []);
 });

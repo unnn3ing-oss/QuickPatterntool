@@ -130,6 +130,20 @@ h1.topbar-title {
   /* 右下角「其他工具」縮小一點、貼角落，少蓋到內容 */
   .tools-fab { right: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
   .tools-btn { width: 40px; height: 40px; font-size: 17px; }
+  /* 圖片套版：「全部完成／全部下載」固定在畫面底部。手機上預覽在最上面，這兩顆要往下捲一個半螢幕才看得到；
+     固定在底部後不管捲到哪都按得到。只在圖片套版顯示時出現（切到其他功能時 #layoutApp 是 hidden，整列跟著消失）。 */
+  #batchActions {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    margin: 0 !important; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    border-top: 1px solid var(--border); box-shadow: 0 -10px 24px -18px rgba(0, 43, 102, 0.45);
+  }
+  #batchActions button { min-height: 46px; font-size: 16px; }
+  /* 外層卡片的 backdrop-filter 會讓裡面的 position: fixed 變成相對卡片定位（不會貼在畫面底部），手機上這張卡片拿掉毛玻璃 */
+  .card:has(#batchActions) { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255, 255, 255, 0.9); }
+  /* 底部操作列讓出空間：頁面最下面的內容不會被蓋住；右下角「N」往上移到操作列上方 */
+  body:has(#layoutApp:not([hidden]) #batchActions) { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+  body:has(#layoutApp:not([hidden]) #batchActions) .tools-fab { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
 }
 /* 滑鼠專用的說明（Ctrl+V、滾輪）在沒有滑鼠的裝置上不顯示，換成觸控說明 */
 .hint-touch { display: none; }

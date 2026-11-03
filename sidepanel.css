@@ -296,3 +296,6 @@ html.up-lock, html.up-lock body { overflow: hidden; }
 .fx-item.selected .fx-del { display: block; }
 #quickFill:has(.qf-btn-wrap > .tip:not([hidden])) .qf-fx { margin-top: calc(24px * var(--sp)); }   /* 氣泡垂在按鈕下方，這一排讓開 */
 #quickFill:has(.qf-btn-wrap > .tip:not([hidden])) .qf-colors:not([hidden]) ~ .qf-fx { margin-top: calc(8px * var(--sp)); }
+
+/* FB 粉專排程暫時關閉時（<html data-sched="off">）整張卡片不顯示 */
+#schedCard[hidden] { display: none; }

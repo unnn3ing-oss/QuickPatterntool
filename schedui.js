@@ -58,7 +58,7 @@
 
     // ---- 版面 ---------------------------------------------------------------
     const el = {};
-    el.fill = compose ? h('button', { type: 'button', class: 'success', id: 'schFillBtn', title: '帶入目前的文字、文章網址和預覽圖片', text: '帶入目前圖文' }) : null;
+    el.fill = compose ? h('button', { type: 'button', class: 'primary', id: 'schFillBtn', title: '帶入目前的文字、文章網址和預覽圖片', text: '帶入目前圖文' }) : null;
     container.append(h('div', { class: 'sp-card-head sch-head' }, h('h2', { text: 'FB 粉專排程' }), el.fill));
 
     el.editBar = h('div', { class: 'sch-editbar', id: 'schEditBar', hidden: true });
