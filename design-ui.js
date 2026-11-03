@@ -31,7 +31,14 @@
   const IMAGE_SHARE = 0.6;               // 新圖片的長邊＝頁面短邊 × 0.6
   const STICKER_NAMES = { angry: '生氣', cry: '哭', kiss: '親親', laugh: '大笑', meh: '無言', shock: '驚訝', smile: '微笑' };
   const SIZE_NAMES = { '1:1': '1:1 方形', '4:5': '4:5 直式貼文', '9:16': '9:16 限動', '16:9': '16:9 橫式' };
-  const SHAPES = [['rect', '矩形'], ['ellipse', '橢圓'], ['line', '線'], ['arrow', '箭頭']];
+  const SHAPES = [['rect', '矩形'], ['ellipse', '橢圓'], ['line', '線'], ['arrow', '箭頭'], ['polygon', '多邊形'], ['star', '星形']];
+  const SHAPE_NAMES = Object.fromEntries(SHAPES);
+  const TYPE_NAMES = { text: '文字', image: '圖片', shape: '形狀', sticker: '貼圖', mosaic: '馬賽克' };
+  // 混合模式的中文名稱（照 Illustrator 中文版；順序同 core.BLEND_MODES）
+  const BLEND_NAMES = { normal: '正常', multiply: '色彩增值', screen: '濾色', overlay: '覆蓋', darken: '變暗', lighten: '變亮',
+    'color-dodge': '加亮顏色', 'color-burn': '加深顏色', 'hard-light': '實光', 'soft-light': '柔光', difference: '差異化',
+    exclusion: '排除', hue: '色相', saturation: '飽和度', color: '顏色', luminosity: '明度' };
+  const TAB_KEY = 'qpt.design.panelTab';   // 右側面板記住「屬性｜圖層」
   const TEXT_LAYOUT_KEYS = ['text', 'font', 'size', 'w', 'lineHeight', 'letterSpacing', 'arc'];
   const RECOLOR_MAX = 24;                // 配色區最多列幾色
 
@@ -92,7 +99,8 @@
   // =====================================================================================
   // 狀態
   // =====================================================================================
-  const state = { doc: null, pageId: null, selection: [], zoom: 1, panX: 0, panY: 0, history: null };
+  // inGroup：群組內選取中的群組 id（雙擊群組裡的物件進入；Esc、點空白或點到群組外離開）
+  const state = { doc: null, pageId: null, selection: [], inGroup: null, zoom: 1, panX: 0, panY: 0, history: null };
   const assets = { blobs: {}, urls: {}, imgs: {}, wait: {} };   // 資產 id → Blob／Object URL／解碼好的影像／解碼中的 Promise
   const stickerImgs = {}, stickerWait = {};
   let H = null;                 // history
@@ -116,6 +124,39 @@
   const objOf = id => page().objects.find(o => o.id === id) || null;
   const selObjs = () => state.selection.map(objOf).filter(Boolean);
 
+  // ---- 群組（扁平：物件帶 groupId，群組資料在 page.groups）----
+  const pageGroups = () => page().groups || {};
+  const gidOf = id => core().groupOf(page(), id);
+  const membersOfG = gid => core().membersOf(page(), gid);
+  // 選取剛好是一整個群組 → gid；否則 null
+  function selGroup() {
+    const sel = state.selection;
+    if (sel.length < 2) return null;
+    const g = gidOf(sel[0]);
+    if (!g) return null;
+    const mem = membersOfG(g);
+    return mem.length === sel.length && mem.every(id => sel.includes(id)) ? g : null;
+  }
+  // 選取範圍碰到的群組
+  const selGroupIds = () => [...new Set(state.selection.map(gidOf).filter(Boolean))];
+  // 剪裁群組的外框（最上層的成員）
+  function clipFrameOf(gid) {
+    const g = pageGroups()[gid];
+    if (!g || !g.clip) return null;
+    const m = membersOfG(gid);
+    return m[m.length - 1] || null;
+  }
+  const isClipFrame = id => { const g = gidOf(id); return !!g && clipFrameOf(g) === id; };
+  // 把 ids 擴成整組（正在群組內選取的那一組不擴）
+  function expandGroups(ids) {
+    const out = [];
+    for (const id of ids) {
+      const g = gidOf(id);
+      if (g && g !== state.inGroup) out.push(...membersOfG(g)); else out.push(id);
+    }
+    return [...new Set(out)];
+  }
+
   function initDoc() {
     state.doc = core().createDoc();
     state.pageId = state.doc.pages[0].id;
@@ -132,6 +173,7 @@
     if (!d.pages.some(p => p.id === state.pageId)) state.pageId = d.pages[0].id;
     const ids = new Set(page().objects.map(o => o.id));
     state.selection = state.selection.filter(id => ids.has(id));
+    if (state.inGroup && !Object.prototype.hasOwnProperty.call(pageGroups(), state.inGroup)) state.inGroup = null;
     if (editing && !ids.has(editing.id)) cancelTextEdit();
   }
 
@@ -191,6 +233,15 @@
     line: '<path d="M4 18L20 6"/>',
     arrow: '<path d="M4 18L19 7M12 6h7v7"/>',
     mosaic: '<path d="M4 4h5v5H4zM15 4h5v5h-5zM9.5 9.5h5v5h-5zM4 15h5v5H4zM15 15h5v5h-5z"/>',
+    polygon: '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/>',
+    star: '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/>',
+    sticker: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.2s1.3 2 3.5 2 3.5-2 3.5-2M9.2 9.8h.01M14.8 9.8h.01"/>',
+    group: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+    eye: '<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+    eyeOff: '<path d="M4 4l16 16M10.2 5.7c.6-.1 1.2-.2 1.8-.2 6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.9 3.7M6.5 7.2A15 15 0 0 0 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3-.4 4.2-1M9.9 10a2.8 2.8 0 0 0 4 4"/>',
+    lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>',
+    unlock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 6.8-1.2"/>',
+    grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/>',
   };
   const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -223,6 +274,7 @@
             <output id="dzZoomOut" aria-live="off">100%</output>
             <button type="button" id="dzZoomPlus" class="dz-sq" title="放大" aria-label="放大">＋</button>
             <button type="button" id="dzFitBtn" title="整頁放進視窗">符合視窗</button>
+            <button type="button" id="dzFullBtn" title="全螢幕編輯（Esc 離開）" aria-pressed="false">⛶ 全螢幕</button>
           </div>
           <div class="dz-viewbar-end">
             <div class="dz-group">
@@ -246,10 +298,15 @@
           </div>
         </div>
         <div class="dz-status" id="dzStatus" role="status" aria-live="polite"></div>
-        <div class="dz-hint"><span class="dz-desk">雙擊文字可以直接編輯；Ctrl＋滾輪縮放、按住空白鍵拖曳平移；Delete 刪除、Ctrl＋Z 復原、Ctrl＋C／V／D 複製貼上與重複、方向鍵微調（Shift 一次 10px）、] [ 調圖層。</span><span class="dz-touch">雙指縮放畫布、在空白處拖曳平移；文字內容在下方面板修改。</span></div>
+        <div class="dz-hint"><span class="dz-desk">雙擊文字可以直接編輯、雙擊群組可以選取裡面的單一物件；Ctrl＋G 群組、Ctrl＋7 剪裁遮色片；Ctrl＋滾輪縮放、按住空白鍵拖曳平移；Delete 刪除、Ctrl＋Z 復原、Ctrl＋C／V／D 複製貼上與重複、方向鍵微調（Shift 一次 10px）、] [ 調圖層。</span><span class="dz-touch">雙指縮放畫布、在空白處拖曳平移；文字內容在下方面板修改。</span></div>
       </div>
-      <aside class="dz-panel" id="dzPanel" aria-label="屬性">
-        <div id="dzPanelBody"></div>
+      <aside class="dz-panel" id="dzPanel" aria-label="屬性與圖層">
+        <div class="bg-toggle dz-toggle dz-tabs" role="tablist" aria-label="面板">
+          <button type="button" role="tab" id="dzTabProps" data-tab="props" aria-controls="dzPanelBody">屬性</button>
+          <button type="button" role="tab" id="dzTabLayers" data-tab="layers" aria-controls="dzLayers">圖層</button>
+        </div>
+        <div id="dzPanelBody" role="tabpanel" aria-labelledby="dzTabProps"></div>
+        <div id="dzLayers" class="dz-layers" role="tabpanel" aria-labelledby="dzTabLayers" hidden></div>
       </aside>
       <div class="dz-modal" id="dzExportDlg" hidden>
         <div class="dz-modal-card" role="dialog" aria-modal="true" aria-labelledby="dzExpTitle">
@@ -337,6 +394,7 @@
     drawThumbs();
     syncChrome();
     syncPanel();
+    drawLayers();
   }
   function renderOpts(scale, skip) {
     return { scale, images: assets.imgs, stickers: stickerImgs, fonts: fonts(), skipIds: skip || null };
@@ -373,14 +431,44 @@
     if (o.rot) f.style.transform = `rotate(${o.rot}deg)`;
     return f;
   }
+  // 剪裁外框不畫在畫布上，選取時用虛線畫出它的輪廓（SVG，座標是物件自己的框）
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function clipOutline(o) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'dz-clip-outline');
+    svg.setAttribute('viewBox', `0 0 ${o.w} ${o.h}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    let sh;
+    if (o.kind === 'ellipse') {
+      sh = document.createElementNS(SVG_NS, 'ellipse');
+      for (const [k, v] of [['cx', o.w / 2], ['cy', o.h / 2], ['rx', o.w / 2], ['ry', o.h / 2]]) sh.setAttribute(k, v);
+    } else if (o.kind === 'rect') {
+      sh = document.createElementNS(SVG_NS, 'rect');
+      const rr = Math.min(o.radius || 0, o.w / 2, o.h / 2);
+      for (const [k, v] of [['x', 0], ['y', 0], ['width', o.w], ['height', o.h], ['rx', rr], ['ry', rr]]) sh.setAttribute(k, v);
+    } else {
+      sh = document.createElementNS(SVG_NS, 'polygon');
+      sh.setAttribute('points', R().polygonPoints(o).map(q => q.join(',')).join(' '));
+    }
+    sh.setAttribute('vector-effect', 'non-scaling-stroke');
+    svg.append(sh);
+    return svg;
+  }
+  const GROUP_CORNERS = ['nw', 'ne', 'se', 'sw'];
   function drawOverlay() {
     const ov = $('dzOverlay');
     ov.textContent = '';
     if (app.hidden) return;
     const objs = selObjs();
+    // 群組內選取：整組的範圍用淡虛線標出來
+    if (state.inGroup) {
+      const mem = membersOfG(state.inGroup).map(objOf).filter(Boolean);
+      if (mem.length) ov.append(frameFor(Object.assign({ rot: 0 }, unionBounds(mem)), 'dz-iso-box'));
+    }
     for (const o of objs) {
-      const f = frameFor(o, 'dz-sel' + (o.locked ? ' locked' : '') + (o.hidden ? ' is-hidden' : ''));
+      const f = frameFor(o, 'dz-sel' + (objs.length > 1 ? ' dz-member' : '') + (o.locked ? ' locked' : '') + (o.hidden ? ' is-hidden' : ''));
       if (o.locked) f.append(el('span', { class: 'dz-lock', text: '🔒' }));
+      if (o.type === 'shape' && isClipFrame(o.id)) f.append(clipOutline(o));
       if (objs.length === 1 && !o.locked && !editing && !(drag && drag.type === 'move')) {
         const hs = o.type === 'text' ? ['nw', 'ne', 'se', 'sw', 'e', 'w'] : Object.keys(HANDLE_POS);
         for (const hd of hs) {
@@ -393,8 +481,20 @@
       ov.append(f);
     }
     if (objs.length > 1) {
-      const b = unionBounds(objs);
-      ov.append(frameFor(Object.assign({ rot: 0 }, b), 'dz-group-box'));
+      // 多選／群組：整組外框＋4 個角把手（等比）＋旋轉把手；旋轉中外框跟著轉
+      const rotating = drag && drag.type === 'grotate';
+      const b = rotating ? drag.box : selBox(objs);
+      const f = frameFor(Object.assign({ rot: rotating ? drag.angle : 0 }, b), 'dz-group-box');
+      if (!objs.some(o => o.locked) && !editing && !(drag && drag.type === 'move')) {
+        const rot = rotating ? drag.angle : 0;
+        for (const hd of GROUP_CORNERS) {
+          const [l, t] = HANDLE_POS[hd];
+          const ang = (HANDLE_ANGLE[hd] + rot + 360) % 180;
+          f.append(el('div', { class: 'dz-handle', 'data-gh': hd, title: '等比縮放整組', style: `left:${l}%;top:${t}%;cursor:${CURSORS[Math.round(ang / 45) % 4]}` }));
+        }
+        if (!objs.some(o => o.type === 'mosaic')) f.append(el('div', { class: 'dz-rot', 'data-grot': '', title: '旋轉整組（Shift 每 15°）' }));
+      }
+      ov.append(f);
     }
     if (drag && drag.lines) {
       for (const ln of drag.lines) {
@@ -408,6 +508,11 @@
       const m = drag.rect;
       ov.append(el('div', { class: 'dz-marquee', style: `left:${state.panX + m.x * state.zoom}px;top:${state.panY + m.y * state.zoom}px;width:${m.w * state.zoom}px;height:${m.h * state.zoom}px` }));
     }
+  }
+  // 整組外框：選到整個剪裁群組時用外框形狀的範圍（框外看不到的部分不算），其他用所有物件的聯集
+  function selBox(objs) {
+    const g = selGroup(), f = g && clipFrameOf(g), fo = f && objOf(f);
+    return fo ? core().bounds(fo) : unionBounds(objs);
   }
   function unionBounds(objs) {
     const bs = objs.map(o => core().bounds(o));
@@ -561,6 +666,7 @@
       partial = { type, kind: sub };
       if (sub === 'line' || sub === 'arrow') Object.assign(partial, { w: 400, h: 40, stroke: { w: 8, color: '#111111' } });
       if (sub === 'ellipse') Object.assign(partial, { w: 320, h: 320 });
+      if (sub === 'polygon' || sub === 'star') Object.assign(partial, { w: 400, h: 400 });
     } else if (type === 'sticker') {
       partial = { type, sticker: sub };
       loadStickers();
@@ -573,9 +679,12 @@
   // =====================================================================================
   // 選取
   // =====================================================================================
-  function select(ids) {
+  // opts.inGroup：指定群組內選取（null＝離開）；沒給時，選取跑出目前群組就自動離開
+  function select(ids, opts) {
     const have = new Set(page().objects.map(o => o.id));
     state.selection = [...new Set((ids || []).filter(id => have.has(id)))];
+    if (opts && opts.inGroup !== undefined) state.inGroup = opts.inGroup;
+    else if (state.inGroup && !(state.selection.length && state.selection.every(id => gidOf(id) === state.inGroup))) state.inGroup = null;
     refresh();
   }
   function refresh() { refreshPanel(); scheduleRender(); }
@@ -610,6 +719,16 @@
     const rotEl = e.target.closest && e.target.closest('.dz-rot');
     if (spaceDown || e.button === 1) { startPan(e); return; }
 
+    const gEl = e.target.closest && e.target.closest('[data-gh], [data-grot]');
+    if (gEl) {
+      const objs = selObjs();
+      if (objs.length < 2) return;
+      const box = selBox(objs), scale = 'gh' in gEl.dataset;
+      H.begin(scale ? '縮放' : '旋轉');
+      drag = { type: scale ? 'gscale' : 'grotate', ids: objs.map(o => o.id), box, handle: gEl.dataset.gh, angle: 0, start: pt };
+      scheduleRender();
+      return;
+    }
     if (handleEl || rotEl) {
       const o = selObjs()[0];
       if (!o) return;
@@ -621,10 +740,15 @@
 
     const hit = core().hitTest(page(), pt.x, pt.y);
     if (hit) {
+      // 點到群組成員＝整組（群組內選取中、而且點的是同一組時只選那一個）
+      const g = gidOf(hit);
+      if (state.inGroup && g !== state.inGroup) state.inGroup = null;
+      const unit = g && g !== state.inGroup ? membersOfG(g) : [hit];
+      const has = id => state.selection.includes(id);
       if (e.shiftKey) {
-        if (state.selection.includes(hit)) { select(state.selection.filter(id => id !== hit)); return; }
-        select(state.selection.concat(hit));
-      } else if (!state.selection.includes(hit)) select([hit]);
+        if (unit.every(has)) { select(state.selection.filter(id => !unit.includes(id))); return; }
+        select(state.selection.concat(unit));
+      } else if (!unit.every(has)) select(unit);
       const objs = selObjs();
       const orig = {};
       for (const o of objs) orig[o.id] = { x: o.x, y: o.y };
@@ -705,6 +829,24 @@
       scheduleRender();
       return;
     }
+    if (drag.type === 'gscale' || drag.type === 'grotate') {
+      const b = drag.box;
+      let opts;
+      if (drag.type === 'gscale') {
+        // 等比：以對角為基準（把整組外框當成一個沒旋轉的框來算比例）
+        const nr = C.resizeRect(Object.assign({ rot: 0 }, b), drag.handle, dx, dy, { keepRatio: true, minSize: 8 });
+        const [hx, hy] = { nw: [-1, -1], ne: [1, -1], se: [1, 1], sw: [-1, 1] }[drag.handle];
+        opts = { scale: nr.w / b.w, origin: { x: hx < 0 ? b.x + b.w : b.x, y: hy < 0 ? b.y + b.h : b.y } };
+      } else {
+        drag.angle = Math.round(C.rotateAngle(Object.assign({ rot: 0 }, b), pt.x, pt.y, { step: e.shiftKey ? 15 : 0 }) * 10) / 10;
+        opts = { rotate: drag.angle, center: { x: b.x + b.w / 2, y: b.y + b.h / 2 } };
+      }
+      H.rewind();
+      const r = C.transformObjects(state.doc, page().id, drag.ids, opts);
+      if (!r.ok) { H.cancel(); drag = null; say(lockedMsg(r), 'err'); refresh(); return; }
+      scheduleRender();
+      return;
+    }
     if (drag.type === 'rotate') {
       const a = C.rotateAngle(drag.orig, pt.x, pt.y, { step: e.shiftKey ? 15 : 0 });
       H.rewind();
@@ -714,6 +856,7 @@
     }
   }
 
+  const TX_DRAGS = ['move', 'resize', 'rotate', 'gscale', 'grotate'];   // 有 begin…end 交易的拖曳
   function onPointerUp(e) {
     pointers.delete(e.pointerId);
     if (!drag) return;
@@ -722,11 +865,11 @@
     drag = null;
     stageEl().classList.remove('dz-grabbing');
     if (d.type === 'marquee') {
-      if (d.rect && (d.rect.w > 1 || d.rect.h > 1)) select(d.add.concat(core().inRect(page(), d.rect)));
+      if (d.rect && (d.rect.w > 1 || d.rect.h > 1)) select(expandGroups(d.add.concat(core().inRect(page(), d.rect))));
       scheduleRender();
       return;
     }
-    if (d.type === 'move' || d.type === 'resize' || d.type === 'rotate') {
+    if (TX_DRAGS.includes(d.type)) {
       if (H.busy) H.end();
       refresh();
     }
@@ -735,7 +878,7 @@
   // 拖曳中按 Esc：回到拖曳前，不記復原
   function cancelDrag() {
     if (!drag) return false;
-    if ((drag.type === 'move' || drag.type === 'resize' || drag.type === 'rotate') && H.busy) H.cancel();
+    if (TX_DRAGS.includes(drag.type) && H.busy) H.cancel();
     drag = null;
     stageEl().classList.remove('dz-grabbing');
     refresh();
@@ -827,6 +970,8 @@
     if (drag) return;
     if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && k === 'y') { e.preventDefault(); redo(); return; }
+    if (mod && k === 'g') { e.preventDefault(); if (e.shiftKey) ungroupSel(false); else groupSel(false); return; }
+    if (mod && (e.code === 'Digit7' || e.key === '7')) { e.preventDefault(); if (e.altKey) ungroupSel(true); else groupSel(true); return; }
     if (mod && k === 'c') { if (state.selection.length) copySel(); return; }
     if (mod && k === 'x') { if (state.selection.length) { copySel(); delSel(); e.preventDefault(); } return; }
     if (mod && k === 'v') { schedulePaste(); return; }
@@ -844,7 +989,11 @@
     }
     if (e.key === ']' || e.key === '}') { if (state.selection.length) act('圖層順序', d => core().reorder(d, page().id, state.selection, e.shiftKey ? 'top' : 'up')); return; }
     if (e.key === '[' || e.key === '{') { if (state.selection.length) act('圖層順序', d => core().reorder(d, page().id, state.selection, e.shiftKey ? 'bottom' : 'down')); return; }
-    if (e.key === 'Escape') { if (state.selection.length) select([]); return; }
+    if (e.key === 'Escape') {
+      if (state.inGroup) { select(membersOfG(state.inGroup), { inGroup: null }); return; }   // 群組內選取：先回到整組
+      if (state.selection.length) select([]);
+      return;
+    }
     if (e.key === 'Enter' && state.selection.length === 1) { const o = selObjs()[0]; if (o.type === 'text') { e.preventDefault(); startTextEdit(o.id); } }
   }
   function onKeyUp(e) {
@@ -853,10 +1002,9 @@
   function undo() { endField(); if (editing) commitTextEdit(); if (H.undo()) { pruneState(); refresh(); } }
   function redo() { endField(); if (editing) commitTextEdit(); if (H.redo()) { pruneState(); refresh(); } }
   function copySel() {
-    const objs = page().objects.filter(o => state.selection.includes(o.id));   // 依圖層順序
-    clip = copy(objs);
+    clip = copy(core().clipboardOf(page(), state.selection));   // 依圖層順序；整組都選到的群組會帶著群組資料
     pasteN = 0;
-    say(`已複製 ${objs.length} 個物件`);
+    say(`已複製 ${clip.objects.length} 個物件`);
   }
   let pasteTimer = 0;
   // Ctrl+V：系統剪貼簿裡有圖片時由 paste 事件加入圖片；沒有的話（或瀏覽器沒送 paste 事件）就貼上內部複製的物件
@@ -865,15 +1013,32 @@
     pasteTimer = setTimeout(() => { pasteTimer = 0; pasteClip(); }, 60);
   }
   function pasteClip() {
-    if (!clip || !clip.length) return;
+    if (!clip || !clip.objects.length) return;
     pasteN++;
-    const r = act('貼上', d => core().pasteObjects(d, page().id, clip, { dx: 20 * pasteN, dy: 20 * pasteN }));
-    if (r.ok) select(r.ids);
+    const r = act('貼上', d => core().pasteObjects(d, page().id, clip.objects, { dx: 20 * pasteN, dy: 20 * pasteN, groups: clip.groups }));
+    if (r.ok) select(r.ids, { inGroup: null });
   }
   function dupSel() {
     if (!state.selection.length) return;
     const r = act('重複', d => core().duplicateObjects(d, page().id, state.selection));
     if (r.ok) select(r.ids);
+  }
+  // 群組／剪裁遮色片（clip）：選取至少 2 個
+  function groupSel(clipMode) {
+    if (state.selection.length < 2) { say(clipMode ? '剪裁遮色片要選 2 個以上的物件（最上層是外框形狀）' : '至少要選 2 個物件才能群組', 'err'); return; }
+    const r = act(clipMode ? '建立剪裁遮色片' : '群組', d => core().groupObjects(d, page().id, state.selection, { clip: clipMode }));
+    if (r.ok) { select(membersOfG(r.gid), { inGroup: null }); say(clipMode ? '已建立剪裁遮色片：最上層的形狀當外框' : `已群組 ${state.selection.length} 個物件`); }
+  }
+  // 取消群組（clipOnly：只釋放剪裁遮色片）：選取碰到的群組都拆開，一次復原
+  function ungroupSel(clipOnly) {
+    const gs = selGroupIds().filter(g => !clipOnly || (pageGroups()[g] && pageGroups()[g].clip));
+    if (!gs.length) { say(clipOnly ? '選取範圍裡沒有剪裁遮色片' : '選取範圍裡沒有群組', 'err'); return; }
+    const ids = [...new Set(state.selection.concat(...gs.map(membersOfG)))];
+    const r = act(clipOnly ? '釋放剪裁遮色片' : '取消群組', d => {
+      for (const g of gs) { const x = core().ungroup(d, page().id, g); if (!x.ok) return x; }
+      return { ok: true };
+    });
+    if (r.ok) { select(ids, { inGroup: null }); say(clipOnly ? '已釋放剪裁遮色片' : '已取消群組'); }
   }
   function delSel() {
     const r = act('刪除', d => core().removeObjects(d, page().id, state.selection));
@@ -957,8 +1122,9 @@
   let bound = [];   // { el, get, kind, out? }：重畫時把值同步回欄位（使用者正在操作的那一格除外）
   function selSig() {
     const objs = selObjs(), p = page();
-    return [p.id, state.selection.join(','), objs.map(o => `${o.type}:${o.kind || ''}:${o.locked}:${paintKind(o.type === 'text' ? o.color : o.fill)}`).join(','),
-      p.bg.type, bgMode || '', editing ? 'e' : ''].join('|');
+    const gs = p.groups || {};
+    return [p.id, state.selection.join(','), objs.map(o => `${o.type}:${o.kind || ''}:${o.locked}:${paintKind(o.type === 'text' ? o.color : o.fill)}:${o.groupId || ''}`).join(','),
+      p.bg.type, bgMode || '', editing ? 'e' : '', selGroup() || '', state.inGroup || '', Object.keys(gs).map(g => g + (gs[g].clip ? 'c' : '')).join(',')].join('|');
   }
   function refreshPanel() {
     if (!state.doc) return;
@@ -1188,7 +1354,7 @@
     const objs = selObjs();
     if (!objs.length) body.append(...pagePanel());
     else if (objs.length === 1) body.append(...objPanel(objs[0]));
-    else body.append(...multiPanel(objs));
+    else { const g = selGroup(); body.append(...(g ? groupPanel(g, objs) : multiPanel(objs))); }
   }
 
   // ---- 頁面設定 ----
@@ -1292,8 +1458,13 @@
     const C = core(), id = o.id;
     const up = mk => patchSel(mk, [id]);
     const kids = [];
-    const TITLES = { text: '文字', image: '圖片', shape: '形狀', sticker: '貼圖', mosaic: '馬賽克' };
+    const TITLES = TYPE_NAMES;
     if (o.locked) kids.push(el('p', { class: 'dz-locked-note', text: '🔒 這個物件已鎖定：不能移動、縮放或修改，先取消下面的「鎖定」。' }));
+    const g = gidOf(id);
+    if (g) {
+      const gname = (pageGroups()[g] || {}).name || '';
+      kids.push(el('p', { class: 'dz-group-note', id: 'dzInGroupNote', text: (isClipFrame(id) ? `剪裁遮色片「${gname}」的外框：不會畫出來，只用來裁切。` : `群組「${gname}」裡的物件。`) + (state.inGroup === g ? '按 Esc 回到整組。' : '') }));
+    }
 
     // 類型專屬
     if (o.type === 'text') {
@@ -1340,6 +1511,9 @@
       kids.push(sec('形狀',
         // 線與箭頭的填色只能是純色：從漸層的矩形／橢圓改過去時，填色改用起點色
         selectField('dzF-kind', '種類', SHAPES, () => cur(id).kind, v => up(x => (v === 'line' || v === 'arrow') && typeof x.fill !== 'string' ? { kind: v, fill: x.fill.from } : { kind: v })),
+        o.kind === 'polygon' ? numField('dzF-sides', '邊數', () => cur(id).sides, v => up({ sides: Math.round(v) }), { min: 3, max: 12, step: 1 }) : null,
+        o.kind === 'star' ? numField('dzF-points', '角數', () => cur(id).points, v => up({ points: Math.round(v) }), { min: 3, max: 20, step: 1 }) : null,
+        o.kind === 'star' ? rangeField('dzF-inner', '內徑', () => cur(id).inner * 100, v => up({ inner: Math.round(v) / 100 }), { min: 10, max: 95, step: 1, fmt: v => Math.round(v) + '%' }) : null,
         line ? null : paintEditor(paintIds('dzF-fill'), '填色', () => cur(id).fill, v => up({ fill: v })),
         numField('dzF-strokeW', line ? '線條粗細' : '描邊粗細', () => cur(id).stroke.w, v => up({ stroke: { w: v } }), { min: 0, max: 200, step: 1, unit: 'px' }),
         colorField('dzF-strokeColor', line ? '線條顏色' : '描邊顏色', () => cur(id).stroke.color, v => up({ stroke: { color: v } })),
@@ -1362,7 +1536,8 @@
         numField('dzF-w', '寬', () => cur(id).w, v => up({ w: v }), { min: 1, step: 1 }),
         o.type === 'text' ? numField('dzF-h', '高', () => cur(id).h, () => ({ ok: true }), { step: 1 }) : numField('dzF-h', '高', () => cur(id).h, v => up({ h: v }), { min: 1, step: 1 }),
         o.type === 'mosaic' ? null : numField('dzF-rot', '旋轉', () => cur(id).rot, v => up({ rot: ((v % 360) + 360) % 360 }), { min: -360, max: 360, step: 1, unit: '°' })),
-      rangeField('dzF-opacity', '透明度', () => cur(id).opacity * 100, v => up({ opacity: v / 100 }), { min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' })));
+      rangeField('dzF-opacity', '透明度', () => cur(id).opacity * 100, v => up({ opacity: v / 100 }), { min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' }),
+      o.type === 'mosaic' ? null : blendField(() => cur(id).blend || 'normal', v => up({ blend: v }))));
     kids.push(arrangeSec([id]));
     const nodes = kids.filter(Boolean);
     if (o.type === 'text') { const h = nodes.flatMap(n => [...n.querySelectorAll('#dzF-h')]); for (const x of h) { x.disabled = true; x.title = '文字的高度由內容決定'; } }
@@ -1397,13 +1572,53 @@
     return sec(multi ? null : '排列', ...kids);
   }
 
+  // ---- 混合模式（馬賽克固定「正常」，不顯示）----
+  function blendField(get, apply) {
+    return selectField('dzF-blend', '混合模式', core().BLEND_MODES.map(m => [m, BLEND_NAMES[m] || m]), get, apply);
+  }
+  // 多選與群組共用：透明度＋混合模式（套用到每一個物件，以第一個為顯示值）
+  function sharedLookRows(objs) {
+    return [
+      rangeField('dzF-opacity', '透明度', () => selObjs()[0].opacity * 100, v => patchSel({ opacity: v / 100 }), { min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' }),
+      objs.some(o => o.type === 'mosaic') ? null : blendField(() => selObjs()[0].blend || 'normal', v => patchSel({ blend: v })),
+    ];
+  }
   // ---- 多選 ----
   function multiPanel(objs) {
     const node = arrangeSec(objs.map(o => o.id));
-    const s = sec(`已選取 ${objs.length} 個物件`, el('p', { class: 'dz-note', text: 'Shift＋點選可以加選或取消；在空白處拖曳可以框選。' }));
+    const s = sec(`已選取 ${objs.length} 個物件`, el('p', { class: 'dz-note', text: 'Shift＋點選可以加選或取消；在空白處拖曳可以框選。拖角落把手可以整組等比縮放。' }));
     if (objs.some(o => o.locked)) s.append(el('p', { class: 'dz-locked-note', text: '🔒 選取範圍裡有鎖定的物件，無法一起移動、對齊或刪除。' }));
-    s.append(rangeField('dzF-opacity', '透明度', () => selObjs()[0].opacity * 100, v => patchSel({ opacity: v / 100 }), { min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' }));
+    s.append(el('div', { class: 'dz-btns' },
+      btn('群組', () => groupSel(false), { id: 'dzGroupBtn', title: '群組（Ctrl＋G）' }),
+      btn('建立剪裁遮色片', () => groupSel(true), { id: 'dzClipBtn', title: '用最上層的形狀裁切其他物件（Ctrl＋7）' })));
+    s.append(...sharedLookRows(objs).filter(Boolean));
     return [s, node];
+  }
+  // ---- 群組 ----
+  function groupPanel(gid, objs) {
+    const C = core(), g = pageGroups()[gid];
+    const gname = () => (pageGroups()[gid] || {}).name || '';
+    const name = el('input', { type: 'text', id: 'dzGroupName', maxlength: C.NAME_MAX, autocomplete: 'off', spellcheck: 'false', 'aria-label': '群組名稱' });
+    name.value = gname();
+    name.addEventListener('change', () => {
+      const v = name.value.trim();
+      if (v === gname()) { name.value = v; return; }
+      const r = act('群組名稱', d => C.renameGroup(d, page().id, gid, v));
+      if (!r.ok) name.value = gname();
+    });
+    name.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); name.blur(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); name.value = gname(); name.blur(); }
+    });
+    bound.push({ el: name, get: gname, kind: 'text' });
+    const s = sec(g.clip ? '剪裁群組' : '群組', row('名稱', name),
+      el('p', { class: 'dz-note', text: (g.clip ? `${objs.length} 個物件；最上層的形狀是外框（不畫出來），只顯示框內的部分。` : `${objs.length} 個物件。`) + '雙擊畫布上的物件可以單獨選取它。' }));
+    if (objs.some(o => o.locked)) s.append(el('p', { class: 'dz-locked-note', text: '🔒 群組裡有鎖定的物件，無法一起移動、變形或取消群組。' }));
+    s.append(el('div', { class: 'dz-btns' },
+      btn('取消群組', () => ungroupSel(false), { id: 'dzUngroupBtn', title: '取消群組（Ctrl＋Shift＋G）' }),
+      g.clip ? btn('釋放遮色片', () => ungroupSel(true), { id: 'dzReleaseBtn', title: '釋放剪裁遮色片（Ctrl＋Alt＋7），外框恢復顯示' }) : null));
+    s.append(...sharedLookRows(objs).filter(Boolean));
+    return [s, arrangeSec(objs.map(o => o.id))];
   }
 
   // ---- 字型選單的狀態 ----
@@ -1423,6 +1638,251 @@
       if (note.textContent !== t) note.textContent = t;
       note.classList.toggle('err', st === 'failed');
     }
+  }
+
+  // =====================================================================================
+  // 右側面板分頁（屬性｜圖層）與圖層面板
+  // =====================================================================================
+  let panelTab = 'props';
+  function loadTab() {
+    try { const v = localStorage.getItem(TAB_KEY); if (v === 'props' || v === 'layers') panelTab = v; } catch (e) { /* 讀不到就用預設 */ }
+  }
+  function setTab(t, save) {
+    panelTab = t === 'layers' ? 'layers' : 'props';
+    if (save) { try { localStorage.setItem(TAB_KEY, panelTab); } catch (e) { /* 存不了只是下次不記得 */ } }
+    for (const b of document.querySelectorAll('#dzPanel [role="tab"]')) {
+      const on = b.dataset.tab === panelTab;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    $('dzPanelBody').hidden = panelTab !== 'props';
+    $('dzLayers').hidden = panelTab !== 'layers';
+    if (panelTab === 'layers') { layerSig = ''; drawLayers(); }
+  }
+
+  let layerSig = '';
+  const collapsed = new Set();   // 收合的群組「頁面 id/gid」（只影響顯示，不記復原；gid 只在同一頁內唯一）
+  const ck = g => page().id + '/' + g;
+  let renaming = null;           // 正在改名的列
+  let layerDrag = null;          // 拖曳中的列：{ row, sy, active, drop }
+  let layerDragged = false;      // 剛拖完：吃掉接著來的 click
+  // 圖層名稱：有 name 用它；文字用「文字：」加前 10 個字；其他用類型名稱
+  function layerName(o) {
+    if (o.name) return o.name;
+    if (o.type === 'text') return '文字：' + [...String(o.text || '').replace(/\s+/g, ' ').trim()].slice(0, 10).join('');
+    return o.type === 'shape' ? SHAPE_NAMES[o.kind] || '形狀' : TYPE_NAMES[o.type] || o.type;
+  }
+  const layerIcon = o => (o.type === 'shape' ? o.kind : o.type);
+  function layerRow(attrs, { ic, name, badge, hidden, locked, member, caret }) {
+    const icSpan = el('span', { class: 'dz-layer-ic', 'aria-hidden': 'true' });
+    icSpan.innerHTML = icon(ic);
+    const grip = el('span', { class: 'dz-layer-grip', 'aria-hidden': 'true', title: '拖曳調整圖層順序' });
+    grip.innerHTML = icon('grip');
+    const eye = el('button', { type: 'button', class: 'dz-layer-eye', 'aria-pressed': String(!!hidden), 'aria-label': '隱藏', title: hidden ? '顯示' : '隱藏' });
+    eye.innerHTML = icon(hidden ? 'eyeOff' : 'eye');
+    const lock = el('button', { type: 'button', class: 'dz-layer-lock', 'aria-pressed': String(!!locked), 'aria-label': '鎖定', title: locked ? '解除鎖定' : '鎖定' });
+    lock.innerHTML = icon(locked ? 'lock' : 'unlock');
+    return el('div', Object.assign({ class: 'dz-layer' + (member ? ' is-member' : '') + (caret != null ? ' is-group' : '') + (hidden ? ' is-hidden' : '') + (locked ? ' is-locked' : ''), role: 'option', 'aria-selected': 'false' }, attrs),
+      grip,
+      caret != null ? el('button', { type: 'button', class: 'dz-layer-caret', 'aria-expanded': String(caret), 'aria-label': caret ? '收合群組' : '展開群組', text: caret ? '▾' : '▸' }) : null,
+      icSpan,
+      el('span', { class: 'dz-layer-name', text: name, title: name + '（雙擊改名）' }),
+      badge ? el('span', { class: 'dz-layer-badge', text: badge }) : null,
+      eye, lock);
+  }
+  function buildLayers() {
+    const box = $('dzLayers'), p = page(), objs = p.objects, gs = p.groups || {};
+    box.textContent = '';
+    if (!objs.length) { box.append(el('p', { class: 'dz-note dz-layers-empty', text: '這一頁還沒有物件；從左邊加入文字、圖片、形狀或貼圖。' })); return; }
+    const list = el('div', { class: 'dz-layer-list', role: 'listbox', 'aria-multiselectable': 'true', 'aria-label': '圖層（最上層排在最前面）' });
+    let lastG = null;
+    for (let i = objs.length - 1; i >= 0; i--) {
+      const o = objs[i], g = o.groupId && gs[o.groupId] ? o.groupId : null;
+      if (g && g !== lastG) {
+        const mem = membersOfG(g).map(objOf);
+        list.append(layerRow({ 'data-gid': g }, { ic: 'group', name: gs[g].name, badge: gs[g].clip ? '剪裁' : null,
+          hidden: mem.every(m => m.hidden), locked: mem.every(m => m.locked), caret: !collapsed.has(ck(g)) }));
+      }
+      lastG = g;
+      if (g && collapsed.has(ck(g))) continue;
+      list.append(layerRow({ 'data-id': o.id }, { ic: layerIcon(o), name: layerName(o), badge: g && clipFrameOf(g) === o.id ? '外框' : null,
+        hidden: o.hidden, locked: o.locked, member: !!g }));
+    }
+    box.append(list, el('p', { class: 'dz-note', text: '拖曳列可以調整順序（群組要拖標題列）；雙擊名稱可以改名。' }));
+  }
+  function drawLayers() {
+    const box = $('dzLayers');
+    if (!box || box.hidden || app.hidden) return;
+    const p = page();
+    const sig = JSON.stringify([p.id, p.objects.map(o => [o.id, o.type, o.kind, o.name, o.type === 'text' ? o.text : 0, o.hidden, o.locked, o.groupId]), p.groups, [...collapsed]]);
+    if (sig !== layerSig && !renaming && !(layerDrag && layerDrag.active)) { layerSig = sig; buildLayers(); }
+    const sel = new Set(state.selection);
+    for (const r of box.querySelectorAll('.dz-layer')) {
+      const on = r.dataset.gid ? (() => { const m = membersOfG(r.dataset.gid); return m.length > 0 && m.every(id => sel.has(id)); })() : sel.has(r.dataset.id);
+      r.classList.toggle('sel', on);
+      r.setAttribute('aria-selected', String(on));
+    }
+  }
+  // 眼睛／鎖頭：群組標題套用到所有成員；一次一筆復原
+  function toggleLayerFlag(row, k) {
+    const ids = row.dataset.gid ? membersOfG(row.dataset.gid) : [row.dataset.id];
+    const objs = ids.map(objOf).filter(Boolean);
+    if (!objs.length) return;
+    const on = !objs.every(o => o[k]);
+    act(k === 'hidden' ? (on ? '隱藏' : '顯示') : (on ? '鎖定' : '解除鎖定'), d => core().updateObjects(d, page().id, objs.map(o => ({ id: o.id, [k]: on }))));
+  }
+  function onLayerClick(e) {
+    if (layerDragged) { layerDragged = false; return; }
+    const row = e.target.closest('.dz-layer');
+    if (!row || renaming || e.target.closest('.dz-layer-rename')) return;
+    const gid = row.dataset.gid, id = row.dataset.id;
+    if (e.target.closest('.dz-layer-caret')) { if (collapsed.has(ck(gid))) collapsed.delete(ck(gid)); else collapsed.add(ck(gid)); drawLayers(); return; }
+    if (e.target.closest('.dz-layer-eye')) { toggleLayerFlag(row, 'hidden'); return; }
+    if (e.target.closest('.dz-layer-lock')) { toggleLayerFlag(row, 'locked'); return; }
+    // 第二下點擊也當成雙擊改名（萬一兩下之間清單剛好重建，dblclick 事件可能不會送到）
+    if (e.detail === 2 && e.target.closest('.dz-layer-name, .dz-layer-ic')) { startRename(row); return; }
+    if (editing) commitTextEdit();
+    endField();
+    const unit = gid ? membersOfG(gid) : [id];
+    if (e.shiftKey) {
+      const has = unit.every(x => state.selection.includes(x));
+      select(has ? state.selection.filter(x => !unit.includes(x)) : state.selection.concat(unit));
+      return;
+    }
+    const g = gid ? null : gidOf(id);
+    select(unit, { inGroup: g || null });   // 成員列＝群組內選取
+  }
+  // 雙擊名稱改名：Enter 確認、Esc 取消（離開欄位也算確認）
+  function startRename(row) {
+    const nameEl = row.querySelector('.dz-layer-name');
+    if (!nameEl || renaming) return;
+    const gid = row.dataset.gid, id = row.dataset.id;
+    const o = id ? objOf(id) : null;
+    if (!gid && !o) return;
+    const before = gid ? (pageGroups()[gid] || {}).name || '' : o.name || '';
+    const input = el('input', { type: 'text', class: 'dz-layer-rename', maxlength: core().NAME_MAX, autocomplete: 'off', spellcheck: 'false', 'aria-label': gid ? '群組名稱' : '圖層名稱' });
+    input.value = gid ? before : layerName(o);
+    renaming = { row, input };
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = ok => {
+      if (done) return;
+      done = true;
+      renaming = null;
+      layerSig = '';
+      const v = input.value.trim();
+      if (ok && gid && v !== before) act('群組名稱', d => core().renameGroup(d, page().id, gid, v));
+      else if (ok && !gid) {
+        const x = objOf(id);
+        // 沒改（還是預設名稱）就不寫入
+        if (x && v !== (x.name || '') && !(!x.name && v === layerName(x))) act('圖層名稱', d => core().updateObjects(d, page().id, [{ id, name: v }]));
+      }
+      if (document.activeElement === input) input.blur();
+      drawLayers();
+    };
+    input.addEventListener('keydown', e => {
+      e.stopPropagation();   // 不讓 Esc／Delete 等傳到畫布的快捷鍵
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+  // ---- 圖層列拖曳排序（滑鼠拖整列；觸控從左邊的把手拖）----
+  function layerDropAt(y) {
+    const rows = [...$('dzLayers').querySelectorAll('.dz-layer')];
+    if (!rows.length) return null;
+    for (const r of rows) {
+      const b = r.getBoundingClientRect();
+      if (y <= b.bottom) return { row: r, where: y < b.top + b.height / 2 ? 'above' : 'below' };
+    }
+    return { row: rows[rows.length - 1], where: 'below' };
+  }
+  function showDropLine(t) {
+    const list = $('dzLayers').querySelector('.dz-layer-list');
+    let line = list && list.querySelector('.dz-layer-drop');
+    if (!list) return;
+    if (!t) { if (line) line.remove(); return; }
+    if (!line) { line = el('div', { class: 'dz-layer-drop', 'aria-hidden': 'true' }); list.append(line); }
+    line.style.top = (t.row.offsetTop + (t.where === 'below' ? t.row.offsetHeight : 0)) + 'px';
+  }
+  // 放開：算出 moveLayer 的 toIndex（搬完後這一塊最下層那個在 objects 的位置）
+  function layerDrop(src, t) {
+    const objs = page().objects;
+    const srcG = src.dataset.gid || null, srcId = src.dataset.id;
+    const ids = srcG ? membersOfG(srcG) : [srcId];
+    const owner = srcG ? null : gidOf(srcId);   // 拖的是群組成員
+    const tG = t.row.dataset.gid || null, tId = t.row.dataset.id || null;
+    if (owner && (tG ? tG !== owner : gidOf(tId) !== owner)) { say('群組裡的物件只能在自己的群組內移動（要整組移動請拖群組標題）', 'err'); return; }
+    let ref, up;
+    if (tG) {
+      const mem = membersOfG(tG).filter(x => !ids.includes(x));
+      if (!mem.length) return;
+      // 標題上方、或展開時的標題正下方＝群組最上層之上；收合時的標題下方＝整組下面
+      if (t.where === 'above' || !collapsed.has(ck(tG))) { ref = mem[mem.length - 1]; up = true; } else { ref = mem[0]; up = false; }
+    } else {
+      if (ids.includes(tId)) return;
+      ref = tId; up = t.where === 'above';
+    }
+    const rest = objs.filter(o => !ids.includes(o.id)).map(o => o.id);
+    const toIndex = rest.indexOf(ref) + (up ? 1 : 0);
+    const block = objs.filter(o => ids.includes(o.id)).map(o => o.id);
+    const next = rest.slice(0, toIndex).concat(block, rest.slice(toIndex));
+    if (next.join(',') === objs.map(o => o.id).join(',')) return;
+    act('圖層順序', d => core().moveLayer(d, page().id, ids, toIndex));
+  }
+  function wireLayers() {
+    for (const b of document.querySelectorAll('#dzPanel [role="tab"]')) b.addEventListener('click', () => setTab(b.dataset.tab, true));
+    $('dzPanel').querySelector('[role="tablist"]').addEventListener('keydown', e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      setTab(panelTab === 'props' ? 'layers' : 'props', true);
+      const b = document.querySelector('#dzPanel [role="tab"].active');
+      if (b) b.focus();
+    });
+    const box = $('dzLayers');
+    box.addEventListener('click', onLayerClick);
+    box.addEventListener('dblclick', e => {
+      const row = e.target.closest('.dz-layer');
+      if (row && e.target.closest('.dz-layer-name, .dz-layer-ic')) startRename(row);
+    });
+    box.addEventListener('pointerdown', e => {
+      const row = e.target.closest('.dz-layer');
+      if (!row || renaming || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      if (e.target.closest('button, input')) return;
+      const grip = !!e.target.closest('.dz-layer-grip');
+      if (e.pointerType !== 'mouse' && !grip) return;   // 觸控：拖把手才排序，其他地方照常捲動
+      if (grip) e.preventDefault();
+      layerDrag = { row, sy: e.clientY, active: false, drop: null, id: e.pointerId };
+    });
+    window.addEventListener('pointermove', e => {
+      if (!layerDrag || e.pointerId !== layerDrag.id) return;
+      if (!layerDrag.active) {
+        if (Math.abs(e.clientY - layerDrag.sy) < 5) return;
+        layerDrag.active = true;
+        layerDrag.row.classList.add('dragging');
+      }
+      e.preventDefault();
+      layerDrag.drop = layerDropAt(e.clientY);
+      showDropLine(layerDrag.drop);
+    });
+    const end = e => {
+      if (!layerDrag || e.pointerId !== layerDrag.id) return;
+      const d = layerDrag;
+      layerDrag = null;
+      if (!d.active) return;
+      d.row.classList.remove('dragging');
+      showDropLine(null);
+      layerDragged = true;
+      setTimeout(() => { layerDragged = false; }, 0);   // 只吃掉這次放開後的 click
+      if (e.type === 'pointerup' && d.drop) layerDrop(d.row, d.drop);
+      layerSig = '';
+      drawLayers();
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   }
 
   // =====================================================================================
@@ -1709,6 +2169,7 @@
     $('dzOpenBtn').addEventListener('click', () => $('dzOpenFile').click());
     $('dzOpenFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; openProject(f); });
     wirePages();
+    wireLayers();
 
     stage.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
@@ -1721,7 +2182,11 @@
       if (editing) return;
       const pt = toPage(e.clientX, e.clientY);
       const id = core().hitTest(page(), pt.x, pt.y);
-      const o = id && objOf(id);
+      if (!id) return;
+      // 群組裡的物件：第一次雙擊進入群組內選取，之後（文字）再雙擊才編輯
+      const g = gidOf(id);
+      if (g && state.inGroup !== g) { select([id], { inGroup: g }); return; }
+      const o = objOf(id);
       if (o && o.type === 'text') startTextEdit(id);
     });
     stage.addEventListener('contextmenu', e => { if (drag) e.preventDefault(); });
@@ -1741,12 +2206,42 @@
     window.addEventListener('paste', onPaste, true);    // 捕捉階段：比 app.js 的 paste 先處理
     document.addEventListener('copy', onCopy);
     document.addEventListener('qpt:func', e => {
+      setFull(e.detail === 'design');
       if (e.detail !== 'design') { if (editing) commitTextEdit(); endField(); cancelDrag(); return; }
       onShow();
+    });
+    window.addEventListener('resize', () => { if (!app.hidden) measureFull(); });
+    $('dzFullBtn').addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', () => {
+      const on = !!document.fullscreenElement;
+      $('dzFullBtn').setAttribute('aria-pressed', String(on));
+      $('dzFullBtn').textContent = on ? '⛶ 結束全螢幕' : '⛶ 全螢幕';
+      measureFull();
     });
     if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (!app.hidden) { if (autoFit) fitView(); else scheduleRender(); } }).observe(stage);
     else window.addEventListener('resize', () => { if (!app.hidden && autoFit) fitView(); });
     fonts().onFontLoad(() => scheduleRender());
+  }
+
+  // ---- 滿版：設計分頁顯示時整頁用滿寬度（html.dz-full，規則在 design.css），畫布撐滿視窗剩下的高度 ----
+  function setFull(on) {
+    document.documentElement.classList.toggle('dz-full', on);
+    if (on) measureFull();
+    else if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+  function measureFull() {
+    // 版面高度＝視窗高度扣掉設計區上緣（含上排導覽列）與底部留白；太矮時給個下限，改成整頁捲動
+    requestAnimationFrame(() => {
+      const top = app.getBoundingClientRect().top + window.scrollY;
+      app.style.setProperty('--dz-h', Math.max(520, Math.floor(window.innerHeight - top - 16)) + 'px');
+    });
+  }
+  function toggleFullscreen() {
+    const d = document;
+    if (d.fullscreenElement) { if (d.exitFullscreen) d.exitFullscreen().catch(() => {}); return; }
+    const el = d.documentElement;
+    if (!el.requestFullscreen) { say('這個瀏覽器不支援全螢幕，可以按 F11 或用瀏覽器的全螢幕功能', 'err'); return; }
+    el.requestFullscreen().catch(() => say('無法進入全螢幕，可以改按 F11', 'err'));
   }
 
   function onShow() {
@@ -1759,6 +2254,8 @@
   initDoc();
   build();
   wire();
+  loadTab();
+  setTab(panelTab);
   refresh();
   fonts().load('WHZ-Heavy');
   if (!app.hidden) onShow();

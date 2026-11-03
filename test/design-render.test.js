@@ -1,7 +1,7 @@
 // 設計：文字排版（node，stub 的 ctx：每個字寬度都等於 size）
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { layoutText, textHeight, paintStyle, render } = require('../design-render.js');
+const { layoutText, textHeight, paintStyle, render, polygonPoints, shapePath, blendOp } = require('../design-render.js');
 
 function stubCtx(size) {
   const c = { calls: 0, font: '', measureText: () => { c.calls++; return { width: size }; } };
@@ -182,4 +182,83 @@ test('render 不依賴 DOM 的弧形文字：用 stub 2d context 能畫完不丟
   render(rec, page, {});
   assert.ok(calls.filter(c => c === 'fillText').length >= 3);
   assert.ok(calls.filter(c => c === 'strokeText').length >= 3);
+});
+
+// ---- 多邊形／星形頂點、混合模式對照、剪裁群組（stub ctx）----
+const nearly = (a, b) => Math.abs(a - b) < 1e-6;
+
+test('polygonPoints：六邊形第一個頂點在正上方，頂點落在橢圓上', () => {
+  const pts = polygonPoints({ kind: 'polygon', sides: 6, w: 200, h: 100 });
+  assert.equal(pts.length, 6);
+  assert.ok(nearly(pts[0][0], 100) && nearly(pts[0][1], 0), '第一點在上緣中央 ' + pts[0]);
+  for (const [x, y] of pts) assert.ok(nearly(((x - 100) / 100) ** 2 + ((y - 50) / 50) ** 2, 1), '在橢圓上');
+  assert.ok(nearly(pts[3][0], 100) && nearly(pts[3][1], 100), '第四點在下緣中央');
+});
+
+test('polygonPoints：三角形（正方形框）頂點', () => {
+  const pts = polygonPoints({ kind: 'polygon', sides: 3, w: 100, h: 100 });
+  assert.ok(nearly(pts[0][0], 50) && nearly(pts[0][1], 0));
+  assert.ok(nearly(pts[1][0], 50 + 50 * Math.cos(Math.PI / 6)) && nearly(pts[1][1], 75));
+});
+
+test('polygonPoints：星形 5 角有 10 個頂點，外圈在橢圓上、內圈在 inner 倍橢圓上', () => {
+  const pts = polygonPoints({ kind: 'star', points: 5, inner: 0.5, w: 100, h: 200 });
+  assert.equal(pts.length, 10);
+  pts.forEach(([x, y], i) => {
+    const k = i % 2 ? 0.5 : 1;
+    assert.ok(nearly(((x - 50) / 50) ** 2 + ((y - 100) / 100) ** 2, k * k), `第 ${i} 點半徑 ${k}`);
+  });
+  assert.ok(nearly(pts[0][0], 50) && nearly(pts[0][1], 0), '第一個外尖朝上');
+});
+
+test('polygonPoints：缺欄位用預設（polygon 6 邊、star 5 角 0.5）；其他 kind 回空陣列', () => {
+  assert.equal(polygonPoints({ kind: 'polygon', w: 10, h: 10 }).length, 6);
+  assert.equal(polygonPoints({ kind: 'star', w: 10, h: 10 }).length, 10);
+  assert.deepEqual(polygonPoints({ kind: 'rect', w: 10, h: 10 }), []);
+});
+
+test('blendOp：16 種對照，缺值或未知視同 source-over', () => {
+  assert.equal(blendOp('normal'), 'source-over');
+  assert.equal(blendOp(undefined), 'source-over');
+  assert.equal(blendOp('nope'), 'source-over');
+  for (const b of ['multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light',
+    'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity']) assert.equal(blendOp(b), b);
+});
+
+function recCtx() {
+  const log = [];
+  const ctx = new Proxy({ _gco: 'source-over' }, {
+    get: (t, k) => {
+      if (k === 'log') return log;
+      if (k === 'globalCompositeOperation') return t._gco;
+      if (k === 'measureText') return () => ({ width: 10 });
+      if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() {} });
+      return (...a) => { log.push(k === 'fill' || k === 'stroke' || k === 'clip' || k === 'save' || k === 'restore' ? k : k); };
+    },
+    set: (t, k, v) => { if (k === 'globalCompositeOperation') { t._gco = v; log.push('gco:' + v); } return true; },
+  });
+  return ctx;
+}
+const sh = (id, kind, o) => ({ id, type: 'shape', kind, x: 0, y: 0, w: 100, h: 100, rot: 0, opacity: 1, fill: '#f00', stroke: { w: 0, color: '#000' }, ...o });
+
+test('render：blend 非 normal 時設 globalCompositeOperation（還原靠 save／restore 包住）', () => {
+  const ctx = recCtx();
+  render(ctx, { w: 100, h: 100, bg: { type: 'solid', color: '#fff' }, objects: [sh('a', 'rect', { blend: 'multiply' })] }, {});
+  const g = ctx.log.filter(x => x.startsWith('gco:'));
+  assert.deepEqual(g, ['gco:multiply']);
+  const i = ctx.log.indexOf('gco:multiply');
+  assert.equal(ctx.log[i - 1] === 'save' || ctx.log.slice(0, i).includes('save'), true);
+  assert.equal(ctx.log.lastIndexOf('restore') > i, true, '設定後有 restore');
+  const ctx2 = recCtx();
+  render(ctx2, { w: 100, h: 100, bg: { type: 'solid', color: '#fff' }, objects: [sh('a', 'rect', {})] }, {});
+  assert.deepEqual(ctx2.log.filter(x => x.startsWith('gco:')), [], '缺 blend 不動 globalCompositeOperation');
+});
+
+test('render：剪裁群組只呼叫一次 clip，外框形狀不 fill', () => {
+  const ctx = recCtx();
+  const page = { w: 100, h: 100, bg: { type: 'solid', color: '#fff' }, groups: { g1: { name: 'x', clip: true } },
+    objects: [sh('a', 'rect', { groupId: 'g1' }), sh('m', 'star', { groupId: 'g1' })] };
+  render(ctx, page, {});
+  assert.equal(ctx.log.filter(x => x === 'clip').length, 1);
+  assert.equal(ctx.log.filter(x => x === 'fill').length, 1, '只有成員 a 填色');
 });

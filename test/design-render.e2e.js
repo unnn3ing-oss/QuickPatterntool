@@ -435,3 +435,151 @@ test('弧形文字：arc 0 與沒有 arc 欄位的畫法一致；旋轉與透明
   assert.ok(r.same && r.diff && r.alpha && r.rot, JSON.stringify(r));
   assert.deepEqual(errors, []);
 });
+
+// ---- 多邊形／星形／混合模式／剪裁群組 ----
+test('多邊形 6 邊：中心有色、框的四個角是背景色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 100, h: 100, bg: { type: 'solid', color: '#ffffff' },
+      objects: [T.obj('shape', { kind: 'polygon', sides: 6, fill: '#ff0000', stroke: { w: 0, color: '#000' } })] });
+    return { c: T.px(50, 50), corners: [T.px(2, 2), T.px(97, 2), T.px(2, 97), T.px(97, 97)] };
+  });
+  assert.deepEqual(r.c, [255, 0, 0, 255]);
+  for (const p of r.corners) assert.deepEqual(p, [255, 255, 255, 255]);
+  assert.deepEqual(errors, []);
+});
+
+test('多邊形：漸層填色與描邊', { skip }, async t => {
+  const { page } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 100, h: 100, bg: { type: 'solid', color: '#ffffff' },
+      objects: [T.obj('shape', { kind: 'polygon', sides: 4, fill: { type: 'linear', from: '#ff0000', to: '#0000ff', angle: 90 }, stroke: { w: 6, color: '#00ff00' } })] });
+    return { l: T.px(15, 50), r: T.px(85, 50), top: T.px(50, 2) };
+  });
+  assert.ok(r.l[0] > r.l[2], '左偏紅 ' + r.l);
+  assert.ok(r.r[2] > r.r[0], '右偏藍 ' + r.r);
+  assert.ok(r.top[1] > 200 && r.top[0] < 60, '頂點有綠色描邊 ' + r.top);
+});
+
+test('星形：尖角有色、兩尖之間的凹處是背景色、中心有色', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' },
+      objects: [T.obj('shape', { kind: 'star', points: 5, inner: 0.4, w: 200, h: 200, fill: '#ff0000', stroke: { w: 0, color: '#000' } })] });
+    // 第一個內圈頂點在 -90+36 度，半徑 0.4*100；凹處取同方向、半徑 0.9*100 處（在內圈之外、外圈之內的凹口）
+    const a = (-90 + 36) * Math.PI / 180;
+    const notch = T.px(Math.round(100 + 90 * Math.cos(a)), Math.round(100 + 90 * Math.sin(a)));
+    return { center: T.px(100, 100), tip: T.px(100, 8), notch };
+  });
+  assert.deepEqual(r.center, [255, 0, 0, 255]);
+  assert.deepEqual(r.tip, [255, 0, 0, 255]);
+  assert.deepEqual(r.notch, [255, 255, 255, 255]);
+  assert.deepEqual(errors, []);
+});
+
+test('混合模式 multiply：紅疊綠變黑；缺 blend 則蓋掉', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    const mk = blend => ({ w: 100, h: 100, bg: { type: 'solid', color: '#ffffff' }, objects: [
+      T.obj('shape', { kind: 'rect', fill: '#00ff00', stroke: { w: 0, color: '#000' } }),
+      T.obj('shape', { kind: 'rect', fill: '#ff0000', stroke: { w: 0, color: '#000' }, blend })] });
+    T.draw(mk('multiply')); const m = T.px(50, 50);
+    T.draw(mk('normal')); const n = T.px(50, 50);
+    T.draw(mk(undefined)); const u = T.px(50, 50);
+    return { m, n, u };
+  });
+  assert.deepEqual(r.m, [0, 0, 0, 255]);
+  assert.deepEqual(r.n, [255, 0, 0, 255]);
+  assert.deepEqual(r.u, [255, 0, 0, 255]);
+  assert.deepEqual(errors, []);
+});
+
+test('混合模式 screen：變亮', { skip }, async t => {
+  const { page } = await open(t);
+  const p = await page.evaluate(() => {
+    T.draw({ w: 100, h: 100, bg: { type: 'solid', color: '#404040' }, objects: [
+      T.obj('shape', { kind: 'rect', fill: '#404040', stroke: { w: 0, color: '#000' }, blend: 'screen' })] });
+    return T.px(50, 50);
+  });
+  // screen: 1-(1-a)(1-b)；0x40=64/255=0.251 → 0.439 → 112
+  assert.ok(near(p, [112, 112, 112, 255], 3) && p[0] > 64, '比原本亮 ' + p);
+});
+
+test('混合模式套用在圖片的「畫回頁面」那一步', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const p = await page.evaluate(() => {
+    const img = T.solidImg(10, 10, (c, w, h) => { c.fillStyle = '#ff0000'; c.fillRect(0, 0, w, h); });
+    T.draw({ w: 100, h: 100, bg: { type: 'solid', color: '#00ff00' }, objects: [
+      T.obj('image', { asset: 'a', fit: 'cover', blend: 'multiply' })] }, { images: { a: img } });
+    return T.px(50, 50);
+  });
+  assert.deepEqual(p, [0, 0, 0, 255]);
+  assert.deepEqual(errors, []);
+});
+
+test('馬賽克忽略 blend，且混合模式不外漏到下一個物件', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    T.draw({ w: 100, h: 100, bg: { type: 'solid', color: '#00ff00' }, objects: [
+      T.obj('shape', { kind: 'rect', x: 0, y: 0, w: 50, h: 50, fill: '#ff0000', stroke: { w: 0, color: '#000' }, blend: 'multiply' }),
+      T.obj('shape', { kind: 'rect', x: 50, y: 50, w: 50, h: 50, fill: '#0000ff', stroke: { w: 0, color: '#000' } }),
+      T.obj('mosaic', { x: 0, y: 50, w: 50, h: 50, blend: 'multiply' })] });
+    return { a: T.px(25, 25), b: T.px(75, 75), m: T.px(25, 75) };
+  });
+  assert.deepEqual(r.a, [0, 0, 0, 255]);
+  assert.deepEqual(r.b, [0, 0, 255, 255], '下一個物件為正常');
+  assert.deepEqual(r.m, [0, 255, 0, 255], '馬賽克取平均色後正常覆蓋');
+  assert.deepEqual(errors, []);
+});
+
+const CLIP_PAGE = `(() => {
+  const img = T.solidImg(10, 10, (c, w, h) => { c.fillStyle = '#0000ff'; c.fillRect(0, 0, w, h); });
+  const pg = (extra) => ({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' },
+    groups: { g1: { name: '剪裁群組 1', clip: true } },
+    objects: [
+      T.obj('image', { asset: 'a', fit: 'cover', x: 0, y: 0, w: 200, h: 200, groupId: 'g1' }),
+      T.obj('shape', { kind: 'ellipse', x: 50, y: 50, w: 100, h: 100, fill: '#ff0000', stroke: { w: 0, color: '#000' }, groupId: 'g1' }),
+    ] });
+  return { img, pg };
+})()`;
+
+test('剪裁群組：圓形外框裁切圖片，框外是背景色、圓內是圖片色、外框填色不畫', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate((src) => {
+    const { img, pg } = eval(src);
+    T.draw(pg(), { images: { a: img } });
+    return { corner: T.px(5, 5), edge: T.px(55, 55), center: T.px(100, 100), inside: T.px(120, 100) };
+  }, CLIP_PAGE);
+  assert.deepEqual(r.corner, [255, 255, 255, 255]);
+  assert.deepEqual(r.edge, [255, 255, 255, 255], '框內但在圓外（左上角附近）');
+  assert.deepEqual(r.center, [0, 0, 255, 255], '圓內是圖片色，不是外框的紅');
+  assert.deepEqual(r.inside, [0, 0, 255, 255]);
+  assert.deepEqual(errors, []);
+});
+
+test('剪裁群組：外框旋轉、多邊形外框、clip 後的物件不受影響；非 clip 群組照常畫', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const r = await page.evaluate(() => {
+    const blue = T.obj('shape', { kind: 'rect', x: 0, y: 0, w: 200, h: 200, fill: '#0000ff', stroke: { w: 0, color: '#000' }, groupId: 'g1' });
+    const mask = T.obj('shape', { kind: 'rect', x: 80, y: 20, w: 40, h: 160, rot: 90, fill: '#ff0000', stroke: { w: 0, color: '#000' }, groupId: 'g1' });
+    const after = T.obj('shape', { kind: 'rect', x: 0, y: 0, w: 20, h: 20, fill: '#00ff00', stroke: { w: 0, color: '#000' } });
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' }, groups: { g1: { name: 'c', clip: true } }, objects: [blue, mask, after] });
+    // 旋轉 90 度後遮罩變成橫的：中心 (100,100)，水平 160 寬、垂直 40 高
+    const rot = { wide: T.px(30, 100), tall: T.px(100, 30), after: T.px(10, 10) };
+    // 多邊形外框（六邊形），角落被裁掉
+    const hex = T.obj('shape', { kind: 'polygon', sides: 6, x: 0, y: 0, w: 200, h: 200, fill: '#ff0000', stroke: { w: 0, color: '#000' }, groupId: 'g1' });
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' }, groups: { g1: { name: 'c', clip: true } }, objects: [Object.assign({}, blue), hex] });
+    const poly = { c: T.px(100, 100), corner: T.px(3, 3) };
+    // 非 clip 群組：全部照常畫，包含最上層形狀
+    T.draw({ w: 200, h: 200, bg: { type: 'solid', color: '#ffffff' }, groups: { g1: { name: 'g', clip: false } }, objects: [Object.assign({}, blue), Object.assign({}, mask, { rot: 0 })] });
+    const plain = T.px(100, 100);
+    return { rot, poly, plain };
+  });
+  assert.deepEqual(r.rot.wide, [0, 0, 255, 255]);
+  assert.deepEqual(r.rot.tall, [255, 255, 255, 255]);
+  assert.deepEqual(r.rot.after, [0, 255, 0, 255], '群組之外的物件不被裁');
+  assert.deepEqual(r.poly.c, [0, 0, 255, 255]);
+  assert.deepEqual(r.poly.corner, [255, 255, 255, 255]);
+  assert.deepEqual(r.plain, [255, 0, 0, 255]);
+  assert.deepEqual(errors, []);
+});

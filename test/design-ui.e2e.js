@@ -1349,3 +1349,515 @@ test('390×844 手機：顏料編輯器與配色區不會撐出水平捲軸', { 
   assert.ok(m2.h >= 36, '色票夠大好點 ' + m2.h);
   assert.deepEqual(errors, []);
 });
+
+// ---- 滿版與全螢幕 ------------------------------------------------------------------------
+test('滿版：設計分頁用滿視窗寬度、畫布撐到視窗底部；切到別的分頁就恢復', { skip }, async t => {
+  const { page, errors } = await open(t, { viewport: { width: 1600, height: 1000 } });
+  const m = await page.evaluate(() => {
+    const a = document.getElementById('designApp').getBoundingClientRect();
+    const s = document.getElementById('dzStage').getBoundingClientRect();
+    const p = document.getElementById('dzPanel').getBoundingClientRect();
+    return { full: document.documentElement.classList.contains('dz-full'), aw: a.width, sh: s.height, pBottom: p.bottom, docH: document.documentElement.scrollHeight, vh: innerHeight };
+  });
+  assert.ok(m.full);
+  assert.ok(m.aw >= 1600 - 40, '寬度接近視窗寬 ' + m.aw);
+  assert.ok(m.sh > 600, '畫布夠高 ' + m.sh);
+  assert.ok(m.pBottom <= m.vh, '面板不超出視窗');
+  assert.ok(m.docH <= m.vh + 2, '不需要整頁捲動 ' + m.docH);
+  await page.click('#funcWatermarkBtn');
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('dz-full')), false);
+  assert.deepEqual(errors, []);
+});
+
+test('全螢幕按鈕：呼叫 requestFullscreen；不支援時顯示繁中說明', { skip }, async t => {
+  const { page, errors } = await open(t);
+  await page.evaluate(() => { window.__fs = 0; document.documentElement.requestFullscreen = () => { window.__fs++; return Promise.resolve(); }; });
+  await page.click('#dzFullBtn');
+  assert.equal(await page.evaluate(() => window.__fs), 1);
+  await page.evaluate(() => { document.documentElement.requestFullscreen = undefined; });
+  await page.click('#dzFullBtn');
+  assert.match(await page.textContent('#dzStatus'), /全螢幕/);
+  assert.deepEqual(errors, []);
+});
+
+// =====================================================================================
+// 圖層面板、群組、剪裁遮色片、混合模式、多邊形與星形（規格 2026-11-03-design-layers-group-clip-blend-shapes 第 6 節）
+// =====================================================================================
+// 用 core 直接加物件（不經過工具列），回傳 id 陣列
+const addRaw = (page, list) => page.evaluate(list => {
+  const U = QPTDesign.ui, C = QPTDesign.core, H = U.state.history, pid = U.state.pageId;
+  const ids = list.map(o => H.run('t', d => C.addObject(d, pid, o)).id);
+  U.rerender();
+  return ids;
+}, list);
+const twoShapes = page => addRaw(page, [
+  { type: 'shape', kind: 'rect', x: 100, y: 100, w: 200, h: 200, fill: '#ff0000' },
+  { type: 'shape', kind: 'ellipse', x: 500, y: 500, w: 200, h: 200, fill: '#0000ff' },
+]);
+const groups = async page => (await curPage(page)).groups;
+const selSorted = async page => (await S(page)).sel.slice().sort();
+const inGroup = page => page.evaluate(() => QPTDesign.ui.state.inGroup || null);
+const press = async (page, key) => { await page.locator('#dzStage').hover(); await page.keyboard.press(key); await flush(page); };
+const WHITE = [255, 255, 255, 255];
+const isWhite = p => p[0] > 245 && p[1] > 245 && p[2] > 245;
+// 圖層面板的列（由上到下）：物件列回 id，群組標題回 'g:<gid>'
+const layerRows = page => page.$$eval('#dzLayers .dz-layer', rs => rs.map(r => r.dataset.gid ? 'g:' + r.dataset.gid : r.dataset.id));
+const rowBox = (page, sel) => page.locator(sel).boundingBox();
+async function dragRow(page, fromSel, toSel, where = 'above') {
+  const a = await rowBox(page, fromSel), b = await rowBox(page, toSel);
+  const ty = where === 'above' ? b.y + 3 : b.y + b.height - 3;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2, (a.y + ty) / 2, { steps: 4 });
+  await page.mouse.move(b.x + b.width / 2, ty, { steps: 4 });
+  await page.mouse.up();
+  await flush(page);
+}
+
+test('多邊形與星形：工具列加入 400×400 置中、面板改邊數與內徑畫面跟著變；Ctrl+Z 還原', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const pid = await add(page, 'shape:polygon');
+  let o = await obj(page, pid);
+  assert.deepEqual([o.kind, o.w, o.h, o.x, o.y, o.sides], ['polygon', 400, 400, 340, 340, 6]);
+  assert.equal(await page.inputValue('#dzF-kind'), 'polygon');
+  assert.equal(await page.locator('#dzF-kind option[value="star"]').count(), 1);
+  assert.equal(await page.inputValue('#dzF-sides'), '6');
+  assert.equal(await page.locator('#dzF-radius').count(), 0, '多邊形沒有圓角');
+  assert.ok(!isWhite(await px(page, 540, 540)), '中心有顏色');
+  assert.ok(isWhite(await px(page, 350, 540)), '六邊形左側凹進去的地方是背景');
+  await setInput(page, '#dzF-sides', 4);
+  await flush(page);
+  assert.equal((await obj(page, pid)).sides, 4);
+  assert.ok(!isWhite(await px(page, 350, 540)), '改成菱形後左頂點附近有顏色');
+  await page.click('#dzUndoBtn');
+  await flush(page);
+  assert.equal((await obj(page, pid)).sides, 6);
+  assert.ok(isWhite(await px(page, 350, 540)));
+  await page.evaluate(id => QPTDesign.ui.select([id]), pid);
+  await press(page, 'Delete');
+  const sid = await add(page, 'shape:star');
+  o = await obj(page, sid);
+  assert.deepEqual([o.kind, o.w, o.h, o.points, o.inner], ['star', 400, 400, 5, 0.5]);
+  assert.equal(await page.inputValue('#dzF-points'), '5');
+  assert.equal(await page.inputValue('#dzF-inner'), '50');
+  assert.ok(!isWhite(await px(page, 540, 540)), '星形中心有顏色');
+  assert.ok(isWhite(await px(page, 628, 419)), '兩個尖角之間的凹處是背景');
+  await setInput(page, '#dzF-inner', 95);
+  await flush(page);
+  assert.equal((await obj(page, sid)).inner, 0.95);
+  assert.ok(!isWhite(await px(page, 628, 419)), '內徑變大後凹處被填滿');
+  await setInput(page, '#dzF-points', 8);
+  assert.equal((await obj(page, sid)).points, 8);
+  await page.click('#dzUndoBtn');
+  await page.click('#dzUndoBtn');
+  o = await obj(page, sid);
+  assert.deepEqual([o.points, o.inner], [5, 0.5]);
+  // 種類下拉：矩形改成星形
+  const rid = await add(page, 'shape:rect');
+  await page.selectOption('#dzF-kind', 'star');
+  o = await obj(page, rid);
+  assert.deepEqual([o.kind, o.points, o.inner], ['star', 5, 0.5]);
+  assert.deepEqual(errors, []);
+});
+
+test('群組：Ctrl+G 後點一個選到整組、拖曳一起移動；Ctrl+Shift+G 取消群組；每步 Ctrl+Z 還原', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [a, b] = await twoShapes(page);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await press(page, 'Control+g');
+  assert.equal((await obj(page, a)).groupId, 'g1');
+  assert.equal((await obj(page, b)).groupId, 'g1');
+  assert.deepEqual(await groups(page), { g1: { name: '群組 1', clip: false } });
+  assert.equal(await page.inputValue('#dzGroupName'), '群組 1');
+  assert.equal(await page.locator('#dzUngroupBtn').count(), 1);
+  assert.equal(await page.locator('#dzReleaseBtn').count(), 0, '一般群組沒有釋放遮色片');
+  const blank = await toScreen(page, 1000, 30);
+  await page.mouse.click(blank.x, blank.y);
+  assert.deepEqual((await S(page)).sel, []);
+  await page.mouse.click(...Object.values(await center(page, a)));
+  assert.deepEqual(await selSorted(page), [a, b].sort(), '點一個成員選到整組');
+  const c = await center(page, a), z = (await S(page)).zoom;
+  await drag(page, c, { x: c.x + 100 * z, y: c.y + 50 * z });
+  const [a1, b1] = [await obj(page, a), await obj(page, b)];
+  assert.ok(Math.abs(a1.x - 200) <= 2 && Math.abs(a1.y - 150) <= 2, `a 移到 ${a1.x},${a1.y}`);
+  assert.ok(Math.abs((b1.x - 500) - (a1.x - 100)) < 1e-6 && Math.abs((b1.y - 500) - (a1.y - 100)) < 1e-6, '兩個一起移動');
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, a)).x, 100);
+  assert.equal((await obj(page, b)).x, 500);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await press(page, 'Control+Shift+g');
+  assert.equal((await obj(page, a)).groupId, undefined);
+  assert.deepEqual(await groups(page), {});
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, a)).groupId, 'g1');
+  await press(page, 'Control+z');
+  assert.deepEqual(await groups(page), {}, '再按一次回到群組前');
+  // 面板的「群組」按鈕
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await page.click('#dzGroupBtn');
+  assert.equal((await obj(page, b)).groupId, 'g1');
+  await page.fill('#dzGroupName', '標誌');
+  await page.locator('#dzGroupName').press('Enter');
+  assert.equal((await groups(page)).g1.name, '標誌');
+  await page.click('#dzUngroupBtn');
+  assert.deepEqual(await groups(page), {});
+  assert.deepEqual(errors, []);
+});
+
+test('整組變形：角把手等比縮放兩個都變大、旋轉把手一起轉（Shift 每 15°）；各一次 Ctrl+Z', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [a, b] = await twoShapes(page);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await press(page, 'Control+g');
+  assert.equal(await page.locator('.dz-group-box .dz-handle').count(), 4, '只有 4 個角把手');
+  assert.equal(await page.locator('.dz-group-box .dz-rot').count(), 1);
+  assert.equal(await page.locator('.dz-sel .dz-handle').count(), 0, '成員自己沒有把手');
+  const se = await page.locator('.dz-group-box .dz-handle[data-gh="se"]').boundingBox();
+  const to = await toScreen(page, 850, 850);
+  await drag(page, { x: se.x + se.width / 2, y: se.y + se.height / 2 }, to);
+  let [a1, b1] = [await obj(page, a), await obj(page, b)];
+  assert.ok(a1.w > 230 && b1.w > 230, `兩個都放大 ${a1.w} ${b1.w}`);
+  assert.ok(Math.abs(a1.w - b1.w) < 1e-6 && Math.abs(a1.w - a1.h) < 1e-6, '等比');
+  assert.ok(Math.abs(a1.x - 100) < 1 && Math.abs(a1.y - 100) < 1, '對角（左上）不動');
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, a)).w, 200);
+  assert.equal((await obj(page, b)).w, 200);
+  // 旋轉：拖到中心正右方，Shift → 90°
+  const rot = await page.locator('.dz-group-box .dz-rot').boundingBox();
+  const right = await toScreen(page, 950, 395);
+  await drag(page, { x: rot.x + rot.width / 2, y: rot.y + rot.height / 2 }, right, { shift: true });
+  [a1, b1] = [await obj(page, a), await obj(page, b)];
+  assert.equal(a1.rot, 90); assert.equal(b1.rot, 90);
+  assert.ok(Math.abs(a1.x + 100 - 600) < 1 && Math.abs(a1.y + 100 - 200) < 1, `a 的中心繞群組中心轉到 (600,200)：${a1.x + 100},${a1.y + 100}`);
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, a)).rot, 0);
+  assert.equal((await obj(page, a)).x, 100);
+  // 沒有群組的多選也一樣有整組把手
+  await press(page, 'Control+Shift+g');
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await flush(page);
+  assert.equal(await page.locator('.dz-group-box .dz-handle').count(), 4);
+  assert.deepEqual(errors, []);
+});
+
+test('雙擊進入群組內選取：只移動一個成員；Esc 離開；文字要再雙擊才編輯', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [a, b] = await twoShapes(page);
+  const [tx] = await addRaw(page, [{ type: 'text', text: '群組字', x: 600, y: 150, w: 300, h: 100 }]);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b, tx]);
+  await press(page, 'Control+g');
+  const c = await center(page, a);
+  await page.mouse.dblclick(c.x, c.y);
+  await flush(page);
+  assert.deepEqual((await S(page)).sel, [a], '只選到 a');
+  assert.equal(await inGroup(page), 'g1');
+  const z = (await S(page)).zoom;
+  await drag(page, c, { x: c.x + 80 * z, y: c.y });
+  assert.ok(Math.abs((await obj(page, a)).x - 180) <= 2, 'a 移動了');
+  assert.equal((await obj(page, b)).x, 500, 'b 沒動');
+  // 群組內選取時點另一個成員：只選它
+  await page.mouse.click(...Object.values(await center(page, b)));
+  assert.deepEqual((await S(page)).sel, [b]);
+  await press(page, 'Escape');
+  assert.equal(await inGroup(page), null);
+  assert.deepEqual(await selSorted(page), [a, b, tx].sort(), 'Esc 回到整組');
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, a)).x, 100);
+  // 文字：第一次雙擊進入群組內選取，第二次才編輯
+  const ct = await center(page, tx);
+  await page.mouse.dblclick(ct.x, ct.y);
+  await flush(page);
+  assert.deepEqual((await S(page)).sel, [tx]);
+  assert.equal(await page.locator('.dz-text-edit').count(), 0, '還沒進入文字編輯');
+  await page.mouse.dblclick(ct.x, ct.y);
+  await flush(page);
+  assert.equal(await page.locator('.dz-text-edit').count(), 1, '再雙擊一次才編輯');
+  await page.keyboard.press('Escape');
+  // 點空白離開群組內選取
+  const blank = await toScreen(page, 1000, 1000);
+  await page.mouse.click(blank.x, blank.y);
+  assert.equal(await inGroup(page), null);
+  assert.deepEqual(errors, []);
+});
+
+test('剪裁遮色片：Ctrl+7 建立後框外被裁掉、外框不畫且選取時有虛線輪廓；Ctrl+Alt+7／按鈕釋放；Ctrl+Z 還原', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const file = await makeImage(page, 400, 300);
+  await page.setInputFiles('#dzImgFile', file);
+  await page.waitForFunction(() => QPTDesign.ui.state.doc.pages[0].objects.some(o => o.type === 'image'));
+  const img = (await curPage(page)).objects[0].id;
+  const [el_] = await addRaw(page, [{ type: 'shape', kind: 'ellipse', x: 440, y: 440, w: 200, h: 200, fill: '#00c000' }]);
+  await flush(page);
+  const corner = [230, 310], inside = [500, 540];
+  assert.ok((await px(page, ...corner))[0] > 200, '剪裁前角落是圖片的紅');
+  assert.ok((await px(page, ...inside))[1] > 150, '剪裁前圓內是外框的綠');
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [img, el_]);
+  await press(page, 'Control+7');
+  assert.deepEqual(await groups(page), { g1: { name: '剪裁群組 1', clip: true } });
+  assert.ok(isWhite(await px(page, ...corner)), '框外被裁掉');
+  const p1 = await px(page, ...inside);
+  assert.ok(p1[0] > 200 && p1[1] < 60, '圓內是圖片、外框的填色沒畫出 ' + p1);
+  assert.equal(await page.locator('.dz-clip-outline').count(), 1, '外框的虛線輪廓');
+  assert.equal(await page.locator('#dzReleaseBtn').count(), 1);
+  await press(page, 'Control+Alt+7');
+  assert.deepEqual(await groups(page), {});
+  assert.ok((await px(page, ...inside))[1] > 150, '釋放後外框恢復可見');
+  assert.equal(await page.locator('.dz-clip-outline').count(), 0);
+  await press(page, 'Control+z');
+  assert.equal((await groups(page)).g1.clip, true);
+  assert.ok(isWhite(await px(page, ...corner)));
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [img, el_]);
+  await page.click('#dzReleaseBtn');
+  assert.deepEqual(await groups(page), {});
+  assert.ok((await px(page, ...corner))[0] > 200);
+  await press(page, 'Control+z');
+  await press(page, 'Control+z');
+  assert.deepEqual(await groups(page), {}, '回到建立前');
+  // 按鈕建立；最上層不是形狀時顯示原因
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [img, el_]);
+  await page.click('#dzClipBtn');
+  assert.equal((await groups(page)).g1.clip, true);
+  await press(page, 'Control+z');
+  await page.evaluate(id => QPTDesign.ui.select([id]), el_);
+  await press(page, '[');   // 把外框移到圖片下面
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [img, el_]);
+  await page.click('#dzClipBtn');
+  assert.match(await status(page), /最上層的形狀/);
+  assert.deepEqual(await groups(page), {});
+  assert.deepEqual(errors, []);
+});
+
+test('混合模式：選「色彩增值」後像素改變、馬賽克沒有這個欄位；Ctrl+Z 還原', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [, g] = await addRaw(page, [
+    { type: 'shape', kind: 'rect', x: 100, y: 100, w: 400, h: 400, fill: '#ff0000' },
+    { type: 'shape', kind: 'rect', x: 300, y: 300, w: 400, h: 400, fill: '#00ff00' },
+  ]);
+  await page.evaluate(id => QPTDesign.ui.select([id]), g);
+  await flush(page);
+  assert.deepEqual((await px(page, 400, 400)).slice(0, 3), [0, 255, 0]);
+  const opts = await page.$$eval('#dzF-blend option', os => os.map(o => o.textContent));
+  assert.deepEqual(opts, ['正常', '色彩增值', '濾色', '覆蓋', '變暗', '變亮', '加亮顏色', '加深顏色', '實光', '柔光', '差異化', '排除', '色相', '飽和度', '顏色', '明度']);
+  await page.selectOption('#dzF-blend', { label: '色彩增值' });
+  await flush(page);
+  assert.equal((await obj(page, g)).blend, 'multiply');
+  assert.deepEqual((await px(page, 400, 400)).slice(0, 3), [0, 0, 0], '紅疊綠變黑');
+  assert.deepEqual((await px(page, 600, 600)).slice(0, 3), [0, 255, 0], '沒疊到的地方不變');
+  await page.click('#dzUndoBtn');
+  await flush(page);
+  assert.deepEqual((await px(page, 400, 400)).slice(0, 3), [0, 255, 0]);
+  // 混合模式在透明度下面
+  const [op, bl] = await Promise.all(['#dzF-opacity', '#dzF-blend'].map(s => page.locator(s).boundingBox()));
+  assert.ok(bl.y > op.y, '混合模式在透明度下面');
+  await add(page, 'mosaic');
+  assert.equal(await page.locator('#dzF-blend').count(), 0, '馬賽克沒有混合模式');
+  assert.deepEqual(errors, []);
+});
+
+test('圖層面板：列的順序相反、點列選取、眼睛隱藏、鎖頭鎖定、雙擊改名、拖曳排序；每步 Ctrl+Z 還原', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [a, b, c] = await addRaw(page, [
+    { type: 'shape', kind: 'rect', x: 100, y: 100, w: 200, h: 200, fill: '#ff0000' },
+    { type: 'shape', kind: 'ellipse', x: 500, y: 500, w: 200, h: 200, fill: '#0000ff' },
+    { type: 'text', text: '一二三四五六七八九十十一', x: 100, y: 800, w: 900, h: 100 },
+  ]);
+  assert.equal(await page.isVisible('#dzLayers'), false, '預設在屬性分頁');
+  await page.click('#dzTabLayers');
+  assert.equal(await page.getAttribute('#dzTabLayers', 'aria-selected'), 'true');
+  assert.equal(await page.isVisible('#dzPanelBody'), false);
+  assert.deepEqual(await layerRows(page), [c, b, a], '最上層排第一');
+  const names = await page.$$eval('#dzLayers .dz-layer-name', ns => ns.map(n => n.textContent));
+  assert.deepEqual(names, ['文字：一二三四五六七八九十', '橢圓', '矩形']);
+  // 點列選取、畫布選取同步反白
+  await page.click(`#dzLayers .dz-layer[data-id="${b}"] .dz-layer-name`);
+  assert.deepEqual((await S(page)).sel, [b]);
+  assert.ok(await page.locator(`#dzLayers .dz-layer[data-id="${b}"]`).evaluate(e => e.classList.contains('sel')));
+  await page.click(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-name`, { modifiers: ['Shift'] });
+  assert.deepEqual(await selSorted(page), [a, b].sort(), 'Shift 加選');
+  await page.evaluate(id => QPTDesign.ui.select([id]), c);
+  await flush(page);
+  assert.ok(await page.locator(`#dzLayers .dz-layer[data-id="${c}"]`).evaluate(e => e.classList.contains('sel')));
+  assert.ok(!(await page.locator(`#dzLayers .dz-layer[data-id="${b}"]`).evaluate(e => e.classList.contains('sel'))));
+  // 眼睛
+  await page.click(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-eye`);
+  assert.equal((await obj(page, a)).hidden, true);
+  await flush(page);
+  assert.ok(isWhite(await px(page, 200, 200)), '隱藏後不畫');
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, a)).hidden, false);
+  // 鎖頭：鎖定後拖不動
+  await page.click(`#dzLayers .dz-layer[data-id="${b}"] .dz-layer-lock`);
+  assert.equal((await obj(page, b)).locked, true);
+  const cb = await center(page, b);
+  await drag(page, cb, { x: cb.x + 80, y: cb.y + 40 });
+  assert.equal((await obj(page, b)).x, 500, '鎖定的物件拖不動');
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, b)).locked, false);
+  // 雙擊改名：Enter 確認、Esc 取消
+  await page.dblclick(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-name`);
+  await page.fill('#dzLayers .dz-layer-rename', '背景方塊');
+  await page.keyboard.press('Enter');
+  assert.equal((await obj(page, a)).name, '背景方塊');
+  assert.equal(await page.textContent(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-name`), '背景方塊');
+  await page.dblclick(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-name`);
+  await page.fill('#dzLayers .dz-layer-rename', '不要這個');
+  await page.keyboard.press('Escape');
+  assert.equal((await obj(page, a)).name, '背景方塊', 'Esc 取消');
+  await press(page, 'Control+z');
+  assert.ok(!(await obj(page, a)).name, '復原名稱');
+  // 拖曳排序：把最下層的 a 拖到最上面
+  await dragRow(page, `#dzLayers .dz-layer[data-id="${a}"]`, `#dzLayers .dz-layer[data-id="${c}"]`, 'above');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), [b, c, a]);
+  assert.deepEqual(await layerRows(page), [a, c, b]);
+  await press(page, 'Control+z');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), [a, b, c]);
+  assert.deepEqual(errors, []);
+});
+
+test('圖層面板：群組標題可收合、眼睛鎖頭套用整組、成員只能在組內拖曳、標題拖曳整組', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [a, b, c] = await addRaw(page, [
+    { type: 'shape', kind: 'rect', x: 100, y: 100, w: 200, h: 200, fill: '#ff0000' },
+    { type: 'shape', kind: 'rect', x: 400, y: 100, w: 200, h: 200, fill: '#00ff00' },
+    { type: 'shape', kind: 'ellipse', x: 700, y: 100, w: 200, h: 200, fill: '#0000ff' },
+  ]);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [b, c]);
+  await press(page, 'Control+7');   // b 是圖、c 是外框
+  await page.click('#dzTabLayers');
+  assert.deepEqual(await layerRows(page), ['g:g1', c, b, a]);
+  const head = '#dzLayers .dz-layer[data-gid="g1"]';
+  assert.match(await page.textContent(head), /剪裁群組 1/);
+  assert.match(await page.textContent(head), /剪裁/);
+  assert.match(await page.textContent(`#dzLayers .dz-layer[data-id="${c}"]`), /外框/);
+  assert.ok(await page.locator(`#dzLayers .dz-layer[data-id="${c}"]`).evaluate(e => e.classList.contains('is-member')));
+  // 點標題選整組；點成員列＝群組內選取
+  await page.click(`${head} .dz-layer-name`);
+  assert.deepEqual(await selSorted(page), [b, c].sort());
+  assert.ok(await page.locator(head).evaluate(e => e.classList.contains('sel')));
+  await page.click(`#dzLayers .dz-layer[data-id="${b}"] .dz-layer-name`);
+  assert.deepEqual((await S(page)).sel, [b]);
+  assert.equal(await inGroup(page), 'g1');
+  // 收合
+  await page.click(`${head} .dz-layer-caret`);
+  assert.deepEqual(await layerRows(page), ['g:g1', a]);
+  await page.click(`${head} .dz-layer-caret`);
+  assert.deepEqual(await layerRows(page), ['g:g1', c, b, a]);
+  // 群組眼睛、鎖頭套用整組，一筆復原
+  await page.click(`${head} .dz-layer-eye`);
+  assert.equal((await obj(page, b)).hidden, true); assert.equal((await obj(page, c)).hidden, true);
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, b)).hidden, false); assert.equal((await obj(page, c)).hidden, false);
+  await page.click(`${head} .dz-layer-lock`);
+  assert.equal((await obj(page, b)).locked, true); assert.equal((await obj(page, c)).locked, true);
+  await press(page, 'Control+z');
+  assert.equal((await obj(page, c)).locked, false);
+  // 群組改名
+  await page.dblclick(`${head} .dz-layer-name`);
+  await page.fill('#dzLayers .dz-layer-rename', '照片框');
+  await page.keyboard.press('Enter');
+  assert.equal((await groups(page)).g1.name, '照片框');
+  await press(page, 'Control+z');
+  assert.equal((await groups(page)).g1.name, '剪裁群組 1');
+  // 成員拖出群組：不動並顯示原因
+  const before = (await curPage(page)).objects.map(o => o.id);
+  await dragRow(page, `#dzLayers .dz-layer[data-id="${b}"]`, `#dzLayers .dz-layer[data-id="${a}"]`, 'below');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), before, '成員沒有離開群組');
+  assert.match(await status(page), /群組/);
+  assert.equal((await obj(page, b)).groupId, 'g1');
+  // 一般群組裡的成員可以在組內換順序
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [b, c]);
+  await press(page, 'Control+Alt+7');
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [b, c]);
+  await press(page, 'Control+g');
+  await dragRow(page, `#dzLayers .dz-layer[data-id="${b}"]`, `#dzLayers .dz-layer[data-id="${c}"]`, 'above');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), [a, c, b], '組內換順序');
+  await press(page, 'Control+z');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), [a, b, c]);
+  // 拖群組標題：整組移到最下面
+  await dragRow(page, '#dzLayers .dz-layer[data-gid="g1"]', `#dzLayers .dz-layer[data-id="${a}"]`, 'below');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), [b, c, a], '整組移到 a 下面');
+  await press(page, 'Control+z');
+  assert.deepEqual((await curPage(page)).objects.map(o => o.id), [a, b, c]);
+  // 記住分頁
+  assert.equal(await page.evaluate(() => localStorage.getItem('qpt.design.panelTab')), 'layers');
+  await page.reload();
+  await page.click('#toolsClose').catch(() => {});
+  await page.click('#funcDesignBtn');
+  await page.waitForFunction(() => window.QPTDesign && QPTDesign.ui && QPTDesign.ui.state.zoom > 0);
+  assert.equal(await page.isVisible('#dzLayers'), true, '重新載入後還在圖層分頁');
+  assert.deepEqual(errors, []);
+});
+
+test('複製貼上整組：貼上的是新群組、選到整組', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [a, b] = await twoShapes(page);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await press(page, 'Control+g');
+  await press(page, 'Control+c');
+  await press(page, 'Control+v');
+  await page.waitForFunction(() => QPTDesign.ui.state.doc.pages[0].objects.length === 4);
+  const objs = (await curPage(page)).objects;
+  assert.deepEqual(objs.map(o => o.groupId), ['g1', 'g1', 'g2', 'g2']);
+  assert.deepEqual(Object.keys(await groups(page)).sort(), ['g1', 'g2']);
+  assert.deepEqual(await selSorted(page), [objs[2].id, objs[3].id].sort());
+  // 群組內只複製一個：貼上的不帶群組
+  await page.evaluate(id => QPTDesign.ui.select([id]), a);
+  await press(page, 'Control+c');
+  await press(page, 'Control+v');
+  await page.waitForFunction(() => QPTDesign.ui.state.doc.pages[0].objects.length === 5);
+  assert.equal((await curPage(page)).objects[4].groupId, undefined);
+  assert.deepEqual(errors, []);
+});
+
+test('專案檔存了再開：群組、剪裁、混合模式、多邊形和星形都保留', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const [p, s, r, e] = await addRaw(page, [
+    { type: 'shape', kind: 'polygon', sides: 5, x: 100, y: 100, w: 300, h: 300 },
+    { type: 'shape', kind: 'star', points: 7, inner: 0.3, x: 500, y: 100, w: 300, h: 300, blend: 'screen' },
+    { type: 'shape', kind: 'rect', x: 100, y: 600, w: 300, h: 300, fill: '#ff0000' },
+    { type: 'shape', kind: 'ellipse', x: 150, y: 650, w: 200, h: 200 },
+  ]);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [p, s]);
+  await press(page, 'Control+g');
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [r, e]);
+  await press(page, 'Control+7');
+  const docA = await docJson(page);
+  const { file } = await download(page, '#dzSaveBtn');
+  const saved = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qpt-dz-')), 'proj.json');
+  fs.copyFileSync(file, saved);
+  const b2 = await open(t);
+  await b2.page.setInputFiles('#dzOpenFile', saved);
+  await b2.page.waitForFunction(() => /已匯入/.test(document.getElementById('dzStatus').textContent));
+  assert.equal(await docJson(b2.page), docA);
+  const pg = await curPage(b2.page);
+  assert.deepEqual(pg.groups, { g1: { name: '群組 1', clip: false }, g2: { name: '剪裁群組 2', clip: true } });
+  assert.equal((await obj(b2.page, s)).blend, 'screen');
+  assert.equal((await obj(b2.page, p)).sides, 5);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(b2.errors, []);
+});
+
+test('390×844 手機：屬性｜圖層分頁可以切換、圖層列不撐出水平捲軸', { skip }, async t => {
+  const { page, errors } = await open(t, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  const [a, b] = await twoShapes(page);
+  await page.evaluate(ids => QPTDesign.ui.select(ids), [a, b]);
+  await page.evaluate(() => document.getElementById('dzGroupBtn').click());
+  await page.tap('#dzTabLayers');
+  await flush(page);
+  const m = await page.evaluate(() => {
+    const p = document.getElementById('dzPanel').getBoundingClientRect();
+    const rows = [...document.querySelectorAll('#dzLayers .dz-layer')].map(e => e.getBoundingClientRect());
+    const eye = document.querySelector('#dzLayers .dz-layer-eye').getBoundingClientRect();
+    return { sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, n: rows.length,
+      inside: rows.every(r => r.left >= p.left && r.right <= p.right + 0.5), eyeH: eye.height, eyeW: eye.width };
+  });
+  assert.equal(m.sw, m.cw);
+  assert.equal(m.n, 3);
+  assert.ok(m.inside, '列在面板內');
+  assert.ok(m.eyeH >= 32 && m.eyeW >= 32, `眼睛按鈕夠大 ${m.eyeW}×${m.eyeH}`);
+  await page.tap(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-name`);
+  assert.deepEqual((await S(page)).sel, [a]);
+  await page.tap('#dzTabProps');
+  assert.equal(await page.isVisible('#dzPanelBody'), true);
+  assert.deepEqual(errors, []);
+});

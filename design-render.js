@@ -157,6 +157,48 @@
     c.restore();
   }
 
+  // ---- 混合模式 ---------------------------------------------------------------------
+  // blend → Canvas globalCompositeOperation；缺值或未知視同 normal（source-over）
+  const BLEND_OPS = {
+    normal: 'source-over', multiply: 'multiply', screen: 'screen', overlay: 'overlay', darken: 'darken',
+    lighten: 'lighten', 'color-dodge': 'color-dodge', 'color-burn': 'color-burn', 'hard-light': 'hard-light',
+    'soft-light': 'soft-light', difference: 'difference', exclusion: 'exclusion', hue: 'hue',
+    saturation: 'saturation', color: 'color', luminosity: 'luminosity',
+  };
+  const blendOp = b => (typeof b === 'string' && Object.prototype.hasOwnProperty.call(BLEND_OPS, b) ? BLEND_OPS[b] : 'source-over');
+
+  // ---- 多邊形／星形頂點 ---------------------------------------------------------------
+  // 物件局部座標（左上為原點、未旋轉）。頂點在以框中心為圓心、半軸 w/2、h/2 的橢圓上，第一個頂點朝正上方。
+  // 星形：外圈（偶數索引）在橢圓上、內圈（奇數索引）在 inner 倍橢圓上交錯。其他 kind 回空陣列。
+  function polygonPoints(o) {
+    const w = num(o.w, 0), h = num(o.h, 0), cx = w / 2, cy = h / 2;
+    let n, k = null;
+    if (o.kind === 'polygon') n = Math.max(3, Math.round(num(o.sides, 6)));
+    else if (o.kind === 'star') { n = Math.max(3, Math.round(num(o.points, 5))) * 2; k = num(o.inner, 0.5); }
+    else return [];
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+      const r = k != null && i % 2 ? k : 1;
+      pts.push([cx + cx * r * Math.cos(a), cy + cy * r * Math.sin(a)]);
+    }
+    return pts;
+  }
+  // 在物件局部座標建立形狀路徑（rect 含 radius、ellipse、polygon、star）；一般繪製與剪裁共用。
+  // 呼叫端要先自己套好 translate／rotate。其他 kind（line、arrow）回 false 且不動路徑。
+  function shapePath(ctx, o, scale) {
+    const w = o.w, h = o.h;
+    if (o.kind === 'ellipse') { ctx.beginPath(); ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); return true; }
+    if (o.kind === 'rect') { roundRectPath(ctx, 0, 0, w, h, o.radius); return true; }
+    if (o.kind === 'polygon' || o.kind === 'star') {
+      ctx.beginPath();
+      polygonPoints(o).forEach(([x, y], i) => { if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.closePath();
+      return true;
+    }
+    return false;
+  }
+
   // ---- 背景 -----------------------------------------------------------------------
   function drawBg(ctx, page, opts) {
     const bg = page.bg || { type: 'solid', color: '#ffffff' };
@@ -211,7 +253,11 @@
       bc.drawImage(a, 0, 0);
       out = b;
     }
+    // 混合模式只套在這一步（離屏畫布本身用 source-over 畫）
+    const op = blendOp(o.blend);
+    if (op !== 'source-over') ctx.globalCompositeOperation = op;
     ctx.drawImage(out, 0, 0, o.w, o.h);
+    if (op !== 'source-over') ctx.globalCompositeOperation = 'source-over';
     return false;
   }
 
@@ -293,8 +339,7 @@
       } else { ctx.beginPath(); ctx.moveTo(0, my); ctx.lineTo(w, my); ctx.stroke(); }
       return;
     }
-    if (o.kind === 'ellipse') { ctx.beginPath(); ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); }
-    else roundRectPath(ctx, 0, 0, w, h, o.radius);
+    shapePath(ctx, o, scale);
     if (hasFill) { ctx.fillStyle = paintStyle(ctx, o.fill, w, h, scale); ctx.fill(); }
     if (sw) { ctx.lineWidth = sw; ctx.strokeStyle = o.stroke.color || '#000000'; ctx.lineJoin = 'round'; ctx.stroke(); }
   }
@@ -348,11 +393,15 @@
     ctx.save();
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     if (drawBg(ctx, page, opts)) pending = true;
-    for (const o of page.objects || []) {
-      if (!o || o.hidden || (opts.skipIds && opts.skipIds.has(o.id))) continue;
-      if (o.type === 'mosaic') { drawMosaic(ctx, o, page, scale); continue; }
+    const objs = page.objects || [];
+    const groups = page.groups || {};
+    // 畫單一物件（含變換、透明度、混合模式）
+    const drawObj = o => {
+      if (o.type === 'mosaic') { drawMosaic(ctx, o, page, scale); return; }
       ctx.save();
       ctx.globalAlpha = o.opacity == null ? 1 : o.opacity;
+      const op = blendOp(o.blend);
+      if (op !== 'source-over' && o.type !== 'image') ctx.globalCompositeOperation = op;   // 圖片在離屏畫回頁面時才套
       ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
       if (o.rot) ctx.rotate(o.rot * Math.PI / 180);
       ctx.translate(-o.w / 2, -o.h / 2);
@@ -361,12 +410,46 @@
       else if (o.type === 'shape') drawShape(ctx, o, scale);
       else if (o.type === 'sticker') { if (drawSticker(ctx, o, opts)) pending = true; }
       ctx.restore();
+    };
+    const visible = o => o && !o.hidden && !(opts.skipIds && opts.skipIds.has(o.id));
+    // 剪裁群組：成員連續，最上層（陣列最後一個）是外框形狀
+    const clipMask = gid => {
+      const g = groups[gid];
+      if (!g || !g.clip) return null;
+      let last = null;
+      for (const o of objs) if (o && o.groupId === gid) last = o;
+      return last;
+    };
+    const doneGroups = new Set();
+    for (let i = 0; i < objs.length; i++) {
+      const o = objs[i];
+      if (!o) continue;
+      const mask = o.groupId != null && !doneGroups.has(o.groupId) ? clipMask(o.groupId) : null;
+      if (mask) {
+        doneGroups.add(o.groupId);
+        // 外框隱藏（或被略過）時整個群組不畫：外框一消失，群組的畫面範圍就沒有定義
+        if (visible(mask)) {
+          ctx.save();
+          ctx.translate(mask.x + mask.w / 2, mask.y + mask.h / 2);
+          if (mask.rot) ctx.rotate(mask.rot * Math.PI / 180);
+          ctx.translate(-mask.w / 2, -mask.h / 2);
+          shapePath(ctx, mask, scale);
+          ctx.restore();   // 路徑已用當時的 transform 轉成裝置座標，restore 不會動它
+          ctx.save();
+          ctx.clip();
+          for (const m of objs) if (m && m.groupId === o.groupId && m !== mask && visible(m)) drawObj(m);
+          ctx.restore();
+        }
+        continue;
+      }
+      if (o.groupId != null && doneGroups.has(o.groupId) && groups[o.groupId] && groups[o.groupId].clip) continue;
+      if (visible(o)) drawObj(o);
     }
     ctx.restore();
     return { pending };
   }
 
-  const api = { render, layoutText, textHeight, place, paintStyle };
+  const api = { render, layoutText, textHeight, place, paintStyle, shapePath, polygonPoints, blendOp };
   const Q = root.QPTDesign = root.QPTDesign || {};
   Q.render = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

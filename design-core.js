@@ -24,11 +24,17 @@
   const STICKERS = ['angry', 'cry', 'kiss', 'laugh', 'meh', 'shock', 'smile'];
   const SNAP_PX = 6;                       // 吸附門檻（螢幕像素）
   const TYPES = ['text', 'image', 'shape', 'sticker', 'mosaic'];
-  const SHAPE_KINDS = ['rect', 'ellipse', 'line', 'arrow'];
+  const SHAPE_KINDS = ['rect', 'ellipse', 'line', 'arrow', 'polygon', 'star'];
+  const CLIP_KINDS = ['rect', 'ellipse', 'polygon', 'star'];   // 能當剪裁遮色片外框的形狀
+  // 混合模式（順序同規格表）；渲染時 normal 對應 source-over，其他同名
+  const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn',
+    'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'];
+  const NAME_MAX = 40;                                 // 圖層／群組名稱的字數上限
+  const POLY_SIDES = [3, 12], STAR_POINTS = [3, 20], STAR_INNER = [0.1, 0.95];
   const ALIGNS = ['left', 'center', 'right'];
   const FITS = ['cover', 'contain'];
   const MERGE_KEYS = ['stroke', 'shadow', 'view'];   // patch 時做淺合併的欄位
-  const LOCK_FREE = ['locked', 'hidden'];             // 鎖定時仍可改的欄位
+  const LOCK_FREE = ['locked', 'hidden', 'name'];     // 鎖定時仍可改的欄位
   const HANDLES = { nw: [-1, -1], n: [0, -1], ne: [1, -1], e: [1, 0], se: [1, 1], s: [0, 1], sw: [-1, 1], w: [-1, 0] };
 
   const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -37,12 +43,14 @@
   const str = v => typeof v === 'string' && v.length > 0;
   const fail = reason => ({ ok: false, reason });
   const RAD = Math.PI / 180;
+  const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const nameLen = v => [...v].length;
 
   class EditError extends Error {}
   const bail = reason => { throw new EditError(reason); };
 
   // ---- 預設值 ------------------------------------------------------------------------
-  const common = () => ({ rot: 0, opacity: 1, locked: false, hidden: false });
+  const common = () => ({ rot: 0, opacity: 1, locked: false, hidden: false, blend: 'normal' });
   const DEFAULTS = {
     text: () => ({ text: '輸入文字', font: 'WHZ-Heavy', size: 80, color: '#111111', align: 'center', lineHeight: 1.25, letterSpacing: 0, arc: 0,
       stroke: { w: 0, color: '#000000' }, shadow: { x: 0, y: 0, blur: 0, color: 'rgba(0,0,0,0.5)' }, w: 800, h: 100 }),
@@ -51,10 +59,24 @@
     sticker: () => ({ sticker: 'smile', w: 240, h: 240 }),
     mosaic: () => ({ w: 300, h: 200 }),
   };
-  // 該類型的完整預設欄位（含 type，不含 id、x、y）；不認得的類型回 null
-  function defaults(type) {
+  // 該類型的完整預設欄位（含 type，不含 id、x、y）；不認得的類型回 null。
+  // 形狀可以多給 kind：defaults('shape', 'star') 會帶上角數與內徑
+  function defaults(type, kind) {
     const mk = DEFAULTS[type];
-    return mk ? Object.assign({ type }, mk(), common()) : null;
+    if (!mk) return null;
+    const o = Object.assign({ type }, mk(), common());
+    if (type === 'shape' && kind !== undefined) { o.kind = kind; shapeExtras(o); }
+    return o;
+  }
+  // 多邊形補 sides、星形補 points／inner（已經有的不動）
+  function shapeExtras(o) {
+    if (!isObj(o) || o.type !== 'shape') return o;
+    if (o.kind === 'polygon' && o.sides === undefined) o.sides = 6;
+    if (o.kind === 'star') {
+      if (o.points === undefined) o.points = 5;
+      if (o.inner === undefined) o.inner = 0.5;
+    }
+    return o;
   }
   const solidBg = () => ({ type: 'solid', color: '#ffffff' });
 
@@ -74,7 +96,7 @@
   const objIds = doc => allObjects(doc).map(o => o.id);
 
   function createDoc({ w = 1080, h = 1080 } = {}) {
-    return { version: DOC_VERSION, pages: [{ id: 'p1', w, h, bg: solidBg(), objects: [] }], assets: {} };
+    return { version: DOC_VERSION, pages: [{ id: 'p1', w, h, bg: solidBg(), objects: [], groups: {} }], assets: {} };
   }
 
   // =====================================================================================
@@ -118,6 +140,10 @@
     if (!fin(o.rot)) return '旋轉角度不正確';
     if (!fin(o.opacity) || o.opacity < 0 || o.opacity > 1) return '透明度必須在 0～1 之間';
     if (typeof o.locked !== 'boolean' || typeof o.hidden !== 'boolean') return '鎖定／隱藏設定不正確';
+    if (o.blend !== undefined && !BLEND_MODES.includes(o.blend)) return '混合模式不正確';
+    if (o.type === 'mosaic' && o.blend !== undefined && o.blend !== 'normal') return '馬賽克不能設定混合模式';
+    if (o.name !== undefined && !(typeof o.name === 'string' && nameLen(o.name) <= NAME_MAX)) return `圖層名稱必須是 ${NAME_MAX} 字以內的文字`;
+    if (o.groupId !== undefined && !str(o.groupId)) return '物件的群組設定不正確';
     switch (o.type) {
       case 'text':
         if (typeof o.text !== 'string') return '文字內容不正確';
@@ -143,11 +169,41 @@
         if ((o.kind === 'line' || o.kind === 'arrow') && typeof o.fill !== 'string') return '線條與箭頭的填色必須是純色';
         if (!strokeOk(o.stroke)) return '形狀描邊設定不正確';
         if (!fin(o.radius) || o.radius < 0) return '圓角不能小於 0';
+        if (o.kind === 'polygon' && !intIn(o.sides, POLY_SIDES)) return `多邊形的邊數必須是 ${POLY_SIDES[0]}～${POLY_SIDES[1]} 的整數`;
+        if (o.kind === 'star') {
+          if (!intIn(o.points, STAR_POINTS)) return `星形的角數必須是 ${STAR_POINTS[0]}～${STAR_POINTS[1]} 的整數`;
+          if (!(fin(o.inner) && o.inner >= STAR_INNER[0] && o.inner <= STAR_INNER[1])) return '星形的內徑必須在 10%～95% 之間';
+        }
         return null;
       case 'sticker':
         return STICKERS.includes(o.sticker) ? null : `沒有這個貼圖：${o.sticker}`;
       case 'mosaic':
         return o.rot === 0 ? null : '馬賽克不能旋轉';
+    }
+    return null;
+  }
+  const intIn = (v, [lo, hi]) => Number.isInteger(v) && v >= lo && v <= hi;
+  const isClipFrame = o => isObj(o) && o.type === 'shape' && CLIP_KINDS.includes(o.kind);
+  const groupsOf = p => (isObj(p.groups) ? p.groups : {});
+  // 群組的不變式：groupId 都存在、每組至少 2 個且在圖層順序裡相連、剪裁群組最上層是可當外框的形狀
+  function groupsProblem(p) {
+    if (p.groups !== undefined && !isObj(p.groups)) return '群組資料不正確';
+    const groups = groupsOf(p);
+    for (const g of Object.values(groups)) {
+      if (!isObj(g) || typeof g.clip !== 'boolean') return '群組資料不正確';
+      if (!str(g.name) || nameLen(g.name) > NAME_MAX) return `群組名稱必須是 1～${NAME_MAX} 字的文字`;
+    }
+    const at = {};
+    p.objects.forEach((o, i) => {
+      if (o.groupId === undefined) return;
+      (at[o.groupId] = at[o.groupId] || []).push(i);
+    });
+    for (const gid of Object.keys(at)) if (!hasOwn(groups, gid)) return `找不到物件所屬的群組：${gid}`;
+    for (const [gid, g] of Object.entries(groups)) {
+      const idx = at[gid] || [];
+      if (idx.length < 2) return `群組「${g.name}」至少要有 2 個物件`;
+      if (idx[idx.length - 1] - idx[0] !== idx.length - 1) return `群組「${g.name}」的物件在圖層順序裡必須相連`;
+      if (g.clip && !isClipFrame(p.objects[idx[idx.length - 1]])) return '剪裁群組最上層的物件必須是矩形、橢圓、多邊形或星形';
     }
     return null;
   }
@@ -180,6 +236,8 @@
         if (ids.has(o.id)) return `物件 id 重複：${o.id}`;
         ids.add(o.id);
       }
+      const gp = groupsProblem(p);
+      if (gp) return gp;
     }
     return null;
   }
@@ -221,7 +279,7 @@
     const base = defaults(partial.type) || bail(`不支援的物件類型：${partial.type}`);
     const o = Object.assign(base, copy(partial));
     for (const k of MERGE_KEYS) if (k in base && isObj(partial[k])) o[k] = Object.assign({}, defaults(partial.type)[k], partial[k]);
-    return o;
+    return shapeExtras(o);
   }
 
   // =====================================================================================
@@ -233,7 +291,7 @@
       const i = index == null ? d.pages.length : index;
       if (!Number.isInteger(i) || i < 0 || i > d.pages.length) bail('頁面位置不正確');
       const id = nextId('p', d.pages.map(p => p.id));
-      d.pages.splice(i, 0, { id, w: w == null ? (ref ? ref.w : 1080) : w, h: h == null ? (ref ? ref.h : 1080) : h, bg: bg ? copy(bg) : solidBg(), objects: [] });
+      d.pages.splice(i, 0, { id, w: w == null ? (ref ? ref.w : 1080) : w, h: h == null ? (ref ? ref.h : 1080) : h, bg: bg ? copy(bg) : solidBg(), objects: [], groups: {} });
       return { id };
     });
   }
@@ -306,6 +364,7 @@
     return tx(doc, d => {
       const p = needPage(d, pageId);
       const o = fill(partial);
+      delete o.groupId;              // 加入群組只能透過 groupObjects
       o.id = nextId('o', objIds(d));
       // 沒給位置時放在頁面中央
       if (o.x === undefined) o.x = fin(o.w) ? (p.w - o.w) / 2 : 0;
@@ -325,20 +384,112 @@
         for (const [k, v] of Object.entries(patch)) {
           if (k === 'id' || v === undefined) continue;
           if (k === 'type' && v !== o.type) bail('不能變更物件類型');
+          if (k === 'groupId' && v !== o.groupId) bail('群組要用「群組」「取消群組」來調整');
           const nv = MERGE_KEYS.includes(k) && isObj(v) && isObj(o[k]) ? Object.assign({}, o[k], v) : copy(v);
           if (o.locked && !LOCK_FREE.includes(k) && JSON.stringify(nv) !== JSON.stringify(o[k])) bail('物件已鎖定');
           o[k] = nv;
         }
+        shapeExtras(o);              // 例如矩形改成星形時補上角數與內徑
       }
     });
   }
+  // ---- 群組的小工具（只在交易的副本上用） ------------------------------------------
+  function ensureGroups(p) { if (!isObj(p.groups)) p.groups = {}; return p.groups; }
+  // 解散群組：拿掉成員的 groupId、刪掉群組資料
+  function dissolve(p, gid) {
+    for (const o of p.objects) if (o.groupId === gid) delete o.groupId;
+    delete p.groups[gid];
+  }
+  // 成員剩不到 2 個（或 extra(gid) 為真）的群組自動解散
+  function tidyGroups(p, extra) {
+    const groups = ensureGroups(p);
+    for (const gid of Object.keys(groups)) {
+      const n = p.objects.filter(o => o.groupId === gid).length;
+      if (n < 2 || (extra && extra(gid))) dissolve(p, gid);
+    }
+  }
+  const groupName = (gid, clip) => (clip ? '剪裁群組 ' : '群組 ') + gid.replace(/^g/, '');
+  // 把連續、同一個群組的物件包成一個「單位」：[[o], [g1 的成員…], [o]…]
+  function unitsOf(arr) {
+    const out = [];
+    for (const o of arr) {
+      const last = out[out.length - 1];
+      if (o.groupId && last && last[0].groupId === o.groupId) last.push(o); else out.push([o]);
+    }
+    return out;
+  }
+  // 選取的物件是否「全在同一個群組、而且不是整組」→ 回傳那個 gid，否則 null
+  function partialGroup(p, objs, sel) {
+    const gid = objs[0].groupId;
+    if (!gid || !objs.every(o => o.groupId === gid)) return null;
+    return p.objects.some(o => o.groupId === gid && !sel.has(o.id)) ? gid : null;
+  }
+  // 選取範圍不能只含群組的一部分（partialGroup 的情況除外，由呼叫端先處理）
+  function needWholeUnits(units, sel, reason) {
+    for (const u of units) {
+      const k = u.filter(o => sel.has(o.id)).length;
+      if (k && k < u.length) bail(reason);
+    }
+  }
+  // 圖層順序的通用演算法：items 的每一項是一個單位，picked(item) 表示有沒有被選
+  function orderItems(items, picked, dir) {
+    const a = items.slice();
+    if (dir === 'top' || dir === 'bottom') {
+      const sel = a.filter(picked), rest = a.filter(u => !picked(u));
+      return dir === 'top' ? rest.concat(sel) : sel.concat(rest);
+    }
+    if (dir === 'up') {
+      for (let i = a.length - 2; i >= 0; i--) if (picked(a[i]) && !picked(a[i + 1])) [a[i], a[i + 1]] = [a[i + 1], a[i]];
+      return a;
+    }
+    if (dir === 'down') {
+      for (let i = 1; i < a.length; i++) if (picked(a[i]) && !picked(a[i - 1])) [a[i], a[i - 1]] = [a[i - 1], a[i]];
+      return a;
+    }
+    return bail('圖層順序方向不正確');
+  }
+  // 副本的群組：來源群組 isWhole(gid) 為真時給新的 gid（每個來源群組一個），否則拿掉 groupId
+  function regroupCopies(p, srcs, copies, srcGroups, isWhole) {
+    const groups = ensureGroups(p), map = {};
+    copies.forEach((o, i) => {
+      const g = srcs[i].groupId;
+      delete o.groupId;
+      if (!str(g) || !isObj(srcGroups) || !hasOwn(srcGroups, g) || !isWhole(g)) return;
+      if (!map[g]) {
+        const sg = srcGroups[g] || {}, clip = sg.clip === true;
+        map[g] = nextId('g', Object.keys(groups));
+        groups[map[g]] = { name: str(sg.name) ? sg.name : groupName(map[g], clip), clip };
+      }
+      o.groupId = map[g];
+    });
+  }
+  // 同一群組的成員收攏到「最上層那個成員」的位置，彼此相對順序不變
+  function gather(arr) {
+    const last = {};
+    arr.forEach((o, i) => { if (o.groupId) last[o.groupId] = i; });
+    const out = [];
+    arr.forEach((o, i) => {
+      if (!o.groupId) out.push(o);
+      else if (last[o.groupId] === i) out.push(...arr.filter(x => x.groupId === o.groupId));
+    });
+    return out;
+  }
+
+  // 刪除；群組剩不到 2 個成員就解散，剪裁群組的外框（最上層）被刪掉時整組解散
   function removeObjects(doc, pageId, ids) {
     return tx(doc, d => {
       const p = needPage(d, pageId);
       const objs = needObjs(p, ids);
       needUnlocked(objs);
       const del = new Set(objs.map(o => o.id));
+      const groups = ensureGroups(p), frames = {};
+      for (const [gid, g] of Object.entries(groups)) {
+        if (!g.clip) continue;
+        const m = p.objects.filter(o => o.groupId === gid);
+        if (m.length) frames[gid] = m[m.length - 1].id;
+      }
       p.objects = p.objects.filter(o => !del.has(o.id));
+      tidyGroups(p, gid => frames[gid] !== undefined && del.has(frames[gid]));
     });
   }
   // 把物件以新 id、位移後放到頁面最上層（依原本的圖層順序）；回傳的 ids 對應傳入的順序
@@ -354,47 +505,149 @@
       return o;
     });
   }
+  // 複製；整組都選到的群組會複製成新群組（新 gid、同名稱與剪裁設定），只選到一部分的副本不帶 groupId
   function duplicateObjects(doc, pageId, ids, { dx = 20, dy = 20 } = {}) {
     return tx(doc, d => {
       const p = needPage(d, pageId);
       const objs = needObjs(p, ids);
+      const sel = new Set(objs.map(o => o.id));
       const layered = objs.slice().sort((a, b) => p.objects.indexOf(a) - p.objects.indexOf(b));
       const copies = placeCopies(d, p, layered, dx, dy);
-      p.objects.push(...copies);
+      const whole = gid => p.objects.every(o => o.groupId !== gid || sel.has(o.id));
+      regroupCopies(p, layered, copies, copy(groupsOf(p)), whole);
+      p.objects.push(...gather(copies));
       return { ids: objs.map(o => copies[layered.indexOf(o)].id) };
     });
   }
-  function pasteObjects(doc, pageId, objs, { dx = 20, dy = 20 } = {}) {
+  // 剪貼簿內容：依圖層順序的物件副本，加上「整組都選到」的群組資料；只選到一部分的群組拿掉 groupId
+  function clipboardOf(page, ids) {
+    const sel = new Set(Array.isArray(ids) ? ids : [ids]);
+    const objects = page.objects.filter(o => sel.has(o.id)).map(copy);
+    const pg = groupsOf(page), groups = {};
+    for (const o of objects) {
+      const g = o.groupId;
+      if (!g || groups[g] || !hasOwn(pg, g)) continue;
+      if (page.objects.every(x => x.groupId !== g || sel.has(x.id))) groups[g] = copy(pg[g]);
+    }
+    for (const o of objects) if (o.groupId && !hasOwn(groups, o.groupId)) delete o.groupId;
+    return { objects, groups };
+  }
+  // 貼上；opts.groups 是剪貼簿的群組資料（clipboardOf 給的），有列在裡面、而且貼了 2 個以上成員的群組才會重建
+  function pasteObjects(doc, pageId, objs, { dx = 20, dy = 20, groups } = {}) {
     return tx(doc, d => {
       const p = needPage(d, pageId);
       const list = Array.isArray(objs) ? objs : [];
       if (!list.length) bail('剪貼簿沒有物件');
       const copies = placeCopies(d, p, list, dx, dy);
-      p.objects.push(...copies);
+      const count = g => list.filter(o => isObj(o) && o.groupId === g).length;
+      regroupCopies(p, list, copies, isObj(groups) ? groups : {}, g => count(g) >= 2);
+      p.objects.push(...gather(copies));
       return { ids: copies.map(o => o.id) };
     });
   }
+  // 圖層順序。選取的是整個群組（或群組加上其他物件）時，群組當成一整塊移動，up／down 一次跨過一個物件或一整個群組，
+  // 不會插進別的群組中間；選取的只是某個群組的一部分時，只在那個群組內部移動。群組的一部分混著別的物件 → 拒絕。
   function reorder(doc, pageId, ids, dir) {
     return tx(doc, d => {
       const p = needPage(d, pageId);
       const objs = needObjs(p, ids);
       needUnlocked(objs);
       const sel = new Set(objs.map(o => o.id));
-      const a = p.objects.slice();
-      if (dir === 'top' || dir === 'bottom') {
-        const picked = a.filter(o => sel.has(o.id)), rest = a.filter(o => !sel.has(o.id));
-        p.objects = dir === 'top' ? rest.concat(picked) : picked.concat(rest);
-      } else if (dir === 'up') {
-        for (let i = a.length - 2; i >= 0; i--) {
-          if (sel.has(a[i].id) && !sel.has(a[i + 1].id)) [a[i], a[i + 1]] = [a[i + 1], a[i]];
-        }
-        p.objects = a;
-      } else if (dir === 'down') {
-        for (let i = 1; i < a.length; i++) {
-          if (sel.has(a[i].id) && !sel.has(a[i - 1].id)) [a[i], a[i - 1]] = [a[i - 1], a[i]];
-        }
-        p.objects = a;
-      } else bail('圖層順序方向不正確');
+      const gid = partialGroup(p, objs, sel);
+      if (gid) {
+        const mem = p.objects.filter(o => o.groupId === gid);
+        const start = p.objects.indexOf(mem[0]);
+        p.objects.splice(start, mem.length, ...orderItems(mem, o => sel.has(o.id), dir));
+        return;
+      }
+      const units = unitsOf(p.objects);
+      needWholeUnits(units, sel, '群組裡的物件要整組一起調整圖層順序（或只選同一個群組裡的物件）');
+      p.objects = orderItems(units, u => sel.has(u[0].id), dir).flat();
+    });
+  }
+  // 圖層面板拖曳：把選取的物件（依原本的相對順序）搬成一塊，toIndex 是搬完後這一塊最下層那個在 objects 的位置。
+  // 規則同 reorder：整組才能移出群組的範圍、不能插進別的群組中間；群組的一部分只能在群組內移動。
+  function moveLayer(doc, pageId, ids, toIndex) {
+    return tx(doc, d => {
+      const p = needPage(d, pageId);
+      const objs = needObjs(p, ids);
+      needUnlocked(objs);
+      const sel = new Set(objs.map(o => o.id));
+      const rest = p.objects.filter(o => !sel.has(o.id)), block = p.objects.filter(o => sel.has(o.id));
+      if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex > rest.length) bail('圖層位置不正確');
+      const next = rest.slice(0, toIndex).concat(block, rest.slice(toIndex));
+      const gid = partialGroup(p, objs, sel);
+      if (gid) {
+        const idx = next.map((o, i) => (o.groupId === gid ? i : -1)).filter(i => i >= 0);
+        if (idx[idx.length - 1] - idx[0] !== idx.length - 1) bail('群組裡的物件只能在自己的群組內移動');
+      } else {
+        needWholeUnits(unitsOf(p.objects), sel, '群組要整組一起移動，不能拆開');
+        const lo = rest[toIndex - 1], hi = rest[toIndex];
+        if (lo && hi && lo.groupId && lo.groupId === hi.groupId) bail('不能插進別的群組中間');
+      }
+      p.objects = next;
+    });
+  }
+
+  // =====================================================================================
+  // 群組
+  // =====================================================================================
+  // 物件所屬的群組 id（沒有就是 null）
+  function groupOf(page, id) {
+    const o = page.objects.find(x => x.id === id);
+    return o && str(o.groupId) && hasOwn(groupsOf(page), o.groupId) ? o.groupId : null;
+  }
+  // 群組成員的 id（依圖層順序，由下到上）
+  function membersOf(page, gid) {
+    return str(gid) ? page.objects.filter(o => o.groupId === gid).map(o => o.id) : [];
+  }
+  // 群組：至少 2 個、都沒鎖定。原本在別的群組裡的先移出（原群組剩不到 2 個就解散）。
+  // 成員搬到「選取中最上層那個」的位置排成一塊（相對順序不變）；那個位置剛好在別的群組中間時，移到那個群組的上面。
+  // gid 是這一頁現有最大號碼 +1；名稱預設「群組 N」／「剪裁群組 N」（N 同 gid 的號碼）。
+  function groupObjects(doc, pageId, ids, { clip = false } = {}) {
+    return tx(doc, d => {
+      const p = needPage(d, pageId);
+      const groups = ensureGroups(p);
+      const objs = needObjs(p, ids);
+      const sel = new Set(objs.map(o => o.id));
+      if (sel.size < 2) bail('至少要選 2 個物件才能群組');
+      needUnlocked(objs);
+      const a = p.objects;
+      const picked = a.filter(o => sel.has(o.id));
+      const top = picked[picked.length - 1];
+      if (clip && !isClipFrame(top)) bail('剪裁遮色片要用最上層的形狀當外框');
+      const gid = nextId('g', Object.keys(groups));
+      for (const o of picked) delete o.groupId;
+      tidyGroups(p);
+      const rest = a.filter(o => !sel.has(o.id));
+      let pos = a.slice(0, a.indexOf(top)).filter(o => !sel.has(o.id)).length;
+      while (pos > 0 && pos < rest.length && rest[pos - 1].groupId && rest[pos - 1].groupId === rest[pos].groupId) pos++;
+      groups[gid] = { name: groupName(gid, clip), clip: !!clip };
+      for (const o of picked) o.groupId = gid;
+      rest.splice(pos, 0, ...picked);
+      p.objects = rest;
+      return { gid };
+    });
+  }
+  // 取消群組（也用來釋放剪裁遮色片）；成員有任何一個鎖定就不行
+  function ungroup(doc, pageId, gid) {
+    return tx(doc, d => {
+      const p = needPage(d, pageId);
+      const groups = ensureGroups(p);
+      if (!str(gid) || !hasOwn(groups, gid)) bail('找不到群組');
+      needUnlocked(p.objects.filter(o => o.groupId === gid));
+      dissolve(p, gid);
+    });
+  }
+  // 群組改名（前後空白會去掉；鎖定的成員不影響改名）
+  function renameGroup(doc, pageId, gid, name) {
+    return tx(doc, d => {
+      const p = needPage(d, pageId);
+      const groups = ensureGroups(p);
+      if (!str(gid) || !hasOwn(groups, gid)) bail('找不到群組');
+      const n = typeof name === 'string' ? name.trim() : '';
+      if (!n) bail('群組名稱不能空白');
+      groups[gid].name = n;
     });
   }
   function findObject(doc, id) {
@@ -430,6 +683,7 @@
         pageIds.push(p.id);
         if (p.bg == null) p.bg = solidBg();
         if (p.objects == null) p.objects = [];
+        if (p.groups == null) p.groups = {};
         if (!Array.isArray(p.objects)) bail('物件清單不正確');
         p.objects = p.objects.map(o => {
           if (!isObj(o)) bail('物件資料不正確');
@@ -482,13 +736,45 @@
     const v = rotVec(px - c.x, py - c.y, -rotOf(o));
     return { x: v.x + o.w / 2, y: v.y + o.h / 2 };
   }
-  // 從最上層往下找第一個點得到的物件；略過隱藏的，鎖定的仍可點到
+  // 從最上層往下找第一個點得到的物件；略過隱藏的，鎖定的仍可點到。
+  // 剪裁群組：點在外框形狀的框（考慮旋轉）外面時整組都點不到；框內先找其他成員（由上往下），
+  // 都沒點到時回外框形狀本身的 id（外框不畫出來，但點框內也算點到這個群組；外框隱藏時不算）。
   function hitTest(page, px, py) {
-    for (let i = page.objects.length - 1; i >= 0; i--) {
-      const o = page.objects[i];
+    const objs = page.objects, groups = groupsOf(page);
+    const inside = o => { const l = toLocal(o, px, py); return l.x >= 0 && l.x <= o.w && l.y >= 0 && l.y <= o.h; };
+    for (let i = objs.length - 1; i >= 0; i--) {
+      const o = objs[i];
+      const g = str(o.groupId) && hasOwn(groups, o.groupId) ? groups[o.groupId] : null;
+      if (g && g.clip) {
+        let j = i;
+        while (j > 0 && objs[j - 1].groupId === o.groupId) j--;
+        if (inside(o)) {
+          for (let k = i - 1; k >= j; k--) if (!objs[k].hidden && inside(objs[k])) return objs[k].id;
+          if (!o.hidden) return o.id;
+        }
+        i = j;
+        continue;
+      }
       if (o.hidden) continue;
-      const l = toLocal(o, px, py);
-      if (l.x >= 0 && l.x <= o.w && l.y >= 0 && l.y <= o.h) return o.id;
+      if (inside(o)) return o.id;
+    }
+    return null;
+  }
+  // 多邊形／星形的頂點：物件局部座標（原點是未旋轉框的左上角），第一點朝正上方、順時針。
+  // 頂點在以框中心為圓心、半軸 w/2、h/2 的橢圓上；星形內圈在 inner 倍的橢圓上，內外交錯（共 2×points 點）。
+  // 其他形狀回 null。
+  function shapePoints(o) {
+    if (!isObj(o) || o.type !== 'shape') return null;
+    const cx = o.w / 2, cy = o.h / 2;
+    const pt = (r, a) => ({ x: cx + cx * r * Math.sin(a), y: cy - cy * r * Math.cos(a) });
+    if (o.kind === 'polygon') {
+      const n = intIn(o.sides, POLY_SIDES) ? o.sides : 6;
+      return Array.from({ length: n }, (_, k) => pt(1, 2 * Math.PI * k / n));
+    }
+    if (o.kind === 'star') {
+      const n = intIn(o.points, STAR_POINTS) ? o.points : 5;
+      const inner = fin(o.inner) ? o.inner : 0.5;
+      return Array.from({ length: n * 2 }, (_, k) => pt(k % 2 ? inner : 1, Math.PI * k / n));
     }
     return null;
   }
@@ -574,6 +860,48 @@
     const bs = objs.map(bounds);
     const x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y));
     return { x, y, w: Math.max(...bs.map(b => b.x + b.w)) - x, h: Math.max(...bs.map(b => b.y + b.h)) - y };
+  }
+  // 多選／群組整組變形（全有或全無；鎖定的不能變形）。先縮放再旋轉。
+  // scale：等比，以 origin（頁面座標）為基準縮放每個物件的中心位置與寬高；
+  //   文字的 size、letterSpacing、stroke.w、shadow 的 x／y／blur，形狀的 stroke.w、radius，圖片的 radius 一起乘。
+  // rotate：度數（順時針），每個物件的中心繞 center 轉，rot 也加上同樣角度（正規化到 0～360）；有馬賽克時拒絕。
+  function transformObjects(doc, pageId, ids, { scale, origin, rotate, center: ctr } = {}) {
+    return tx(doc, d => {
+      const p = needPage(d, pageId);
+      const objs = needObjs(p, ids);
+      needUnlocked(objs);
+      const ptOk = v => isObj(v) && fin(v.x) && fin(v.y);
+      if (scale !== undefined) {
+        if (!fin(scale) || scale <= 0) bail('縮放比例必須大於 0');
+        if (!ptOk(origin)) bail('縮放的基準點不正確');
+        for (const o of objs) scaleObj(o, scale, origin);
+      }
+      if (rotate !== undefined) {
+        if (!fin(rotate)) bail('旋轉角度不正確');
+        if (!ptOk(ctr)) bail('旋轉的中心點不正確');
+        if (rotate % 360 !== 0 && objs.some(o => o.type === 'mosaic')) bail('馬賽克不能旋轉');
+        for (const o of objs) {
+          const c = center(o), v = rotVec(c.x - ctr.x, c.y - ctr.y, rotate);
+          o.x = ctr.x + v.x - o.w / 2;
+          o.y = ctr.y + v.y - o.h / 2;
+          if (o.type !== 'mosaic') o.rot = normDeg(rotOf(o) + rotate);
+        }
+      }
+    });
+  }
+  const normDeg = a => { const r = Math.round((((a % 360) + 360) % 360) * 1e6) / 1e6; return r === 360 ? 0 : r; };
+  function scaleObj(o, s, origin) {
+    const c = center(o);
+    o.w *= s; o.h *= s;
+    o.x = origin.x + (c.x - origin.x) * s - o.w / 2;
+    o.y = origin.y + (c.y - origin.y) * s - o.h / 2;
+    if (isObj(o.stroke) && fin(o.stroke.w)) o.stroke = Object.assign({}, o.stroke, { w: o.stroke.w * s });
+    if (o.type === 'text') {
+      if (fin(o.size)) o.size *= s;
+      if (fin(o.letterSpacing)) o.letterSpacing *= s;
+      if (isObj(o.shadow)) o.shadow = Object.assign({}, o.shadow, { x: o.shadow.x * s, y: o.shadow.y * s, blur: o.shadow.blur * s });
+    }
+    if ((o.type === 'shape' || o.type === 'image') && fin(o.radius)) o.radius *= s;
   }
   // 對齊：只選一個時對齊頁面，多個時對齊整個選取範圍的 bounds
   function align(doc, pageId, ids, mode) {
@@ -799,7 +1127,7 @@
 
   const api = {
     // 常數
-    SIZES, SIDE_MIN, SIDE_MAX, MAX_PAGES, MAX_OBJECTS, DOC_VERSION, STICKERS, SNAP_PX,
+    SIZES, SIDE_MIN, SIDE_MAX, MAX_PAGES, MAX_OBJECTS, DOC_VERSION, STICKERS, SNAP_PX, BLEND_MODES, NAME_MAX,
     // 文件
     createDoc, defaults, validate, migrate, serialize, deserialize,
     // 頁面
@@ -807,9 +1135,11 @@
     // 資產
     addAsset, pruneAssets,
     // 物件
-    addObject, updateObjects, removeObjects, duplicateObjects, pasteObjects, reorder, findObject,
+    addObject, updateObjects, removeObjects, duplicateObjects, pasteObjects, clipboardOf, reorder, moveLayer, findObject,
+    // 群組
+    groupObjects, ungroup, renameGroup, groupOf, membersOf, transformObjects,
     // 幾何
-    corners, bounds, toLocal, hitTest, inRect, resizeRect, rotateAngle, snapCandidates, snapBox, align, distribute,
+    corners, bounds, toLocal, hitTest, shapePoints, inRect, resizeRect, rotateAngle, snapCandidates, snapBox, align, distribute,
     // 顏色
     colorKey, docColors, recolor,
     // 復原

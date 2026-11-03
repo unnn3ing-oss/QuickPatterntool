@@ -131,7 +131,7 @@ test('全有或全無', () => {
   unchanged(d3, () => core.setPageProps(d3, P(d3), { w: 100.5 }));
   unchanged(d3, () => core.removePage(d3, P(d3)), /至少/);
   unchanged(d3, () => core.addObject(d3, P(d3), { type: 'sticker', sticker: 'nope' }));
-  unchanged(d3, () => core.addObject(d3, P(d3), { type: 'shape', kind: 'star' }));
+  unchanged(d3, () => core.addObject(d3, P(d3), { type: 'shape', kind: 'heart' }));
   unchanged(d3, () => core.addObject(d3, P(d3), { type: 'video' }));
   unchanged(d3, () => core.addObject(d3, 'nope', { type: 'shape' }));
   unchanged(d3, () => core.updateObjects(d3, P(d3), [{ id: 'nope', x: 1 }]));
@@ -868,4 +868,420 @@ test('docColors／recolor：粗細 0 的描邊、沒有位移與模糊的陰影�
   const r = core.recolor(doc, { '#000000': '#123456' });
   assert.equal(r.ok, true);
   assert.equal(r.changed, 0, '看不見的黑色描邊與陰影不會被換');
+});
+
+// =====================================================================================
+// 圖層、群組、剪裁遮色片、混合模式、多邊形與星形（2026-11-03 規格）
+// =====================================================================================
+const G = doc => doc.pages[0].groups;
+// 依序新增 n 個矩形，回傳 ids（由下到上）
+const rects = (doc, n, extra) => Array.from({ length: n }, (_, i) => add(doc, Object.assign({ type: 'shape', x: i * 10, y: 0, w: 100, h: 100 }, extra)));
+function grouped(doc, ids, opts) {
+  const r = core.groupObjects(doc, P(doc), ids, opts);
+  assert.ok(r.ok, r.reason);
+  return r.gid;
+}
+
+test('BLEND_MODES 順序同規格表', () => {
+  assert.deepStrictEqual(core.BLEND_MODES, ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn',
+    'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity']);
+});
+
+test('defaults／createDoc／addPage：blend、groups、多邊形與星形的預設值', () => {
+  for (const t of ['text', 'image', 'shape', 'sticker', 'mosaic']) assert.strictEqual(core.defaults(t).blend, 'normal', t);
+  const doc = core.createDoc();
+  assert.deepStrictEqual(G(doc), {});
+  const pg = core.addPage(doc, {});
+  assert.deepStrictEqual(core.findObject(doc, add(doc, { type: 'text' }, pg.id)).page.groups, {});
+  assert.deepStrictEqual(core.defaults('shape', 'polygon'), Object.assign(core.defaults('shape'), { kind: 'polygon', sides: 6 }));
+  const st = core.defaults('shape', 'star');
+  assert.strictEqual(st.points, 5); assert.strictEqual(st.inner, 0.5); assert.strictEqual(st.kind, 'star');
+  // 新增時只給 kind 也會補齊
+  const p = O(doc, add(doc, { type: 'shape', kind: 'polygon' }));
+  assert.strictEqual(p.sides, 6);
+  const s = O(doc, add(doc, { type: 'shape', kind: 'star', points: 7 }));
+  assert.strictEqual(s.points, 7); assert.strictEqual(s.inner, 0.5);
+  // 從矩形改成星形時補上角數與內徑
+  const r = add(doc, { type: 'shape' });
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: r, kind: 'star' }]).ok);
+  assert.strictEqual(O(doc, r).points, 5);
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('blend、sides、points、inner、name 的範圍檢查', () => {
+  const doc = core.createDoc();
+  const pid = P(doc);
+  const t = add(doc, { type: 'text' });
+  const m = add(doc, { type: 'mosaic', x: 0, y: 0 });
+  const pg = add(doc, { type: 'shape', kind: 'polygon' });
+  const st = add(doc, { type: 'shape', kind: 'star' });
+  for (const b of core.BLEND_MODES) assert.ok(core.updateObjects(doc, pid, [{ id: t, blend: b }]).ok, b);
+  unchanged(doc, () => core.updateObjects(doc, pid, [{ id: t, blend: 'plus' }]), /混合模式/);
+  unchanged(doc, () => core.updateObjects(doc, pid, [{ id: m, blend: 'multiply' }]), /馬賽克/);
+  assert.ok(core.updateObjects(doc, pid, [{ id: m, blend: 'normal' }]).ok);
+  for (const v of [3, 12]) assert.ok(core.updateObjects(doc, pid, [{ id: pg, sides: v }]).ok);
+  for (const v of [2, 13, 5.5, '6']) unchanged(doc, () => core.updateObjects(doc, pid, [{ id: pg, sides: v }]), /邊數/);
+  for (const v of [3, 20]) assert.ok(core.updateObjects(doc, pid, [{ id: st, points: v }]).ok);
+  for (const v of [2, 21, 4.5]) unchanged(doc, () => core.updateObjects(doc, pid, [{ id: st, points: v }]), /角數/);
+  for (const v of [0.1, 0.95, 0.33]) assert.ok(core.updateObjects(doc, pid, [{ id: st, inner: v }]).ok);
+  for (const v of [0.05, 0.96, NaN]) unchanged(doc, () => core.updateObjects(doc, pid, [{ id: st, inner: v }]), /內徑/);
+  assert.ok(core.updateObjects(doc, pid, [{ id: t, name: '標題' }]).ok);
+  assert.ok(core.updateObjects(doc, pid, [{ id: t, name: '字'.repeat(40) }]).ok);
+  unchanged(doc, () => core.updateObjects(doc, pid, [{ id: t, name: '字'.repeat(41) }]), /名稱/);
+  unchanged(doc, () => core.updateObjects(doc, pid, [{ id: t, name: 5 }]), /名稱/);
+  // 鎖定的物件仍可改名
+  assert.ok(core.updateObjects(doc, pid, [{ id: t, locked: true }]).ok);
+  assert.ok(core.updateObjects(doc, pid, [{ id: t, name: '鎖住也能改名' }]).ok);
+});
+
+test('shapePoints：多邊形與星形的頂點（局部座標，第一點朝上）', () => {
+  const hex = core.shapePoints({ type: 'shape', kind: 'polygon', sides: 6, x: 50, y: 50, w: 200, h: 100 });
+  assert.strictEqual(hex.length, 6);
+  near(hex[0].x, 100); near(hex[0].y, 0);
+  near(hex[3].x, 100); near(hex[3].y, 100);
+  for (const p of hex) near(((p.x - 100) / 100) ** 2 + ((p.y - 50) / 50) ** 2, 1, '在內接橢圓上');
+  const star = core.shapePoints({ type: 'shape', kind: 'star', points: 5, inner: 0.5, x: 0, y: 0, w: 100, h: 100 });
+  assert.strictEqual(star.length, 10);
+  near(star[0].x, 50); near(star[0].y, 0);
+  near(Math.hypot(star[1].x - 50, star[1].y - 50), 25, '內圈半徑＝inner×外圈');
+  near(Math.hypot(star[2].x - 50, star[2].y - 50), 50);
+  assert.strictEqual(core.shapePoints({ type: 'shape', kind: 'rect', x: 0, y: 0, w: 10, h: 10 }), null);
+});
+
+test('validate：群組的不變式', () => {
+  const doc = core.createDoc();
+  const [a, b, c] = rects(doc, 3);
+  const good = () => { const d = JSON.parse(core.serialize(doc)); d.pages[0].groups = { g1: { name: '群組 1', clip: false } }; d.pages[0].objects[0].groupId = 'g1'; d.pages[0].objects[1].groupId = 'g1'; return d; };
+  assert.strictEqual(core.validate(good()), null);
+  const cases = [
+    [d => { d.pages[0].objects[1].groupId = 'g9'; }, /找不到/],
+    [d => { d.pages[0].objects[1].groupId = undefined; delete d.pages[0].objects[1].groupId; }, /至少/],
+    [d => { d.pages[0].objects[1].groupId = undefined; delete d.pages[0].objects[1].groupId; d.pages[0].objects[2].groupId = 'g1'; }, /相連/],
+    [d => { d.pages[0].groups.g2 = { name: '空', clip: false }; }, /至少/],
+    [d => { d.pages[0].groups.g1.clip = true; d.pages[0].objects[1].kind = 'line'; }, /剪裁/],
+    [d => { d.pages[0].groups.g1.name = ''; }, /名稱/],
+    [d => { d.pages[0].groups.g1.clip = 'yes'; }, /群組/],
+    [d => { d.pages[0].groups = []; }, /群組/],
+  ];
+  for (const [mut, re] of cases) {
+    const d = good(); mut(d);
+    const why = core.validate(d);
+    assert.ok(why && /[一-鿿]/.test(why), String(mut));
+    assert.match(why, re, String(mut));
+  }
+  // 剪裁群組最上層是四種形狀之一都可以
+  for (const kind of ['rect', 'ellipse', 'polygon', 'star']) {
+    const d = good(); d.pages[0].groups.g1.clip = true;
+    Object.assign(d.pages[0].objects[1], { kind, sides: 6, points: 5, inner: 0.5 });
+    assert.strictEqual(core.validate(d), null, kind);
+  }
+  void a; void b; void c;
+});
+
+test('groupObjects：成員排成連續一塊、保留相對順序，gid 與名稱依序給', () => {
+  const doc = core.createDoc();
+  const [a, b, c, d, e] = rects(doc, 5);
+  const g1 = grouped(doc, [d, b]);
+  assert.strictEqual(g1, 'g1');
+  assert.deepStrictEqual(G(doc).g1, { name: '群組 1', clip: false });
+  assert.deepStrictEqual(order(doc), [a, c, b, d, e], '搬到最上層那個（d）的位置，b 在 d 下面');
+  assert.deepStrictEqual(core.membersOf(doc.pages[0], g1), [b, d]);
+  assert.strictEqual(core.groupOf(doc.pages[0], b), 'g1');
+  assert.strictEqual(core.groupOf(doc.pages[0], a), null);
+  assert.deepStrictEqual(core.membersOf(doc.pages[0], 'g9'), []);
+  const g2 = grouped(doc, [a, e], { clip: true });
+  assert.strictEqual(g2, 'g2');
+  assert.deepStrictEqual(G(doc).g2, { name: '剪裁群組 2', clip: true });
+  assert.deepStrictEqual(order(doc), [c, b, d, a, e]);
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('groupObjects：移出原群組，原群組剩不到 2 個就解散；不會插進別的群組中間', () => {
+  const doc = core.createDoc();
+  const [a, b, c, d] = rects(doc, 4);
+  grouped(doc, [b, c]);                       // [a, (b c), d]
+  const g2 = grouped(doc, [c, d]);
+  assert.ok(!('g1' in G(doc)), 'g1 只剩 b，解散');
+  assert.strictEqual(O(doc, b).groupId, undefined);
+  assert.deepStrictEqual(core.membersOf(doc.pages[0], g2), [c, d]);
+  // 原群組還有 2 個以上就保留
+  const doc2 = core.createDoc();
+  const [x, y, z, w] = rects(doc2, 4);
+  const gA = grouped(doc2, [y, z, w]);        // [x, (y z w)]
+  const gB = grouped(doc2, [x, z]);           // z 在 gA 中間：新群組不能插進 gA 中間
+  assert.deepStrictEqual(core.membersOf(doc2.pages[0], gA), [y, w]);
+  assert.deepStrictEqual(core.membersOf(doc2.pages[0], gB), [x, z]);
+  assert.strictEqual(core.validate(doc2), null);
+});
+
+test('groupObjects：失敗的情況', () => {
+  const doc = core.createDoc();
+  const [a, b] = rects(doc, 2);
+  const t = add(doc, { type: 'text' });
+  unchanged(doc, () => core.groupObjects(doc, P(doc), [a]), /2/);
+  unchanged(doc, () => core.groupObjects(doc, P(doc), [a, 'nope']));
+  unchanged(doc, () => core.groupObjects(doc, P(doc), [a, t], { clip: true }), /剪裁遮色片要用最上層的形狀當外框/);
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: b, locked: true }]).ok);
+  unchanged(doc, () => core.groupObjects(doc, P(doc), [a, b]), /鎖定/);
+});
+
+test('ungroup 與 updateObjects 不能直接改 groupId', () => {
+  const doc = core.createDoc();
+  const [a, b, c] = rects(doc, 3);
+  const g = grouped(doc, [a, b]);
+  unchanged(doc, () => core.updateObjects(doc, P(doc), [{ id: c, groupId: g }]), /群組/);
+  unchanged(doc, () => core.updateObjects(doc, P(doc), [{ id: a, groupId: null }]), /群組/);
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: a, groupId: g, x: 5 }]).ok, '值沒變可以帶著');
+  unchanged(doc, () => core.ungroup(doc, P(doc), 'g9'), /群組/);
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: a, locked: true }]).ok);
+  unchanged(doc, () => core.ungroup(doc, P(doc), g), /物件已鎖定/);
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: a, locked: false }]).ok);
+  assert.ok(core.ungroup(doc, P(doc), g).ok);
+  assert.deepStrictEqual(G(doc), {});
+  assert.ok(!('groupId' in O(doc, a)) && !('groupId' in O(doc, b)));
+});
+
+test('renameGroup', () => {
+  const doc = core.createDoc();
+  const g = grouped(doc, rects(doc, 2));
+  assert.ok(core.renameGroup(doc, P(doc), g, '  標題組 ').ok);
+  assert.strictEqual(G(doc)[g].name, '標題組');
+  unchanged(doc, () => core.renameGroup(doc, P(doc), g, '  '), /名稱/);
+  unchanged(doc, () => core.renameGroup(doc, P(doc), 'g9', 'x'), /群組/);
+});
+
+test('removeObjects 自動解散；刪掉剪裁外框後群組解散', () => {
+  const doc = core.createDoc();
+  const [a, b, c, d, e] = rects(doc, 5);
+  const g1 = grouped(doc, [a, b, c]);
+  assert.ok(core.removeObjects(doc, P(doc), [a]).ok);
+  assert.deepStrictEqual(core.membersOf(doc.pages[0], g1), [b, c], '還有 2 個，保留');
+  assert.ok(core.removeObjects(doc, P(doc), [b]).ok);
+  assert.ok(!(g1 in G(doc)));
+  assert.ok(!('groupId' in O(doc, c)));
+  // 剪裁群組：外框（最上層）被刪掉 → 整組解散，其他物件留著
+  const g2 = grouped(doc, [c, d, e], { clip: true });
+  assert.ok(core.removeObjects(doc, P(doc), [e]).ok);
+  assert.ok(!(g2 in G(doc)));
+  assert.deepStrictEqual(order(doc), [c, d]);
+  assert.ok(!('groupId' in O(doc, c)) && !('groupId' in O(doc, d)));
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('duplicateObjects：整組帶新的 gid，部分選取時副本不帶 groupId', () => {
+  const doc = core.createDoc();
+  const [a, b, c] = rects(doc, 3);
+  const g = grouped(doc, [a, b], { clip: true });
+  assert.ok(core.renameGroup(doc, P(doc), g, '外框組').ok);
+  const r = core.duplicateObjects(doc, P(doc), [b, a, c]);
+  assert.ok(r.ok, r.reason);
+  const [b2, a2, c2] = r.ids;
+  const ng = O(doc, a2).groupId;
+  assert.ok(ng && ng !== g);
+  assert.strictEqual(O(doc, b2).groupId, ng);
+  assert.deepStrictEqual(G(doc)[ng], { name: '外框組', clip: true });
+  assert.ok(!('groupId' in O(doc, c2)));
+  assert.deepStrictEqual(core.membersOf(doc.pages[0], ng), [a2, b2]);
+  // 只選群組的一個成員
+  const r2 = core.duplicateObjects(doc, P(doc), [a]);
+  assert.ok(r2.ok);
+  assert.ok(!('groupId' in O(doc, r2.ids[0])));
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('clipboardOf／pasteObjects：整組貼上帶新的 gid（也能貼到別頁），部分的不帶', () => {
+  const doc = core.createDoc();
+  const [a, b, c] = rects(doc, 3);
+  const g = grouped(doc, [b, c]);
+  const cb = core.clipboardOf(doc.pages[0], [c, a, b]);
+  assert.deepStrictEqual(cb.objects.map(o => o.id), [a, b, c], '依圖層順序');
+  assert.deepStrictEqual(Object.keys(cb.groups), [g]);
+  const r = core.pasteObjects(doc, P(doc), cb.objects, { groups: cb.groups });
+  assert.ok(r.ok, r.reason);
+  const ng = O(doc, r.ids[1]).groupId;
+  assert.ok(ng && ng !== g);
+  assert.strictEqual(O(doc, r.ids[2]).groupId, ng);
+  assert.ok(!('groupId' in O(doc, r.ids[0])));
+  // 部分選取：剪貼簿裡就不帶 groupId
+  const cb2 = core.clipboardOf(doc.pages[0], [b]);
+  assert.ok(!('groupId' in cb2.objects[0]));
+  assert.deepStrictEqual(cb2.groups, {});
+  // 沒給 groups（舊剪貼簿）時一律不帶
+  const r2 = core.pasteObjects(doc, P(doc), cb.objects);
+  assert.ok(r2.ok);
+  for (const id of r2.ids) assert.ok(!('groupId' in O(doc, id)));
+  // 貼到別頁
+  const pg = core.addPage(doc, {});
+  const r3 = core.pasteObjects(doc, pg.id, cb.objects, { groups: cb.groups });
+  assert.ok(r3.ok, r3.reason);
+  const p2 = doc.pages.find(p => p.id === pg.id);
+  assert.deepStrictEqual(Object.keys(p2.groups), ['g1']);
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('reorder：整個群組一起移動、不插進別的群組；群組內的部分只在群組內移動', () => {
+  const doc = core.createDoc();
+  const [a, b, c, d, e, f] = rects(doc, 6);
+  grouped(doc, [b, c]);
+  grouped(doc, [d, e]);                       // [a, (b c), (d e), f]
+  assert.ok(core.reorder(doc, P(doc), [b, c], 'up').ok);
+  assert.deepStrictEqual(order(doc), [a, d, e, b, c, f], '往上一格跳過整個 (d e)');
+  assert.ok(core.reorder(doc, P(doc), [a], 'up').ok);
+  assert.deepStrictEqual(order(doc), [d, e, a, b, c, f], 'a 跳過整個 (d e)，不插進中間');
+  assert.ok(core.reorder(doc, P(doc), [f], 'down').ok);
+  assert.deepStrictEqual(order(doc), [d, e, a, f, b, c]);
+  assert.ok(core.reorder(doc, P(doc), [d, e], 'top').ok);
+  assert.deepStrictEqual(order(doc), [a, f, b, c, d, e]);
+  // 群組內的一部分：只在群組內移動
+  assert.ok(core.reorder(doc, P(doc), [b], 'top').ok);
+  assert.deepStrictEqual(order(doc), [a, f, c, b, d, e]);
+  assert.ok(core.reorder(doc, P(doc), [b], 'up').ok, '已經是群組最上層，不動');
+  assert.deepStrictEqual(order(doc), [a, f, c, b, d, e]);
+  assert.ok(core.reorder(doc, P(doc), [b], 'bottom').ok);
+  assert.deepStrictEqual(order(doc), [a, f, b, c, d, e]);
+  // 群組的一部分和別的物件混在一起：拒絕
+  unchanged(doc, () => core.reorder(doc, P(doc), [b, a], 'top'), /群組/);
+  // 剪裁群組內把外框移下去：最上層變成不是形狀時被擋
+  const doc2 = core.createDoc();
+  const t = add(doc2, { type: 'text' });
+  const [s] = rects(doc2, 1);
+  grouped(doc2, [t, s], { clip: true });
+  unchanged(doc2, () => core.reorder(doc2, P(doc2), [s], 'down'), /剪裁/);
+});
+
+test('moveLayer：toIndex 是這一塊最下層的位置；不拆群組、不插進別的群組', () => {
+  const doc = core.createDoc();
+  const [a, b, c, d, e] = rects(doc, 5);
+  grouped(doc, [b, c]);                       // [a, (b c), d, e]
+  assert.ok(core.moveLayer(doc, P(doc), [e], 0).ok);
+  assert.deepStrictEqual(order(doc), [e, a, b, c, d]);
+  unchanged(doc, () => core.moveLayer(doc, P(doc), [e], 2), /群組中間/);   // rest=[a,b,c,d]，插在 b、c 之間
+  assert.ok(core.moveLayer(doc, P(doc), [e], 3).ok, '插在群組上面可以');
+  assert.deepStrictEqual(order(doc), [a, b, c, e, d]);
+  // 整組移動
+  assert.ok(core.moveLayer(doc, P(doc), [c, b], 3).ok);
+  assert.deepStrictEqual(order(doc), [a, e, d, b, c]);
+  assert.ok(core.moveLayer(doc, P(doc), [b, c], 0).ok);
+  assert.deepStrictEqual(order(doc), [b, c, a, e, d]);
+  // 群組成員：只在群組內移動
+  assert.ok(core.moveLayer(doc, P(doc), [b], 1).ok);
+  assert.deepStrictEqual(order(doc), [c, b, a, e, d]);
+  unchanged(doc, () => core.moveLayer(doc, P(doc), [b], 2), /群組/);
+  // 群組拆一半和別的一起拖：拒絕
+  unchanged(doc, () => core.moveLayer(doc, P(doc), [b, a], 0), /群組/);
+  unchanged(doc, () => core.moveLayer(doc, P(doc), [a], 9), /位置/);
+  unchanged(doc, () => core.moveLayer(doc, P(doc), [a], 1.5), /位置/);
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: d, locked: true }]).ok);
+  unchanged(doc, () => core.moveLayer(doc, P(doc), [d], 0), /鎖定/);
+  assert.strictEqual(core.validate(doc), null);
+});
+
+test('transformObjects：等比縮放時基準點不動、文字字級等跟著乘', () => {
+  const doc = core.createDoc();
+  const t = add(doc, { type: 'text', x: 100, y: 100, w: 200, h: 100, size: 40, letterSpacing: 2, stroke: { w: 3, color: '#000' }, shadow: { x: 4, y: 6, blur: 8, color: '#000' } });
+  const s = add(doc, { type: 'shape', x: 300, y: 200, w: 100, h: 100, radius: 10, stroke: { w: 2, color: '#000' } });
+  const r = core.transformObjects(doc, P(doc), [t, s], { scale: 2, origin: { x: 100, y: 100 } });
+  assert.ok(r.ok, r.reason);
+  const T = O(doc, t), S = O(doc, s);
+  near(T.x, 100); near(T.y, 100, '基準點（左上角）不動');
+  near(T.w, 400); near(T.h, 200);
+  assert.strictEqual(T.size, 80);
+  assert.strictEqual(T.letterSpacing, 4);
+  assert.strictEqual(T.stroke.w, 6);
+  assert.deepStrictEqual([T.shadow.x, T.shadow.y, T.shadow.blur], [8, 12, 16]);
+  near(S.x, 500); near(S.y, 300); near(S.w, 200); near(S.h, 200);
+  assert.strictEqual(S.radius, 20);
+  assert.strictEqual(S.stroke.w, 4);
+  unchanged(doc, () => core.transformObjects(doc, P(doc), [t], { scale: 0, origin: { x: 0, y: 0 } }), /縮放/);
+  unchanged(doc, () => core.transformObjects(doc, P(doc), [t], { scale: 2 }), /基準/);
+});
+
+test('transformObjects：旋轉 90° 後中心位置正確、rot 加上角度；馬賽克與鎖定失敗', () => {
+  const doc = core.createDoc();
+  const a = add(doc, { type: 'shape', x: 0, y: 0, w: 100, h: 100 });          // 中心 (50,50)
+  const b = add(doc, { type: 'shape', x: 200, y: 0, w: 100, h: 100, rot: 300 }); // 中心 (250,50)
+  const r = core.transformObjects(doc, P(doc), [a, b], { rotate: 90, center: { x: 150, y: 50 } });
+  assert.ok(r.ok, r.reason);
+  const A = O(doc, a), B = O(doc, b);
+  near(A.x + A.w / 2, 150); near(A.y + A.h / 2, -50, '左邊的轉到上面（順時針）');
+  near(B.x + B.w / 2, 150); near(B.y + B.h / 2, 150);
+  near(A.rot, 90); near(B.rot, 30, '正規化到 0～360');
+  near(A.w, 100);
+  const m = add(doc, { type: 'mosaic', x: 0, y: 0 });
+  unchanged(doc, () => core.transformObjects(doc, P(doc), [a, m], { rotate: 15, center: { x: 0, y: 0 } }), /馬賽克不能旋轉/);
+  assert.ok(core.transformObjects(doc, P(doc), [a, m], { scale: 1.5, origin: { x: 0, y: 0 } }).ok, '馬賽克可以縮放');
+  assert.ok(core.updateObjects(doc, P(doc), [{ id: b, locked: true }]).ok);
+  unchanged(doc, () => core.transformObjects(doc, P(doc), [a, b], { rotate: 10, center: { x: 0, y: 0 } }), /鎖定/);
+});
+
+test('hitTest：剪裁群組的成員只有在外框形狀的框內才命中', () => {
+  const pg = {
+    id: 'p1', w: 1080, h: 1080, groups: { g1: { name: '剪裁群組 1', clip: true } },
+    objects: [
+      box(0, 0, 400, 400, { id: 'img', type: 'image', groupId: 'g1' }),
+      box(100, 100, 100, 100, { id: 'frame', kind: 'ellipse', groupId: 'g1' }),
+      box(600, 600, 50, 50, { id: 'top' }),
+    ],
+  };
+  assert.strictEqual(core.hitTest(pg, 300, 300), null, '圖片在框外的部分點不到');
+  assert.strictEqual(core.hitTest(pg, 150, 150), 'img', '框內點到最上層的成員');
+  assert.strictEqual(core.hitTest(pg, 620, 620), 'top');
+  // 框內但沒有其他成員：算命中外框（也就是這個群組）
+  pg.objects[0].x = 150; pg.objects[0].y = 150;
+  assert.strictEqual(core.hitTest(pg, 120, 120), 'frame');
+  // 外框旋轉：考慮旋轉
+  const pg2 = { id: 'p1', w: 1080, h: 1080, groups: { g1: { name: 'x', clip: true } }, objects: [
+    box(0, 0, 400, 400, { id: 'img', groupId: 'g1' }),
+    box(100, 190, 200, 20, { id: 'frame', groupId: 'g1', rot: 90 }),
+  ] };
+  assert.strictEqual(core.hitTest(pg2, 200, 120), 'img');
+  assert.strictEqual(core.hitTest(pg2, 120, 200), null);
+  // 一般群組照舊
+  const pg3 = { id: 'p1', w: 1080, h: 1080, groups: { g1: { name: 'x', clip: false } }, objects: [
+    box(0, 0, 400, 400, { id: 'img', groupId: 'g1' }), box(100, 100, 10, 10, { id: 'r', groupId: 'g1' }),
+  ] };
+  assert.strictEqual(core.hitTest(pg3, 300, 300), 'img');
+});
+
+test('colorSlots：多邊形與星形的填色、描邊也算', () => {
+  const doc = core.createDoc();
+  add(doc, { type: 'shape', kind: 'polygon', fill: '#ff0000', stroke: { w: 2, color: '#00ff00' } });
+  add(doc, { type: 'shape', kind: 'star', fill: { type: 'linear', angle: 0, from: '#0000ff', to: '#ff0000' } });
+  assert.deepStrictEqual(core.docColors(doc).map(c => c.color).sort(), ['#0000ff', '#00ff00', '#ff0000', '#ffffff']);
+  const r = core.recolor(doc, { '#ff0000': '#123456' });
+  assert.strictEqual(r.changed, 2);
+});
+
+test('migrate：補 groups 與 blend，群組資料保留', () => {
+  const r = core.migrate({ version: 1, pages: [{ id: 'p1', w: 1080, h: 1080, objects: [
+    { id: 'o1', type: 'shape', x: 0, y: 0, w: 10, h: 10 }, { id: 'o2', type: 'mosaic', x: 0, y: 0, w: 10, h: 10 }] }] });
+  assert.ok(r.ok, r.reason);
+  assert.deepStrictEqual(r.doc.pages[0].groups, {});
+  assert.deepStrictEqual(r.doc.pages[0].objects.map(o => o.blend), ['normal', 'normal']);
+  // 新檔（有群組、混合模式、星形）來回一致
+  const doc = core.createDoc();
+  const [a, b] = rects(doc, 2);
+  add(doc, { type: 'shape', kind: 'star', blend: 'screen' });
+  grouped(doc, [a, b], { clip: true });
+  const r2 = core.migrate(JSON.parse(core.serialize(doc)));
+  assert.ok(r2.ok, r2.reason);
+  assert.deepStrictEqual(r2.doc, doc);
+  // 壞的群組被擋下
+  const bad = JSON.parse(core.serialize(doc));
+  bad.pages[0].objects[0].groupId = 'g7';
+  const r3 = core.migrate(bad);
+  assert.strictEqual(r3.ok, false);
+  assert.match(r3.reason, /群組/);
+});
+
+test('addObject 不能直接指定群組；duplicatePage 保留群組', () => {
+  const doc = core.createDoc();
+  const g = grouped(doc, rects(doc, 2));
+  const c = add(doc, { type: 'shape', groupId: g });
+  assert.ok(!('groupId' in O(doc, c)));
+  const dp = core.duplicatePage(doc, P(doc));
+  assert.ok(dp.ok, dp.reason);
+  const p2 = doc.pages.find(p => p.id === dp.id);
+  assert.deepStrictEqual(p2.groups, G(doc));
+  assert.strictEqual(core.validate(doc), null);
 });

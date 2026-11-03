@@ -192,6 +192,58 @@
   font-variant-numeric: tabular-nums; pointer-events: none;
 }
 
+/* 群組：群組內選取時整組範圍的淡虛線；剪裁外框的虛線輪廓（外框本身不畫在畫布上） */
+.dz-sel.dz-member { outline: 1px solid rgba(0, 74, 173, 0.4); box-shadow: none; }
+.dz-sel.dz-member.locked { outline: 1.5px dashed #d97706; }
+.dz-iso-box { position: absolute; box-sizing: border-box; pointer-events: none; outline: 1px dashed rgba(31, 42, 61, 0.45); outline-offset: 6px; }
+.dz-clip-outline { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.dz-clip-outline * { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.dz-group-box .dz-rot { top: -38px; }
+.dz-group-note { margin: 4px 0 6px; padding: 8px 10px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-dark, #003a8c); font-size: 12px; line-height: 1.5; }
+.dz-panel input[type="text"] {
+  width: 100%; min-width: 0; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--field-bg); color: var(--text);
+}
+
+/* ---- 右側面板分頁（屬性｜圖層）---- */
+.dz-tabs { margin: 0 0 4px; }
+.dz-tabs button { font-weight: 700; }
+.dz-panel [role="tabpanel"][hidden] { display: none; }
+
+/* ---- 圖層面板：最上層排第一；群組標題可收合、成員縮排 ---- */
+.dz-layers { padding-top: 6px; }
+.dz-layer-list { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.dz-layer {
+  display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 1px 2px; box-sizing: border-box;
+  border-radius: 10px; border: 1px solid transparent; cursor: pointer; font-size: 13px; color: var(--text);
+  user-select: none; -webkit-user-select: none;
+}
+.dz-layer:hover { background: rgba(0, 74, 173, 0.05); }
+.dz-layer.sel { background: var(--accent-soft); border-color: rgba(0, 74, 173, 0.3); }
+.dz-layer.is-group { font-weight: 700; }
+.dz-layer.is-member { padding-left: 20px; }
+.dz-layer.is-member::before { content: ""; align-self: stretch; width: 2px; margin: 4px 2px 4px -6px; border-radius: 2px; background: rgba(0, 74, 173, 0.18); }
+.dz-layer.is-hidden .dz-layer-name, .dz-layer.is-hidden .dz-layer-ic { opacity: .45; }
+.dz-layer.dragging { opacity: .45; }
+.dz-layer-grip { flex: 0 0 14px; align-self: stretch; display: flex; align-items: center; justify-content: center; color: var(--muted); cursor: grab; touch-action: none; }
+.dz-layer-ic { flex: 0 0 20px; display: flex; align-items: center; justify-content: center; color: #22324d; }
+.dz-layer svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.dz-layer-grip svg { width: 14px; height: 14px; stroke-width: 2.6; }
+.dz-layer-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dz-layer-badge { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; background: rgba(0, 74, 173, 0.1); color: var(--accent); font-size: 11px; font-weight: 600; }
+.dz .dz-layer button {
+  flex: 0 0 28px; width: 28px; height: 28px; padding: 0; margin: 0; border: none; border-radius: 8px;
+  background: transparent; box-shadow: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
+}
+.dz .dz-layer button:hover { background: var(--field-bg); color: var(--accent); }
+.dz .dz-layer .dz-layer-caret { flex-basis: 18px; width: 18px; font-size: 12px; }
+.dz .dz-layer button[aria-pressed="true"] { color: var(--accent); }
+.dz .dz-layer .dz-layer-eye[aria-pressed="false"], .dz .dz-layer .dz-layer-lock[aria-pressed="false"] { opacity: .55; }
+.dz .dz-layer:hover button[aria-pressed="false"] { opacity: 1; }
+.dz-layer-rename { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--accent); background: var(--field-bg); color: var(--text); }
+.dz-layer-drop { position: absolute; left: 4px; right: 4px; height: 2px; margin-top: -2px; border-radius: 2px; background: var(--accent); pointer-events: none; box-shadow: 0 0 0 2px rgba(0, 74, 173, 0.15); }
+.dz-layers > .dz-note { margin-top: 10px; }
+
 /* ---- 檢視列右側：專案檔與匯出 ---- */
 .dz-viewbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .dz-export-btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px !important; padding: 8px 16px !important; font-weight: 700; }
@@ -225,9 +277,32 @@
 .dz-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; border-top: 1px solid var(--border); }
 .dz-modal-foot .primary { min-width: 96px; }
 
+/* ---- 滿版（桌機）：設計分頁顯示時 html 加 .dz-full，整頁用滿寬度、畫布撐滿視窗高度（--dz-h 由 design-ui.js 算） ---- */
+@media (min-width: 821px) {
+  html.dz-full body { padding-left: 16px; padding-right: 16px; padding-bottom: 16px; }
+  html.dz-full header.topbar { margin-left: -16px; margin-right: -16px; margin-bottom: 14px; }
+  html.dz-full .wrap, html.dz-full .topbar-inner { max-width: none; }
+  html.dz-full .dz { grid-template-columns: 88px minmax(0, 1fr) 320px; gap: 14px; height: var(--dz-h, auto); align-items: stretch; }
+  html.dz-full .dz-main { display: flex; flex-direction: column; min-height: 0; }
+  html.dz-full .dz-stage { flex: 1 1 auto; height: auto; min-height: 320px; }
+  html.dz-full .dz-tools, html.dz-full .dz-panel { position: static; max-height: none; height: 100%; box-sizing: border-box; }
+  /* 頁面縮圖列在滿版時縮小，讓畫布多一些高度（縮圖 canvas 是 JS 依頁面比例畫的，這裡只限制顯示高度） */
+  html.dz-full .dz-pagebar { margin-top: 8px; }
+  html.dz-full .dz-pages { padding: 2px 4px 4px; }
+  html.dz-full .dz-thumb canvas { height: 64px !important; width: auto !important; }
+  html.dz-full .dz-status { margin-top: 4px; }
+  html.dz-full .dz-hint { margin-top: 2px; }
+  /* 全螢幕：連上排導覽列都收起來（按 Esc 或「結束全螢幕」回來） */
+  html.dz-full:fullscreen header.topbar { display: none; }
+  html.dz-full:fullscreen body { padding-top: 16px; }
+}
+
 /* ---- 窄一點的桌機：面板縮窄 ---- */
 @media (max-width: 1100px) {
   .dz { grid-template-columns: 84px minmax(0, 1fr) 260px; gap: 14px; }
+}
+@media (min-width: 821px) and (max-width: 1100px) {
+  html.dz-full .dz { grid-template-columns: 84px minmax(0, 1fr) 260px; }
 }
 
 /* ---- 手機（≤820px）：單欄，畫布在最上面，工具列橫向捲動，屬性面板在畫布下方 ---- */
@@ -256,4 +331,12 @@
   .dz-modal-body .dz-note { margin-left: 0; }
   .dz-modal-foot { padding-bottom: max(18px, env(safe-area-inset-bottom)); }
   .dz-modal-foot button { flex: 1 1 0; }
+  /* 圖層面板：列與按鈕加大，好用手指點 */
+  .dz-layer { min-height: 44px; font-size: 14px; }
+  .dz-layer.is-member { padding-left: 16px; }
+  .dz-layer-grip { flex-basis: 26px; }
+  .dz-layer-grip svg { width: 18px; height: 18px; }
+  .dz .dz-layer button { flex-basis: 36px; width: 36px; height: 36px; }
+  .dz .dz-layer .dz-layer-caret { flex-basis: 28px; width: 28px; }
+  .dz .dz-layer button[aria-pressed="false"] { opacity: .7; }
 }
