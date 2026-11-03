@@ -8,6 +8,8 @@
   const ORIGIN = location.origin;
   const PAGE_KEY = 'qpt-sched-page';
   const PING_MS = 1500, CALL_MS = 8000;
+  // 排程暫時關閉：<html data-sched="off">（測試用 window.QPT_SCHED_FORCE_ON 打開）。只關抽屜，下面的橋接 QptWebBridge 照常提供給快速產圖
+  const SCHED_OFF = document.documentElement.dataset.sched === 'off' && !window.QPT_SCHED_FORCE_ON;
 
   // ---- 和外掛溝通 ----------------------------------------------------------------
   const pending = new Map();
@@ -22,7 +24,7 @@
       pending.delete(d.nonce);
       done({ ok: !!d.ok, data: d.data, error: d.error });
     } else if (d.type === 'sched-changed') changeHandlers.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
-    else if (d.type === 'sched-ready') detect();
+    else if (d.type === 'sched-ready' && !SCHED_OFF) detect();
   });
   function call(op, payload, timeout) {
     return new Promise(resolve => {
@@ -96,6 +98,8 @@
   }
 
   // ---- 抽屜 ---------------------------------------------------------------------
+  // 排程關閉時抽屜不建立。擋在這裡、不擋在檔案開頭：上面的 QptWebBridge 是網頁版快速產圖（qfweb.js）請外掛代抓文章要用的，排程關了它也要在。
+  if (SCHED_OFF) return;
   const h = (tag, props, ...kids) => {
     const el = document.createElement(tag);
     for (const [k, v] of Object.entries(props || {})) {

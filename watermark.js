@@ -1,7 +1,7 @@
 // 網頁版專用：上排「圖片套版／浮水印／拼圖」功能切換，以及「浮水印」功能本身（「拼圖」在 collage.js）。
 //
 // 浮水印：一次放一張或多張照片，把 Logo（內建的 TVBS NEWS Logo，或自己上傳的圖）疊在上面，
-// 位置只能在周圍 8 個點（沒有正中央），可調大小、透明度、邊距，下載時維持原圖尺寸。設定套用到所有照片。
+// 位置只能在四個角（預設自動：每張照片各自挑最暗的角），可調大小、透明度、邊距，下載時維持原圖尺寸。設定套用到所有照片。
 // 預覽用縮小的畫布，下載時用原圖大小重畫一次；位置、大小都用「佔整張圖的比例」記錄，所以兩邊的結果一致。
 //
 // 需要在 app.js 之後載入（會用到它的 isImageFile、askConfirm）。
@@ -38,8 +38,9 @@
   const ANCHORS = [[0, 0], [1, 0], [0, 1], [1, 1]];
   const ANCHOR_NAME = { '0,0': '左上', '1,0': '右上', '0,1': '左下', '1,1': '右下' };
   const HIT_PAD = 96;                      // 預覽上拖曳 Logo 的判定區：在 Logo 外圍再加大這麼多（螢幕上的像素），Logo 本身大小不變
-  // px／py 是「全部照片共用」的位置；某張照片在預覽上單獨拖過，就會有自己的 p.pos 蓋掉它
-  const DEFAULTS = { px: 1, py: 0, size: 13, transparency: 0, margin: 3 };   // 預設右上角、13%、邊距 3%、不透明
+  // px／py 是「全部照片共用」的位置；auto 開著時改成每張照片各自挑四角最暗的（見 darkestCorner）。
+  // 某張照片在預覽上單獨拖過，就會有自己的 p.pos 蓋掉上面兩種
+  const DEFAULTS = { px: 1, py: 0, auto: true, size: 13, transparency: 0, margin: 3 };   // 預設自動（平手時右上角）、13%、邊距 3%、不透明
   const PREVIEW_MAX = 1080;                // 預覽畫布的長邊
   const THUMB = 208;                       // 展示窗縮圖的邊長（畫素，顯示成 104px）
   const MAX_PHOTOS = 50;                   // 一次最多放幾張
@@ -77,8 +78,49 @@
   const currentLogo = () => (st.logoMode === 'custom' ? st.custom : st.logoMode === 'old' ? st.logoOld : st.logoNew);
 
   // ---- 繪製 ----------------------------------------------------------------------
-  // 這張照片實際用的位置：自己單獨設定過就用自己的，否則用共用的
-  const posOf = p => (p && p.pos) || [st.px, st.py];
+  // 照片縮圖的亮度積分表（summed-area table），之後任何矩形的平均亮度都只要查 4 個數字。
+  // 透明的地方當白色算（輸出 JPG 會墊白底；PNG 的透明處看起來也是淺的），讀不到像素就回傳 null
+  function lumaTable(c) {
+    try {
+      const w = c.width, h = c.height, d = c.getContext('2d').getImageData(0, 0, w, h).data;
+      const t = new Float64Array((w + 1) * (h + 1));
+      for (let y = 0; y < h; y++) {
+        let row = 0;
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4, a = d[i + 3] / 255;
+          row += a * (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) + (1 - a) * 255;
+          t[(y + 1) * (w + 1) + x + 1] = t[y * (w + 1) + x + 1] + row;
+        }
+      }
+      return { w, h, t };
+    } catch (e) { return null; }
+  }
+  function meanLuma(L, x, y, w, h) {
+    const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(L.w, Math.max(x0 + 1, Math.ceil(x + w))), y1 = Math.min(L.h, Math.max(y0 + 1, Math.ceil(y + h)));
+    const W = L.w + 1, t = L.t;
+    return (t[y1 * W + x1] - t[y0 * W + x1] - t[y1 * W + x0] + t[y0 * W + x0]) / ((x1 - x0) * (y1 - y0));
+  }
+  // 自動位置：四個角裡，Logo 實際會蓋到的那塊區域平均最暗的角（內建 Logo 是淺色，放暗處最清楚）。
+  // 每張照片各自算；跟著目前的大小、邊距、Logo 比例即時算，所以調滑桿後也會重新挑。
+  // 差不到 2（0～255）的算平手，平手時優先共用位置（預設右上），免得幾乎一樣暗的照片位置亂跳
+  function darkestCorner(p) {
+    const logo = currentLogo();
+    if (!p || !p.luma || !logo) return null;
+    const L = p.luma;
+    const order = [[st.px, st.py], ...ANCHORS.filter(a => a[0] !== st.px || a[1] !== st.py)];
+    let best = null, bl = Infinity;
+    for (const a of order) {
+      const r = logoRect(L.w, L.h, logo, a);
+      const v = meanLuma(L, r.x, r.y, r.w, r.h);
+      if (v < bl - 2) { bl = v; best = a; }
+    }
+    return best;
+  }
+  // 沒有單獨拖過時的位置：自動模式＝這張最暗的角，否則＝共用位置
+  const basePos = p => (st.auto && darkestCorner(p)) || [st.px, st.py];
+  // 這張照片實際用的位置：自己單獨設定過就用自己的，否則用上面的
+  const posOf = p => (p && p.pos) || basePos(p);
 
   // 浮水印在 W×H 的畫面上的位置（pos 預設是目前這張照片的位置）
   function logoRect(W, H, logo, pos = posOf(photo())) {
@@ -149,12 +191,17 @@
     for (const k of Object.keys(sliders)) outs[k].textContent = `${st[k]}%`;
     const p = photo(), logo = currentLogo();
     const curPos = posOf(p);
-    for (const b of $('wmGrid').querySelectorAll('button')) {
-      b.classList.toggle('active', Number(b.dataset.px) === curPos[0] && Number(b.dataset.py) === curPos[1]);
+    for (const b of $('wmGrid').querySelectorAll('button[data-px]')) {
+      const at = Number(b.dataset.px) === curPos[0] && Number(b.dataset.py) === curPos[1];
+      b.classList.toggle('active', at && (!st.auto || !!(p && p.pos)));
+      b.classList.toggle('auto-pick', at && st.auto && !(p && p.pos));     // 自動挑到的角：淡一點的框，跟手動選的區分
     }
+    $('wmAutoBtn').classList.toggle('active', st.auto);
     $('wmPosHint').textContent = p && p.pos
-      ? `這張照片的位置是在預覽上單獨調整的；按上面的位置鈕會套用到全部照片。`
-      : '按上面的位置鈕會套用到全部照片；在預覽上拖曳 Logo 則只改目前這一張。';
+      ? `這張照片的位置是在預覽上單獨調整的；按上面的按鈕會套用到全部照片。`
+      : st.auto
+        ? `自動：每張照片各自放在四個角最暗的地方${p ? `（這張是「${ANCHOR_NAME[curPos.join()]}」）` : ''}；在預覽上拖曳 Logo 可以單獨改這一張。`
+        : '按上面的位置鈕會套用到全部照片；在預覽上拖曳 Logo 則只改目前這一張。';
     const n = st.photos.length;
     if (p) {
       const s = Math.min(1, PREVIEW_MAX / Math.max(p.img.naturalWidth, p.img.naturalHeight));
@@ -300,7 +347,7 @@
         const g = small.getContext('2d');
         g.imageSmoothingQuality = 'high';
         g.drawImage(im, 0, 0, small.width, small.height);
-        st.photos.push({ id: st.nextId++, name: file.name, mime: file.type, img: im, url, small });
+        st.photos.push({ id: st.nextId++, name: file.name, mime: file.type, img: im, url, small, luma: lumaTable(small) });
       } catch (e) { failed++; }
     }
     if (failed) notes.push(`${failed} 張無法開啟（可能是不支援的格式，例如 HEIC，請改用 JPG／PNG）`);
@@ -361,20 +408,23 @@
   }));
 
   // ---- 位置、滑桿、輸出格式 --------------------------------------------------------
-  // 左側的位置鈕＝「全部套用」。如果有照片已經在預覽上單獨拖過，會先問一聲再全部改掉
+  // 左側的位置鈕＝「全部套用」（四個角＝全部放同一角；自動＝每張各自挑最暗的角）。
+  // 如果有照片已經在預覽上單獨拖過，會先問一聲再全部改掉
   $('wmGrid').querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
-    const target = [Number(btn.dataset.px), Number(btn.dataset.py)];
+    const auto = btn.id === 'wmAutoBtn';
+    const target = auto ? null : [Number(btn.dataset.px), Number(btn.dataset.py)];
     const own = st.photos.filter(p => p.pos).length;
     if (own > 0 && st.photos.length > 1) {
       const ok = await askConfirm({
         title: '要把全部照片的位置都改掉嗎？',
-        message: `有 ${own} 張照片的浮水印位置是在預覽上單獨調整過的。\n繼續的話，全部 ${st.photos.length} 張都會改成「${ANCHOR_NAME[target.join()]}」，單獨調整的位置會被蓋掉。`,
+        message: `有 ${own} 張照片的浮水印位置是在預覽上單獨調整過的。\n繼續的話，全部 ${st.photos.length} 張都會改成${auto ? '「自動（各自放在最暗的角）」' : `「${ANCHOR_NAME[target.join()]}」`}，單獨調整的位置會被蓋掉。`,
         okText: '全部改變'
       });
       if (!ok) return;
     }
     for (const p of st.photos) p.pos = null;
-    st.px = target[0]; st.py = target[1];
+    st.auto = auto;
+    if (target) { st.px = target[0]; st.py = target[1]; }
     schedule();
   }));
   for (const [key, el] of Object.entries(sliders)) {
@@ -429,7 +479,8 @@
     }
     const cur = photo();
     const a = nearestAnchor(p);
-    const next = a[0] === st.px && a[1] === st.py ? null : a;       // 拖回跟大家一樣的位置，就不算「單獨設定」
+    const base = basePos(cur);
+    const next = a[0] === base[0] && a[1] === base[1] ? null : a;   // 拖回沒單獨設定時的位置（共用或自動挑的角），就不算「單獨設定」
     const same = (cur.pos || null) === next || (cur.pos && next && cur.pos[0] === next[0] && cur.pos[1] === next[1]);
     if (!same) { cur.pos = next; schedule(); }
   });
@@ -523,7 +574,7 @@
   });
 
   // 測試與除錯用
-  window.Watermark = { state: st, logoRect, setFunc, ANCHORS, posOf };
+  window.Watermark = { state: st, logoRect, setFunc, ANCHORS, posOf, darkestCorner };
   schedule();
 })();
 

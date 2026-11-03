@@ -57,8 +57,8 @@ ${src('poster.js')}
 `;
 
 
-// opts：queue 初始排程｜withExtension:false 模擬沒裝外掛｜routes(page) 在載入網頁前加上自己的網路攔截（文章、圖片）
-async function openWeb(browser, t, { queue = [], withExtension = true, routes } = {}) {
+// opts：queue 初始排程｜withExtension:false 模擬沒裝外掛｜schedOn:false 照網頁原本的設定（排程關閉）｜routes(page) 在載入網頁前加上自己的網路攔截（文章、圖片）
+async function openWeb(browser, t, { queue = [], withExtension = true, routes, schedOn = true } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   t.after(() => ctx.close());
   const page = await ctx.newPage();
@@ -79,6 +79,8 @@ async function openWeb(browser, t, { queue = [], withExtension = true, routes } 
     return route.fulfill({ contentType: TYPES[path.extname(file)] || 'application/octet-stream', body });
   });
   if (routes) await routes(page);   // 後註冊的先比對，所以放在上面那條全部攔截之後
+  // 排程目前預設關閉（data-sched="off"）；預設強制打開，照樣驗證排程流程。schedOn:false 測「真的關閉時」的網頁
+  if (schedOn) await page.addInitScript(() => { window.QPT_SCHED_FORCE_ON = true; });
   if (withExtension) {
     await page.addInitScript(q => { window.__initialQueue = q; }, queue);
     await page.addInitScript(EXTENSION());

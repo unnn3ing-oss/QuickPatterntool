@@ -909,8 +909,18 @@ async function removeBatchItem(id) {
 // ones) — a finished item shows its result, an unfinished one keeps its
 // title text and an "未完成" tag. Click any of them to jump to and expand
 // that item's edit block, collapsing every other item.
+// 按鈕顏色規則：藍＝主要動作、綠＝已完成。還有沒完成的 → 「全部完成」藍、「全部下載」白；
+// 全部都完成了 → 「全部完成」變綠（狀態），「全部下載」變藍（下一步）。
+function syncBatchActions() {
+  const allDone = batchItems.length > 0 && batchItems.every(isItemDone);
+  batchGenerateBtn.classList.toggle('primary', !allDone);
+  batchGenerateBtn.classList.toggle('success', allDone);
+  batchDownloadAllBtn.classList.toggle('primary', allDone);
+}
+
 function renderBatchThumbs() {
   batchDownloadAllBtn.disabled = batchItems.length === 0;
+  syncBatchActions();
   batchThumbs.innerHTML = '';
   batchItems.forEach((item, index) => {
     const isDone = isItemDone(item);

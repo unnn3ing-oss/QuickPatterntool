@@ -26,6 +26,7 @@ async function open(t, { queue = [], settings } = {}) {
   await page.route('https://api.github.com/**', r => r.abort());
   await page.route('https://raw.githubusercontent.com/**', r => r.abort());
   await page.addInitScript(([initial, st]) => {
+    window.QPT_SCHED_FORCE_ON = true;   // 排程目前預設關閉（sidepanel.html 的 data-sched="off"），測試照樣驗證排程流程
     const data = { fbQueue: initial };
     if (st) data.fbSchedSettings = st;
     const listeners = [];

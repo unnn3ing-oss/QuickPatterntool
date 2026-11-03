@@ -123,3 +123,44 @@ test('預覽上雙指張開會放大、單指拖曳會平移（觸控）', { ski
   assert.ok(edges2 <= edges0 + 2);
   assert.deepEqual(errors, []);
 });
+
+test('手機寬度：「全部完成／全部下載」固定在畫面底部，捲到最下面也看得到；切到其他功能就消失；右下角 N 在它上方', { skip }, async t => {
+  const { page, errors } = await open(t);
+  const bar = () => page.evaluate(() => {
+    const r = document.getElementById('batchActions').getBoundingClientRect();
+    const fab = document.getElementById('toolsBtn').getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, width: r.width, vh: innerHeight, fabBottom: fab.bottom };
+  });
+  let b = await bar();
+  assert.ok(Math.abs(b.bottom - b.vh) <= 1, `貼齊畫面底部（bottom ${b.bottom}, 視窗 ${b.vh}）`);
+  assert.equal(b.left, 0);
+  assert.equal(b.width, 390);
+  assert.ok(b.fabBottom <= b.top, '「N」不會蓋到操作列');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  b = await bar();
+  assert.ok(Math.abs(b.bottom - b.vh) <= 1, '捲到底仍貼齊畫面底部');
+  await page.click('#funcWatermarkBtn');
+  assert.equal(await page.isVisible('#batchActions'), false, '浮水印分頁不顯示');
+  assert.deepEqual(errors, []);
+});
+
+test('排程暫時關閉：網頁版沒有右側「排程」抽屜', { skip }, async t => {
+  const { page, errors } = await open(t);
+  assert.equal(await page.$('#schedTab'), null);
+  assert.equal(await page.$('#schedDrawerPanel'), null);
+  assert.deepEqual(errors, []);
+});
+
+test('按鈕顏色：還有未完成時「全部完成」是藍色主要動作；全部完成後變綠色，「全部下載」改成藍色', { skip }, async t => {
+  const { page } = await open(t, { viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 });
+  const cls = () => page.evaluate(() => [document.getElementById('batchGenerateBtn').className, document.getElementById('batchDownloadAllBtn').className]);
+  assert.deepEqual(await cls(), ['primary', '']);
+  await page.evaluate(() => [...document.querySelectorAll('#batchItemsList button')].find(b => b.textContent === '純色背景').click());
+  await page.evaluate(() => [...document.querySelectorAll('#batchItemsList .color-swatch')].find(e => e.offsetParent).click());
+  await page.locator('#batchItemsList textarea').first().fill('測試標題');
+  await page.locator('#batchItemsList button', { hasText: /^完成$/ }).first().click();
+  await page.waitForFunction(() => document.getElementById('batchGenerateBtn').classList.contains('success'));
+  assert.deepEqual(await cls(), ['success', 'primary']);
+  await page.locator('button', { hasText: '再做一張' }).click();
+  assert.deepEqual(await cls(), ['primary', ''], '新增一張未完成的 → 變回來');
+});

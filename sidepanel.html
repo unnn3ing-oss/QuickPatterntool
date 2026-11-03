@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<!-- data-sched="off"：FB 粉專排程暫時關閉（排程卡片隱藏、不掛介面）。要恢復就把這個屬性拿掉，見 DESIGN.md「排程暫停」 -->
+<html lang="zh-Hant" data-sched="off">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -83,13 +84,13 @@
     <section class="card sp-card" id="copyFormat">
       <div class="sp-card-head">
         <h2>複製圖文格式</h2>
-        <button type="button" class="success" id="qfCopyBtn" title="複製圖文格式" aria-label="複製圖文格式" disabled>複製內文</button>
+        <button type="button" class="primary" id="qfCopyBtn" title="複製圖文格式" aria-label="複製圖文格式" disabled>複製內文</button>
       </div>
       <textarea id="qfCopyText" rows="4" placeholder="【標題】&#10;（圖／OOO 攝）&#10;#標籤 #標籤 #標籤" spellcheck="false"></textarea>
     </section>
 
     <!-- FB 粉專排程：介面由 schedui.js 產生（和網頁版的排程抽屜共用），資料存取見 schedpanel.js -->
-    <section class="card sp-card" id="schedCard"></section>
+    <section class="card sp-card" id="schedCard" hidden></section>
 
     <section class="card sp-card" id="singleFields">
       <h2>編輯</h2>
