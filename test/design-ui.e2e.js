@@ -1671,6 +1671,7 @@ test('圖層面板：列的順序相反、點列選取、眼睛隱藏、鎖頭�
   // 點列選取、畫布選取同步反白
   await page.click(`#dzLayers .dz-layer[data-id="${b}"] .dz-layer-name`);
   assert.deepEqual((await S(page)).sel, [b]);
+  await flush(page);   // 反白在下一個畫格的重畫裡更新（drawLayers），先等一格再檢查
   assert.ok(await page.locator(`#dzLayers .dz-layer[data-id="${b}"]`).evaluate(e => e.classList.contains('sel')));
   await page.click(`#dzLayers .dz-layer[data-id="${a}"] .dz-layer-name`, { modifiers: ['Shift'] });
   assert.deepEqual(await selSorted(page), [a, b].sort(), 'Shift 加選');
