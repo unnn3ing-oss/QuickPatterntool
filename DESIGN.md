@@ -364,3 +364,12 @@
 - 馬賽克作用在它下方的所有圖層：渲染時讀取目前畫布上已畫好的像素，所以放在照片、文字、形狀上面都會糊到底下的東西，不會只糊照片。
 - 方塊大小為短邊÷5，但至少 14px；每格取真實平均色（`getImageData`）。
 - 畫布若被污染、讀不到像素，就改用灰色（`#808080`）蓋住，避免匯出時露出原圖，也不會因此整張失敗。
+
+## 12. 停止服務通知（`sunset.js`／`sunset.css`，網頁版與外掛側邊欄共用，7.60）
+
+功能整併到小編工具箱（socialmediaeditor）後，網頁版與外掛側邊欄 2026/11/26 起停止服務。同一份程式也放在 LinePushPatternTool（`assets/sunset.*`）與 videodownload（`extension/lib/sunset.*`，網頁版與擴充功能側邊面板共用）。
+
+- **獨立檔案、不在 `SKIP`**：`index.html` 與 `sidepanel.html` 都載入，所以外掛要拿到它（升版 7.60、外掛會跳更新通知）。
+- **一開啟就鎖住**：不倒數、沒有關閉鈕，Esc 也被攔下；`body` 其他子元素設 `inert`，`html.sunset-locked` 停止捲動。彈窗只有「前往小編工具箱」與「公司功能需以員工編號申請帳號」的提醒。
+- **CSP**：網頁與外掛都不能用 inline script／style／onclick，所以 DOM 用 `createElement` 建、樣式寫在 CSS 檔；class 一律 `sn-` 前綴，避免被頁面既有 `.card` 等樣式影響。
+- **自動化測試**：`navigator.webdriver` 為真時不顯示，既有 e2e 不會被擋；要測彈窗本身先 `addInitScript(() => window.__SUNSET_TEST = true)`。
